@@ -1,1 +1,2 @@
-print("Hello world, from client!")
+-- Script de demarrage conserve pour le squelette Rojo.
+-- L'interface du quiz demarre dans UI.client.luau.

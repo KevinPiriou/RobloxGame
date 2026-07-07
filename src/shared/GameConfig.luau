@@ -1,0 +1,15 @@
+return {
+	LobbyDuration = 5,
+	QuestionDuration = 12,
+	ResultDuration = 5,
+	MinPlayers = 1,
+	PointsPerCorrectAnswer = 10,
+	JumpBonusMultiplier = 2,
+	JumpMalusStacksRemoved = 1,
+	MinimumJumpMultiplier = 1,
+	CoinCollectDistance = 7,
+	CoinScanInterval = 0.15,
+	CoinAttractDuration = 0.35,
+	CoinRotationSpeed = 120,
+	CoinsPerPickup = 1,
+}

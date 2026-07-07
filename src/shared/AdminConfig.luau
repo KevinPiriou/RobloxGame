@@ -1,0 +1,4 @@
+return {
+	AllowStudioAdmin = true,
+	AdminUserIds = {},
+}

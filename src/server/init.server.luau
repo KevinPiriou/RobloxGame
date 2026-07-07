@@ -1,1 +1,2 @@
-print("Hello world, from server!")
+-- Script de demarrage conserve pour le squelette Rojo.
+-- La boucle du quiz demarre dans GameManager.server.luau.
