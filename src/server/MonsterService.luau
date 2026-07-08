@@ -7,7 +7,9 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 
+local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
+local PerkService = require(script.Parent:WaitForChild("PerkService"))
 local XpService = require(script.Parent:WaitForChild("XpService"))
 
 local MonsterService = {}
@@ -18,10 +20,11 @@ local monsterFolder = nil
 local monsterTemplate = nil
 local heartbeatConnection = nil
 local elapsedStatsUpdate = 0
-local waveStartedAt = os.clock()
+local waveStartedAt = CombatStateService.GetTime()
 local monstersByInstance = {}
 local killsByUserId = {}
 local lastSpawnAtByUserId = {}
+local groundedSinceByUserId = {}
 local characterConnectionsByUserId = {}
 local healthConnectionsByUserId = {}
 
@@ -243,6 +246,58 @@ local function prepareMonsterInstance(monster)
 	return humanoid, root
 end
 
+local function captureOriginalPartColors(monster)
+	local originalColors = {}
+
+	if monster:IsA("BasePart") then
+		originalColors[monster] = monster.Color
+	end
+
+	for _, descendant in ipairs(monster:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			originalColors[descendant] = descendant.Color
+		end
+	end
+
+	return originalColors
+end
+
+local function setMonsterPartsColor(monsterState, color)
+	for part in pairs(monsterState.OriginalPartColors) do
+		if part.Parent ~= nil then
+			part.Color = color
+		end
+	end
+end
+
+local function restoreMonsterPartColors(monsterState, flashId)
+	if monsterState.IsDead or monsterState.DamageFlashId ~= flashId then
+		return
+	end
+
+	for part, originalColor in pairs(monsterState.OriginalPartColors) do
+		if part.Parent ~= nil then
+			part.Color = originalColor
+		end
+	end
+end
+
+local function flashMonsterDamage(monsterState)
+	if monsterState.OriginalPartColors == nil then
+		return
+	end
+
+	monsterState.DamageFlashId += 1
+
+	local flashId = monsterState.DamageFlashId
+
+	setMonsterPartsColor(monsterState, CombatConfig.MonsterDamageFlashColor)
+
+	task.delay(CombatConfig.MonsterDamageFlashDuration, function()
+		restoreMonsterPartColors(monsterState, flashId)
+	end)
+end
+
 local function getCharacterRoot(player)
 	local character = player.Character
 
@@ -261,6 +316,29 @@ local function getCharacterHumanoid(player)
 	end
 
 	return character:FindFirstChildOfClass("Humanoid")
+end
+
+local function isPlayerGrounded(player)
+	local humanoid = getCharacterHumanoid(player)
+
+	if humanoid == nil then
+		return false
+	end
+
+	return humanoid.FloorMaterial ~= Enum.Material.Air
+end
+
+local function hasPlayerBeenGroundedLongEnough(player, now)
+	if not isPlayerGrounded(player) then
+		groundedSinceByUserId[player.UserId] = nil
+		return false
+	end
+
+	if groundedSinceByUserId[player.UserId] == nil then
+		groundedSinceByUserId[player.UserId] = now
+	end
+
+	return now - groundedSinceByUserId[player.UserId] >= CombatConfig.MonsterSpawnGroundedDelay
 end
 
 local function isPlayerAlive(player)
@@ -295,18 +373,26 @@ local function getAlivePlayerCount()
 end
 
 local function getCurrentWaveNumber()
-	local elapsed = math.max(0, os.clock() - waveStartedAt)
+	local elapsed = math.max(0, CombatStateService.GetTime() - waveStartedAt)
 
 	return math.floor(elapsed / CombatConfig.WaveDuration) + 1
 end
 
 local function getCurrentWaveMaxAlive()
-	local alivePlayerCount = math.max(1, getAlivePlayerCount())
 	local waveNumber = getCurrentWaveNumber()
 	local waveMaxAlive = CombatConfig.WaveBaseMaxAlive
 		+ ((waveNumber - 1) * CombatConfig.WaveMaxAliveIncrease)
+	local totalPlayerMultiplier = 0
 
-	return math.min(CombatConfig.MonsterMaxAlive, waveMaxAlive * alivePlayerCount)
+	for _, player in ipairs(Players:GetPlayers()) do
+		if isPlayerAlive(player) then
+			totalPlayerMultiplier += PerkService.GetEnemyCountMultiplier(player)
+		end
+	end
+
+	totalPlayerMultiplier = math.max(1, totalPlayerMultiplier)
+
+	return math.min(CombatConfig.MonsterMaxAlive, math.floor(waveMaxAlive * totalPlayerMultiplier))
 end
 
 local function getCurrentWaveSpawnBatch()
@@ -321,6 +407,7 @@ local function getPlayerStatsPayload(player)
 	local health = 0
 	local maxHealth = 100
 	local waveNumber = getCurrentWaveNumber()
+	local shield, maxShield = PerkService.GetShieldState(player)
 
 	if humanoid ~= nil then
 		health = math.max(0, math.floor(humanoid.Health + 0.5))
@@ -330,6 +417,8 @@ local function getPlayerStatsPayload(player)
 	return {
 		Health = health,
 		MaxHealth = maxHealth,
+		Shield = math.floor(shield + 0.5),
+		MaxShield = math.floor(maxShield + 0.5),
 		AliveMonsters = getAliveMonsterCount(),
 		MaxAliveMonsters = getCurrentWaveMaxAlive(),
 		Wave = waveNumber,
@@ -374,7 +463,7 @@ local function removeMonster(monsterState, killer)
 				XpService.SpawnXpGem(deathPosition + getLootScatterOffset())
 			end
 
-			if rng:NextNumber() <= CombatConfig.CoinDropChance then
+			if rng:NextNumber() <= PerkService.GetCoinDropChance(killer, CombatConfig.CoinDropChance) then
 				local coinDropCount = rng:NextInteger(CombatConfig.CoinDropsMin, CombatConfig.CoinDropsMax)
 
 				for _ = 1, coinDropCount do
@@ -435,7 +524,7 @@ local function getClosestAlivePlayer(position)
 	return closestPlayer, closestRoot, closestDistance
 end
 
-local function getSpawnPositionNearPlayer(player)
+local function getSpawnSurfacePositionNearPlayer(player)
 	local root = getCharacterRoot(player)
 
 	if root == nil then
@@ -455,10 +544,27 @@ local function getSpawnPositionNearPlayer(player)
 	local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 
 	if result ~= nil then
-		return result.Position + Vector3.new(0, CombatConfig.MonsterSpawnHeightOffset, 0)
+		return result.Position
 	end
 
-	return root.Position + horizontalOffset + Vector3.new(0, CombatConfig.MonsterSpawnHeightOffset, 0)
+	return nil
+end
+
+local function getSurfacePivotPosition(monster, surfacePosition)
+	if monster:IsA("BasePart") then
+		return surfacePosition + Vector3.new(0, (monster.Size.Y * 0.5) + CombatConfig.MonsterSpawnSurfaceOffset, 0)
+	end
+
+	local pivot = monster:GetPivot()
+	local boundingCFrame, size = monster:GetBoundingBox()
+	local bottomY = boundingCFrame.Position.Y - (size.Y * 0.5)
+	local pivotToBottomOffset = pivot.Position.Y - bottomY
+
+	return Vector3.new(
+		surfacePosition.X,
+		surfacePosition.Y + pivotToBottomOffset + CombatConfig.MonsterSpawnSurfaceOffset,
+		surfacePosition.Z
+	)
 end
 
 local function spawnMonsterNearPlayer(player)
@@ -466,9 +572,9 @@ local function spawnMonsterNearPlayer(player)
 		return false
 	end
 
-	local spawnPosition = getSpawnPositionNearPlayer(player)
+	local spawnSurfacePosition = getSpawnSurfacePositionNearPlayer(player)
 
-	if spawnPosition == nil then
+	if spawnSurfacePosition == nil then
 		return false
 	end
 
@@ -486,18 +592,22 @@ local function spawnMonsterNearPlayer(player)
 		return false
 	end
 
-	pivotInstance(monster, CFrame.new(spawnPosition))
+	local spawnPivotPosition = getSurfacePivotPosition(monster, spawnSurfacePosition)
+
+	pivotInstance(monster, CFrame.new(spawnPivotPosition))
 
 	local monsterState = {
 		Instance = monster,
 		Humanoid = humanoid,
 		Root = root,
-		BasePosition = spawnPosition,
+		BasePosition = spawnPivotPosition,
 		Health = CombatConfig.MonsterHealth,
 		AnimationTrack = playMonsterAnimation(monster),
 		AnimationTime = rng:NextNumber(0, 10),
 		LastMoveToAt = 0,
 		LastDamageByUserId = {},
+		OriginalPartColors = captureOriginalPartColors(monster),
+		DamageFlashId = 0,
 		IsDead = false,
 	}
 
@@ -691,7 +801,13 @@ local function updateMonsterDamage(monsterState, now)
 
 				if now - lastDamageAt >= CombatConfig.MonsterAttackCooldown then
 					monsterState.LastDamageByUserId[player.UserId] = now
-					getCharacterHumanoid(player):TakeDamage(CombatConfig.MonsterAttackDamage)
+
+					local finalDamage = PerkService.CalculateIncomingDamage(player, CombatConfig.MonsterAttackDamage)
+
+					if finalDamage > 0 then
+						getCharacterHumanoid(player):TakeDamage(finalDamage)
+					end
+
 					sendStats(player)
 				end
 			end
@@ -712,13 +828,18 @@ local function updateSpawns(now)
 			return
 		end
 
-		if isPlayerAlive(player) then
+		if isPlayerAlive(player) and hasPlayerBeenGroundedLongEnough(player, now) then
 			local lastSpawnAt = lastSpawnAtByUserId[player.UserId] or 0
 
 			if now - lastSpawnAt >= CombatConfig.MonsterSpawnInterval then
 				lastSpawnAtByUserId[player.UserId] = now
 
-				for _ = 1, getCurrentWaveSpawnBatch() do
+				local spawnBatch = math.max(
+					1,
+					math.floor(getCurrentWaveSpawnBatch() * PerkService.GetEnemyCountMultiplier(player))
+				)
+
+				for _ = 1, spawnBatch do
 					if aliveMonsterCount >= maxAliveMonsters then
 						return
 					end
@@ -733,7 +854,11 @@ local function updateSpawns(now)
 end
 
 local function updateMonsters(deltaTime)
-	local now = os.clock()
+	if CombatStateService.IsPaused() then
+		return
+	end
+
+	local now = CombatStateService.GetTime()
 
 	updateSpawns(now)
 
@@ -776,6 +901,7 @@ end
 
 function MonsterService.SetupPlayer(player)
 	killsByUserId[player.UserId] = killsByUserId[player.UserId] or 0
+	groundedSinceByUserId[player.UserId] = nil
 	lastSpawnAtByUserId[player.UserId] = os.clock() + CombatConfig.MonsterInitialSpawnDelay - CombatConfig.MonsterSpawnInterval
 
 	if characterConnectionsByUserId[player.UserId] ~= nil then
@@ -798,6 +924,7 @@ end
 function MonsterService.RemovePlayer(player)
 	lastSpawnAtByUserId[player.UserId] = nil
 	killsByUserId[player.UserId] = nil
+	groundedSinceByUserId[player.UserId] = nil
 
 	if characterConnectionsByUserId[player.UserId] ~= nil then
 		characterConnectionsByUserId[player.UserId]:Disconnect()
@@ -810,13 +937,64 @@ function MonsterService.RemovePlayer(player)
 	end
 end
 
-function MonsterService.GetClosestMonster(position, maxDistance)
+function MonsterService.DebugSpawnMonstersNearPlayer(player, requestedCount)
+	local count = math.clamp(math.floor(requestedCount or 0), 0, CombatConfig.MonsterMaxAlive)
+	local aliveMonsterCount = getAliveMonsterCount()
+	local maxToSpawn = math.max(0, math.min(count, CombatConfig.MonsterMaxAlive - aliveMonsterCount))
+	local spawnedCount = 0
+	local attempts = 0
+	local maxAttempts = math.max(maxToSpawn * 5, maxToSpawn)
+
+	while spawnedCount < maxToSpawn and attempts < maxAttempts do
+		attempts += 1
+
+		if spawnMonsterNearPlayer(player) then
+			spawnedCount += 1
+		end
+	end
+
+	if spawnedCount > 0 then
+		sendStatsToAll()
+	end
+
+	return spawnedCount, maxToSpawn
+end
+
+function MonsterService.DebugKillAllMonsters()
+	local monsterStates = {}
+
+	for _, monsterState in pairs(monstersByInstance) do
+		table.insert(monsterStates, monsterState)
+	end
+
+	local killedCount = 0
+
+	for _, monsterState in ipairs(monsterStates) do
+		if not monsterState.IsDead then
+			monsterState.IsDead = true
+			monstersByInstance[monsterState.Instance] = nil
+			killedCount += 1
+
+			if monsterState.Instance.Parent ~= nil then
+				monsterState.Instance:Destroy()
+			end
+		end
+	end
+
+	if killedCount > 0 then
+		sendStatsToAll()
+	end
+
+	return killedCount
+end
+
+function MonsterService.GetClosestMonster(position, maxDistance, ignoredMonsters)
 	local closestMonster = nil
 	local closestRoot = nil
 	local closestDistance = maxDistance or math.huge
 
 	for _, monsterState in pairs(monstersByInstance) do
-		if not monsterState.IsDead then
+		if not monsterState.IsDead and (ignoredMonsters == nil or not ignoredMonsters[monsterState.Instance]) then
 			local root = findRoot(monsterState.Instance)
 
 			if root ~= nil then
@@ -863,31 +1041,43 @@ function MonsterService.DamageMonster(monster, damage, attacker)
 		return false
 	end
 
+	if damage > 0 then
+		flashMonsterDamage(monsterState)
+	end
+
 	if monsterState.Humanoid ~= nil then
 		monsterState.PendingKiller = attacker
+		local previousHealth = monsterState.Humanoid.Health
+
 		monsterState.Humanoid:TakeDamage(damage)
+
+		local damageDealt = math.max(0, previousHealth - monsterState.Humanoid.Health)
 
 		if monsterState.Humanoid.Health <= 0 then
 			removeMonster(monsterState, attacker)
 		end
 
-		return true
+		return true, damageDealt
 	end
+
+	local previousHealth = monsterState.Health
 
 	monsterState.Health -= damage
 	monsterState.Instance:SetAttribute("MonsterHealth", monsterState.Health)
+
+	local damageDealt = math.max(0, math.min(previousHealth, damage))
 
 	if monsterState.Health <= 0 then
 		removeMonster(monsterState, attacker)
 	end
 
-	return true
+	return true, damageDealt
 end
 
 function MonsterService.Start()
 	setupFolders()
 	monsterTemplate = findTemplate(CombatConfig.MonsterTemplateName)
-	waveStartedAt = os.clock()
+	waveStartedAt = CombatStateService.GetTime()
 
 	if heartbeatConnection ~= nil then
 		return

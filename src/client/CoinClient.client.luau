@@ -12,6 +12,18 @@ local collectCoinRemote = ReplicatedStorage:WaitForChild("Coin_PlayCollect")
 local collectXpRemote = ReplicatedStorage:WaitForChild("Xp_PlayCollect")
 
 local animatedCollectibles = {}
+local hiddenCollectibles = {}
+local elapsedSinceCull = 0
+
+local function isXpGemName(name)
+	for _, gemName in ipairs(CombatConfig.XpGemTierNames) do
+		if name == gemName then
+			return true
+		end
+	end
+
+	return false
+end
 
 local function findCoinRoot(coin)
 	if coin:IsA("BasePart") then
@@ -44,7 +56,7 @@ local function hasCollectibleModelAncestor(instance, collectibleName)
 end
 
 local function isCollectible(instance)
-	if instance.Name ~= "Coin" and instance.Name ~= CombatConfig.XpGemTemplateName then
+	if instance.Name ~= "Coin" and not isXpGemName(instance.Name) then
 		return false
 	end
 
@@ -79,6 +91,40 @@ local function getCoinCFrame(coin)
 	return nil
 end
 
+local function isInstanceVisibleToCamera(instance)
+	local currentCamera = Workspace.CurrentCamera
+
+	if currentCamera == nil then
+		return true
+	end
+
+	local cframe = getCoinCFrame(instance)
+
+	if cframe == nil then
+		return true
+	end
+
+	local viewportSize = currentCamera.ViewportSize
+	local screenPosition, isInFront = currentCamera:WorldToViewportPoint(cframe.Position)
+
+	if not isInFront then
+		return false
+	end
+
+	local distance = (currentCamera.CFrame.Position - cframe.Position).Magnitude
+
+	if distance > CombatConfig.CollectibleCullMaxDistance then
+		return false
+	end
+
+	local margin = CombatConfig.CollectibleCullViewportMargin
+
+	return screenPosition.X >= -margin
+		and screenPosition.X <= viewportSize.X + margin
+		and screenPosition.Y >= -margin
+		and screenPosition.Y <= viewportSize.Y + margin
+end
+
 local function setCoinTransparency(coin, transparency)
 	if coin:IsA("BasePart") then
 		coin.LocalTransparencyModifier = transparency
@@ -89,6 +135,20 @@ local function setCoinTransparency(coin, transparency)
 		if descendant:IsA("BasePart") then
 			descendant.LocalTransparencyModifier = transparency
 		end
+	end
+end
+
+local function setCollectibleCulled(coin, isCulled)
+	if hiddenCollectibles[coin] == isCulled then
+		return
+	end
+
+	hiddenCollectibles[coin] = isCulled
+
+	if isCulled then
+		setCoinTransparency(coin, 1)
+	else
+		setCoinTransparency(coin, 0)
 	end
 end
 
@@ -128,12 +188,41 @@ end)
 
 Workspace.DescendantRemoving:Connect(function(descendant)
 	animatedCollectibles[descendant] = nil
+	hiddenCollectibles[descendant] = nil
 end)
 
-RunService.RenderStepped:Connect(function(deltaTime)
+local function updateCollectibleCulling()
+	if not CombatConfig.CollectibleCullingEnabled then
+		return
+	end
+
 	for coin in pairs(animatedCollectibles) do
 		if coin.Parent == nil then
 			animatedCollectibles[coin] = nil
+			hiddenCollectibles[coin] = nil
+			continue
+		end
+
+		setCollectibleCulled(coin, not isInstanceVisibleToCamera(coin))
+	end
+end
+
+RunService.RenderStepped:Connect(function(deltaTime)
+	elapsedSinceCull += deltaTime
+
+	if elapsedSinceCull >= CombatConfig.CollectibleCullInterval then
+		elapsedSinceCull = 0
+		updateCollectibleCulling()
+	end
+
+	for coin in pairs(animatedCollectibles) do
+		if coin.Parent == nil then
+			animatedCollectibles[coin] = nil
+			hiddenCollectibles[coin] = nil
+			continue
+		end
+
+		if hiddenCollectibles[coin] then
 			continue
 		end
 
@@ -142,7 +231,7 @@ RunService.RenderStepped:Connect(function(deltaTime)
 		if currentCFrame ~= nil then
 			local rotationSpeed = GameConfig.CoinRotationSpeed
 
-			if coin.Name == CombatConfig.XpGemTemplateName then
+			if isXpGemName(coin.Name) then
 				rotationSpeed = CombatConfig.XpGemRotationSpeed
 			end
 
@@ -159,6 +248,7 @@ local function playCollectAnimation(coin, collectorUserId, duration)
 	end
 
 	animatedCollectibles[coin] = nil
+	hiddenCollectibles[coin] = nil
 
 	local startCFrame = getCoinCFrame(coin)
 

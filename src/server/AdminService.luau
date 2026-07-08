@@ -5,6 +5,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AdminConfig = require(Shared:WaitForChild("AdminConfig"))
 
 local JumpBonusService = require(script.Parent:WaitForChild("JumpBonusService"))
+local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 
 local AdminService = {}
 
@@ -26,6 +27,8 @@ local function getOrCreateRemote(remoteName)
 end
 
 local resetPowerUpsRemote = getOrCreateRemote("Admin_ResetPowerUps")
+local spawnMonstersRemote = getOrCreateRemote("Admin_SpawnMonsters")
+local killMonstersRemote = getOrCreateRemote("Admin_KillMonsters")
 local adminMessageRemote = getOrCreateRemote("Admin_ShowMessage")
 
 local function isConfiguredAdmin(player)
@@ -57,6 +60,24 @@ local function sendAdminMessage(player, success, message)
 	})
 end
 
+local function runAdminAction(player, refusedWarning, callback)
+	if not canUseAdminTools(player) then
+		warn(refusedWarning .. " refuse pour " .. player.Name)
+		sendAdminMessage(player, false, "Acces admin refuse")
+		return
+	end
+
+	local success, message = pcall(callback)
+
+	if not success then
+		warn(refusedWarning .. " erreur pour " .. player.Name .. " : " .. tostring(message))
+		sendAdminMessage(player, false, "Erreur admin")
+		return
+	end
+
+	sendAdminMessage(player, true, message)
+end
+
 function AdminService.SetupPlayer(player)
 	player:SetAttribute(ADMIN_ATTRIBUTE, canUseAdminTools(player))
 end
@@ -73,14 +94,28 @@ function AdminService.Start()
 	isStarted = true
 
 	resetPowerUpsRemote.OnServerEvent:Connect(function(player)
-		if not canUseAdminTools(player) then
-			warn("Reset admin refuse pour " .. player.Name)
-			sendAdminMessage(player, false, "Acces admin refuse")
-			return
-		end
+		runAdminAction(player, "Reset admin", function()
+			return JumpBonusService.ResetPowerUps(player)
+		end)
+	end)
 
-		local message = JumpBonusService.ResetPowerUps(player)
-		sendAdminMessage(player, true, message)
+	spawnMonstersRemote.OnServerEvent:Connect(function(player)
+		runAdminAction(player, "Spawn admin", function()
+			local spawnedCount, maxToSpawn = MonsterService.DebugSpawnMonstersNearPlayer(
+				player,
+				AdminConfig.DebugSpawnMonsterCount
+			)
+
+			return ("Spawn debug : %d/%d ennemis"):format(spawnedCount, maxToSpawn)
+		end)
+	end)
+
+	killMonstersRemote.OnServerEvent:Connect(function(player)
+		runAdminAction(player, "Kill admin", function()
+			local killedCount = MonsterService.DebugKillAllMonsters()
+
+			return ("Debug : %d ennemis supprimes"):format(killedCount)
+		end)
 	end)
 end
 

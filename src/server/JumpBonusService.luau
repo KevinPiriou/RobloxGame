@@ -11,6 +11,7 @@ local bonusDataStore = DataStoreService:GetDataStore(DATASTORE_NAME)
 
 local baseJumpByUserId = {}
 local characterConnectionsByUserId = {}
+local externalJumpMultipliersByUserId = {}
 local profilesByUserId = {}
 
 local function getOrCreateRemote(remoteName)
@@ -99,8 +100,9 @@ end
 
 local function getJumpMultiplier(player)
 	local profile = getOrCreateProfile(player)
+	local externalMultiplier = externalJumpMultipliersByUserId[player.UserId] or 1
 
-	return getJumpMultiplierFromStacks(profile.JumpBonusStacks)
+	return getJumpMultiplierFromStacks(profile.JumpBonusStacks) * externalMultiplier
 end
 
 local function applyJumpMultiplier(player)
@@ -243,6 +245,12 @@ function JumpBonusService.ResetPowerUps(player)
 	return "PowerUps bonus/malus reinitialises"
 end
 
+function JumpBonusService.SetExternalJumpMultiplier(player, multiplier)
+	externalJumpMultipliersByUserId[player.UserId] = math.max(1, multiplier or 1)
+	applyJumpMultiplier(player)
+	sendBonusState(player)
+end
+
 function JumpBonusService.SavePlayer(player)
 	saveProfile(player, false)
 end
@@ -258,6 +266,7 @@ function JumpBonusService.RemovePlayer(player)
 
 	characterConnectionsByUserId[player.UserId] = nil
 	baseJumpByUserId[player.UserId] = nil
+	externalJumpMultipliersByUserId[player.UserId] = nil
 	profilesByUserId[player.UserId] = nil
 end
 

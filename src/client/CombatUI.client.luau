@@ -63,7 +63,7 @@ xpLabel.Position = UDim2.new(1, 0, 0, 0)
 xpLabel.Size = UDim2.new(0.5, 0, 0, 18)
 xpLabel.BackgroundTransparency = 1
 xpLabel.Font = Enum.Font.GothamMedium
-xpLabel.Text = "XP : 0"
+xpLabel.Text = "Niv. 1"
 xpLabel.TextColor3 = Color3.fromRGB(95, 220, 255)
 xpLabel.TextSize = 12
 xpLabel.TextXAlignment = Enum.TextXAlignment.Right
@@ -130,16 +130,94 @@ weaponLabel.TextSize = 12
 weaponLabel.TextXAlignment = Enum.TextXAlignment.Left
 weaponLabel.Parent = container
 
+local xpBarContainer = Instance.new("Frame")
+xpBarContainer.Name = "XpBarContainer"
+xpBarContainer.AnchorPoint = Vector2.new(0.5, 1)
+xpBarContainer.Position = UDim2.new(0.5, 0, 1, -88)
+xpBarContainer.Size = UDim2.new(0.46, 0, 0, 34)
+xpBarContainer.BackgroundColor3 = Color3.fromRGB(18, 21, 27)
+xpBarContainer.BackgroundTransparency = 0.12
+xpBarContainer.BorderSizePixel = 0
+xpBarContainer.Parent = screenGui
+
+local xpBarSizeConstraint = Instance.new("UISizeConstraint")
+xpBarSizeConstraint.MinSize = Vector2.new(260, 34)
+xpBarSizeConstraint.MaxSize = Vector2.new(540, 34)
+xpBarSizeConstraint.Parent = xpBarContainer
+
+local xpBarCorner = Instance.new("UICorner")
+xpBarCorner.CornerRadius = UDim.new(0, 8)
+xpBarCorner.Parent = xpBarContainer
+
+local xpBarStroke = Instance.new("UIStroke")
+xpBarStroke.Color = Color3.fromRGB(255, 255, 255)
+xpBarStroke.Transparency = 0.82
+xpBarStroke.Thickness = 1
+xpBarStroke.Parent = xpBarContainer
+
+local xpTrack = Instance.new("Frame")
+xpTrack.Name = "Track"
+xpTrack.Position = UDim2.new(0, 8, 0, 8)
+xpTrack.Size = UDim2.new(1, -16, 1, -16)
+xpTrack.BackgroundColor3 = Color3.fromRGB(45, 51, 63)
+xpTrack.BorderSizePixel = 0
+xpTrack.ClipsDescendants = true
+xpTrack.Parent = xpBarContainer
+
+local xpTrackCorner = Instance.new("UICorner")
+xpTrackCorner.CornerRadius = UDim.new(0, 6)
+xpTrackCorner.Parent = xpTrack
+
+local xpFill = Instance.new("Frame")
+xpFill.Name = "Fill"
+xpFill.Size = UDim2.new(0, 0, 1, 0)
+xpFill.BackgroundColor3 = Color3.fromRGB(80, 210, 255)
+xpFill.BorderSizePixel = 0
+xpFill.Parent = xpTrack
+
+local xpFillCorner = Instance.new("UICorner")
+xpFillCorner.CornerRadius = UDim.new(0, 6)
+xpFillCorner.Parent = xpFill
+
+local xpBarText = Instance.new("TextLabel")
+xpBarText.Name = "Text"
+xpBarText.Size = UDim2.new(1, 0, 1, 0)
+xpBarText.BackgroundTransparency = 1
+xpBarText.Font = Enum.Font.GothamBold
+xpBarText.Text = "Niveau 1 - XP 0 / 10"
+xpBarText.TextColor3 = Color3.fromRGB(255, 255, 255)
+xpBarText.TextSize = 12
+xpBarText.TextXAlignment = Enum.TextXAlignment.Center
+xpBarText.TextYAlignment = Enum.TextYAlignment.Center
+xpBarText.Parent = xpTrack
+
+local function updateXpDisplay(payload)
+	local level = payload.Level or 1
+	local xp = payload.Xp or 0
+	local xpRequired = math.max(1, payload.XpRequired or 1)
+	local progress = math.clamp(xp / xpRequired, 0, 1)
+
+	xpLabel.Text = "Niv. " .. tostring(level)
+	xpFill.Size = UDim2.new(progress, 0, 1, 0)
+	xpBarText.Text = ("Niveau %d - XP %d / %d"):format(level, xp, xpRequired)
+end
+
 statsRemote.OnClientEvent:Connect(function(payload)
 	local health = payload.Health or 0
 	local maxHealth = payload.MaxHealth or 100
+	local shield = payload.Shield or 0
+	local maxShield = payload.MaxShield or 0
 	local aliveMonsters = payload.AliveMonsters or 0
 	local maxAliveMonsters = payload.MaxAliveMonsters or aliveMonsters
 	local wave = payload.Wave or 1
 	local kills = payload.Kills or 0
 	local weaponName = payload.WeaponName or "Fireball"
 
-	healthLabel.Text = ("PV : %d / %d"):format(health, maxHealth)
+	if maxShield > 0 then
+		healthLabel.Text = ("PV : %d/%d | B : %d/%d"):format(health, maxHealth, shield, maxShield)
+	else
+		healthLabel.Text = ("PV : %d / %d"):format(health, maxHealth)
+	end
 	waveLabel.Text = "Vague : " .. tostring(wave)
 	monstersLabel.Text = ("Monstres : %d/%d"):format(aliveMonsters, maxAliveMonsters)
 	killsLabel.Text = "Kills : " .. tostring(kills)
@@ -147,5 +225,5 @@ statsRemote.OnClientEvent:Connect(function(payload)
 end)
 
 updateXpRemote.OnClientEvent:Connect(function(payload)
-	xpLabel.Text = "XP : " .. tostring(payload.Xp or 0)
+	updateXpDisplay(payload)
 end)

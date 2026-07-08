@@ -9,6 +9,9 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 
+local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
+local PerkService = require(script.Parent:WaitForChild("PerkService"))
+
 local CoinService = {}
 
 local DATASTORE_NAME = "CoinProgress_v1"
@@ -294,7 +297,7 @@ end
 local function awardCoin(player)
 	local profile = waitForProfileLoaded(player)
 
-	profile.Coins += GameConfig.CoinsPerPickup
+	profile.Coins += PerkService.GetGoldAmount(player, GameConfig.CoinsPerPickup)
 	sendCoinCount(player)
 	saveProfile(player, true)
 end
@@ -341,7 +344,7 @@ local function scanCoinProximity()
 			if playerRoot ~= nil then
 				local distance = (playerRoot.Position - coinRoot.Position).Magnitude
 
-				if distance <= GameConfig.CoinCollectDistance then
+				if distance <= PerkService.GetCollectDistance(player, GameConfig.CoinCollectDistance) then
 					collectCoin(player, coin, coinState)
 					break
 				end
@@ -357,6 +360,31 @@ end
 
 function CoinService.SavePlayer(player)
 	saveProfile(player, false)
+end
+
+function CoinService.GetCoins(player)
+	local profile = waitForProfileLoaded(player)
+
+	return profile.Coins
+end
+
+function CoinService.TrySpendCoins(player, amount)
+	local coinAmount = sanitizeCoinCount(amount)
+
+	if coinAmount <= 0 then
+		return true, CoinService.GetCoins(player)
+	end
+
+	local profile = waitForProfileLoaded(player)
+
+	if profile.Coins < coinAmount then
+		return false, profile.Coins
+	end
+
+	profile.Coins -= coinAmount
+	saveProfile(player, true)
+
+	return true, profile.Coins
 end
 
 function CoinService.RemovePlayer(player)
@@ -395,6 +423,10 @@ function CoinService.Start()
 	end
 
 	heartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime)
+		if CombatStateService.IsPaused() then
+			return
+		end
+
 		elapsedSinceScan += deltaTime
 
 		if elapsedSinceScan < GameConfig.CoinScanInterval then

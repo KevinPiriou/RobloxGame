@@ -132,19 +132,43 @@ effectsLabel.TextTruncate = Enum.TextTruncate.AtEnd
 effectsLabel.TextXAlignment = Enum.TextXAlignment.Left
 effectsLabel.Parent = container
 
+local goldContainer = Instance.new("Frame")
+goldContainer.Name = "GoldContainer"
+goldContainer.Position = UDim2.new(0, 14, 0, 72)
+goldContainer.Size = UDim2.new(0, 150, 0, 34)
+goldContainer.BackgroundColor3 = Color3.fromRGB(22, 25, 31)
+goldContainer.BackgroundTransparency = 0.12
+goldContainer.BorderSizePixel = 0
+goldContainer.Parent = screenGui
+
+local goldCorner = Instance.new("UICorner")
+goldCorner.CornerRadius = UDim.new(0, 8)
+goldCorner.Parent = goldContainer
+
+local goldStroke = Instance.new("UIStroke")
+goldStroke.Color = Color3.fromRGB(255, 255, 255)
+goldStroke.Transparency = 0.84
+goldStroke.Thickness = 1
+goldStroke.Parent = goldContainer
+
+local goldPadding = Instance.new("UIPadding")
+goldPadding.PaddingTop = UDim.new(0, 7)
+goldPadding.PaddingRight = UDim.new(0, 10)
+goldPadding.PaddingBottom = UDim.new(0, 7)
+goldPadding.PaddingLeft = UDim.new(0, 10)
+goldPadding.Parent = goldContainer
+
 local coinsLabel = Instance.new("TextLabel")
 coinsLabel.Name = "CoinsLabel"
-coinsLabel.AnchorPoint = Vector2.new(1, 0)
-coinsLabel.Position = UDim2.new(1, 0, 0, 24)
-coinsLabel.Size = UDim2.new(0.34, 0, 0, 18)
+coinsLabel.Size = UDim2.new(1, 0, 1, 0)
 coinsLabel.BackgroundTransparency = 1
 coinsLabel.Font = Enum.Font.GothamMedium
-coinsLabel.Text = "Pieces : 0"
+coinsLabel.Text = "Golds : 0"
 coinsLabel.TextColor3 = Color3.fromRGB(255, 220, 120)
-coinsLabel.TextSize = 12
+coinsLabel.TextSize = 13
 coinsLabel.TextTruncate = Enum.TextTruncate.AtEnd
-coinsLabel.TextXAlignment = Enum.TextXAlignment.Right
-coinsLabel.Parent = container
+coinsLabel.TextXAlignment = Enum.TextXAlignment.Left
+coinsLabel.Parent = goldContainer
 
 local questionLabel = Instance.new("TextLabel")
 questionLabel.Name = "QuestionLabel"
@@ -366,7 +390,7 @@ updateCoinsRemote.OnClientEvent:Connect(function(payload)
 		saveStatus = " *"
 	end
 
-	coinsLabel.Text = "Pieces : " .. tostring(coinCount) .. saveStatus
+	coinsLabel.Text = "Golds : " .. tostring(coinCount) .. saveStatus
 end)
 
 local function getViewportSize()

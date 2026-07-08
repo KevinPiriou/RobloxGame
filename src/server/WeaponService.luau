@@ -7,7 +7,9 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 
+local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
+local PerkService = require(script.Parent:WaitForChild("PerkService"))
 
 local WeaponService = {}
 
@@ -168,27 +170,7 @@ local function destroyProjectile(projectile)
 	end
 end
 
-local function fireAtClosestMonster(player)
-	if fireballTemplate == nil or not isPlayerAlive(player) then
-		return
-	end
-
-	local root = getCharacterRoot(player)
-	local spawnPosition = root.Position
-		+ (root.CFrame.LookVector * CombatConfig.FireballSpawnForwardOffset)
-		+ Vector3.new(0, CombatConfig.FireballSpawnHeightOffset, 0)
-	local targetMonster, targetRoot = MonsterService.GetClosestMonster(spawnPosition, CombatConfig.FireballRange)
-
-	if targetMonster == nil or targetRoot == nil then
-		return
-	end
-
-	local direction = targetRoot.Position - spawnPosition
-
-	if direction.Magnitude <= 0.1 then
-		return
-	end
-
+local function createProjectile(player, spawnPosition, targetMonster, targetRoot, direction)
 	local projectile = fireballTemplate:Clone()
 
 	projectile.Name = CombatConfig.FireballTemplateName
@@ -211,14 +193,57 @@ local function fireAtClosestMonster(player)
 		Position = spawnPosition,
 		Direction = direction.Unit,
 		Age = 0,
+		Speed = PerkService.GetProjectileSpeed(player, CombatConfig.FireballSpeed),
+		Lifetime = PerkService.GetAttackDuration(player, CombatConfig.FireballLifetime),
+		BounceRemaining = PerkService.GetBounceCount(player),
+		HitMonsters = {},
 	}
+end
+
+local function rotateDirection(direction, radians)
+	local rotation = CFrame.fromAxisAngle(Vector3.new(0, 1, 0), radians)
+
+	return rotation:VectorToWorldSpace(direction).Unit
+end
+
+local function fireAtClosestMonster(player)
+	if fireballTemplate == nil or not isPlayerAlive(player) then
+		return
+	end
+
+	local root = getCharacterRoot(player)
+	local spawnPosition = root.Position
+		+ (root.CFrame.LookVector * CombatConfig.FireballSpawnForwardOffset)
+		+ Vector3.new(0, CombatConfig.FireballSpawnHeightOffset, 0)
+	local targetMonster, targetRoot = MonsterService.GetClosestMonster(spawnPosition, CombatConfig.FireballRange)
+
+	if targetMonster == nil or targetRoot == nil then
+		return
+	end
+
+	local direction = targetRoot.Position - spawnPosition
+
+	if direction.Magnitude <= 0.1 then
+		return
+	end
+
+	local projectileCount = PerkService.GetProjectileCount(player)
+	local spreadStep = math.rad(8)
+
+	for projectileIndex = 1, projectileCount do
+		local offsetFromCenter = projectileIndex - ((projectileCount + 1) / 2)
+		local projectileDirection = rotateDirection(direction.Unit, offsetFromCenter * spreadStep)
+
+		createProjectile(player, spawnPosition, targetMonster, targetRoot, projectileDirection)
+	end
 end
 
 local function updatePlayerWeapons(now)
 	for _, player in ipairs(Players:GetPlayers()) do
 		local lastFireAt = cooldownsByUserId[player.UserId] or 0
+		local cooldown = PerkService.GetAttackCooldown(player, CombatConfig.FireballCooldown)
 
-		if now - lastFireAt >= CombatConfig.FireballCooldown then
+		if now - lastFireAt >= cooldown then
 			cooldownsByUserId[player.UserId] = now
 			fireAtClosestMonster(player)
 		end
@@ -235,7 +260,7 @@ local function updateProjectile(projectileState, deltaTime)
 
 	projectileState.Age += deltaTime
 
-	if projectileState.Age >= CombatConfig.FireballLifetime then
+	if projectileState.Age >= projectileState.Lifetime then
 		destroyProjectile(projectile)
 		return
 	end
@@ -251,15 +276,42 @@ local function updateProjectile(projectileState, deltaTime)
 		end
 	end
 
-	local nextPosition = projectileState.Position + (projectileState.Direction * CombatConfig.FireballSpeed * deltaTime)
+	local nextPosition = projectileState.Position + (projectileState.Direction * projectileState.Speed * deltaTime)
 	projectileState.Position = nextPosition
 
 	pivotInstance(projectile, CFrame.lookAt(nextPosition, nextPosition + projectileState.Direction))
 
-	local hitMonster = MonsterService.GetClosestMonster(nextPosition, CombatConfig.FireballHitRadius)
+	local hitMonster = MonsterService.GetClosestMonster(nextPosition, CombatConfig.FireballHitRadius, projectileState.HitMonsters)
 
 	if hitMonster ~= nil then
-		MonsterService.DamageMonster(hitMonster, CombatConfig.FireballDamage, projectileState.Owner)
+		projectileState.HitMonsters[hitMonster] = true
+
+		local damage = PerkService.CalculateOutgoingDamage(projectileState.Owner, CombatConfig.FireballDamage, hitMonster)
+		local didDamage, damageDealt = MonsterService.DamageMonster(hitMonster, damage, projectileState.Owner)
+
+		if didDamage then
+			PerkService.ApplyLifeSteal(projectileState.Owner, damageDealt or 0)
+		end
+
+		if projectileState.BounceRemaining > 0 then
+			local nextMonster, nextRoot = MonsterService.GetClosestMonster(
+				nextPosition,
+				CombatConfig.FireballRange,
+				projectileState.HitMonsters
+			)
+
+			if nextMonster ~= nil and nextRoot ~= nil then
+				local nextDirection = nextRoot.Position - nextPosition
+
+				if nextDirection.Magnitude > 0.1 then
+					projectileState.BounceRemaining -= 1
+					projectileState.TargetMonster = nextMonster
+					projectileState.Direction = nextDirection.Unit
+					return
+				end
+			end
+		end
+
 		destroyProjectile(projectile)
 	end
 end
@@ -283,7 +335,11 @@ function WeaponService.Start()
 	end
 
 	heartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime)
-		local now = os.clock()
+		if CombatStateService.IsPaused() then
+			return
+		end
+
+		local now = CombatStateService.GetTime()
 
 		updatePlayerWeapons(now)
 		updateProjectiles(deltaTime)
