@@ -1,6 +1,14 @@
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Stats = game:GetService("Stats")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
+
+if not FeatureFlags.DebugUIEnabled then
+	return
+end
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")

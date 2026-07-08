@@ -82,3 +82,41 @@ Le projet vise une boucle roguelite/survivor inspiree fortement de Megabonk : un
 - Complexite future : elevee.
 - Point de vigilance : ne pas transformer les services actuels en mega-scripts. Les coffres, autels, totems, armes, gemmes, personnages et runs devront rester des modules separes avec des contrats simples.
 - Voie de simplification : conserver une run solo canonique sans lobby complet jusqu'a ce que combat, XP, perks, coffres et boss soient robustes.
+
+## 2026-07-08 04:11:35 +02:00 - Clarification economie, lobby et classement
+
+### Clarification produit
+
+- L'XP ramassee en run sert uniquement a la run en cours.
+- Les coins ramasses en run servent uniquement a la run en cours.
+- XP, niveau de run et coins de run doivent etre reset a la mort ou a la victoire.
+- Apres mort ou victoire, le joueur doit etre teleporte dans le lobby.
+- Lobby et run doivent etre separes.
+- Le classement global ne doit differencier les joueurs que par le nombre de kills et le nombre de niveaux valides.
+- Les microtransactions utiliseront les Robux.
+- Une autre monnaie pourra apparaitre plus tard, plutot comme recompense de run effectuee.
+
+### Decisions de cadrage
+
+- Juste : les coins actuels doivent etre traites comme monnaie de run, pas comme monnaie persistante.
+- Juste : le vrai classement permanent cible est `kills` et `niveaux valides`, pas score quiz, XP de run ou niveau de run.
+- Juste : les microtransactions doivent rester separees du gameplay de run et des coins temporaires.
+- Simplification : tant que le lobby n'existe pas, la V1 peut simuler une run dans la map actuelle, mais elle doit eviter de persister les ressources de run.
+
+### Implication architecture
+
+- Il faudra creer un etat de run explicite.
+- Il faudra differencier monnaie temporaire de run et monnaie permanente future.
+- Il faudra differencier niveau de run, niveaux valides et niveau/progression personnage.
+- Il faudra deplacer la pause globale vers un etat de run lorsque plusieurs runs ou un lobby coexisteront.
+
+### Ordre de suite confirme
+
+- Etape 1 : boucle survivor propre sans quiz.
+- Etape 2 : equilibrage `CombatConfig`.
+- Etape 3 : HUD propre joueur.
+- Etape 4 : systeme d'interactables generique.
+- Etape 5 : coffres fonctionnels.
+- Etape 6 : autels de perks.
+- Etape 7 : boss simple.
+- Etape 8 : generation procedurale par chunks/modules.

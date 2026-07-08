@@ -1,4 +1,3 @@
-local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -14,9 +13,7 @@ local PerkService = require(script.Parent:WaitForChild("PerkService"))
 
 local CoinService = {}
 
-local DATASTORE_NAME = "CoinProgress_v1"
 local TEMPLATE_FOLDER_NAME = "CollectibleTemplates"
-local coinDataStore = DataStoreService:GetDataStore(DATASTORE_NAME)
 
 local profilesByUserId = {}
 local trackedCoins = {}
@@ -65,10 +62,6 @@ local function getRuntimeLootFolder()
 	end
 
 	return getOrCreateFolder(runtimeFolder, CombatConfig.LootFolderName)
-end
-
-local function getDataStoreKey(player)
-	return "Player_" .. player.UserId
 end
 
 local function sanitizeCoinCount(value)
@@ -123,41 +116,22 @@ local function saveProfile(player, shouldNotify)
 		return false
 	end
 
-	local data = {
-		Coins = sanitizeCoinCount(profile.Coins),
-	}
-
-	local success, errorMessage = pcall(function()
-		coinDataStore:SetAsync(getDataStoreKey(player), data)
-	end)
-
-	profile.LastSaveSucceeded = success
-
-	if not success then
-		warn("Impossible de sauvegarder les pieces du joueur " .. player.Name .. " : " .. tostring(errorMessage))
-	end
+	profile.Coins = sanitizeCoinCount(profile.Coins)
+	profile.LastSaveSucceeded = true
 
 	if shouldNotify then
 		sendCoinCount(player)
 	end
 
-	return success
+	return true
 end
 
 local function loadProfile(player)
 	local profile = getOrCreateProfile(player)
-	local success, data = pcall(function()
-		return coinDataStore:GetAsync(getDataStoreKey(player))
-	end)
 
-	if success and typeof(data) == "table" then
-		profile.Coins = sanitizeCoinCount(data.Coins)
-	elseif not success then
-		warn("Impossible de charger les pieces du joueur " .. player.Name .. " : " .. tostring(data))
-	end
-
+	profile.Coins = 0
 	profile.Loaded = true
-	profile.LastSaveSucceeded = success
+	profile.LastSaveSucceeded = true
 	sendCoinCount(player)
 end
 

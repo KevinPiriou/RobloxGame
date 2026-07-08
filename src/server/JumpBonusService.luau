@@ -2,6 +2,7 @@ local DataStoreService = game:GetService("DataStoreService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 
 local JumpBonusService = {}
@@ -101,8 +102,13 @@ end
 local function getJumpMultiplier(player)
 	local profile = getOrCreateProfile(player)
 	local externalMultiplier = externalJumpMultipliersByUserId[player.UserId] or 1
+	local stackCount = profile.JumpBonusStacks
 
-	return getJumpMultiplierFromStacks(profile.JumpBonusStacks) * externalMultiplier
+	if not FeatureFlags.QuizEnabled then
+		stackCount = 0
+	end
+
+	return getJumpMultiplierFromStacks(stackCount) * externalMultiplier
 end
 
 local function applyJumpMultiplier(player)
@@ -201,12 +207,25 @@ function JumpBonusService.SetupPlayer(player)
 		end
 	end)
 
-	loadProfile(player)
+	if FeatureFlags.QuizEnabled then
+		loadProfile(player)
+	else
+		local profile = getOrCreateProfile(player)
+
+		profile.JumpBonusStacks = 0
+		profile.Loaded = true
+		profile.LastSaveSucceeded = true
+	end
+
 	applyJumpMultiplier(player)
 	sendBonusState(player)
 end
 
 function JumpBonusService.GrantDoubleJump(player)
+	if not FeatureFlags.QuizEnabled then
+		return "Quiz desactive : aucun bonus applique."
+	end
+
 	local profile = waitForProfileLoaded(player)
 	local nextStackCount = profile.JumpBonusStacks + 1
 
@@ -216,6 +235,10 @@ function JumpBonusService.GrantDoubleJump(player)
 end
 
 function JumpBonusService.ApplyJumpMalus(player)
+	if not FeatureFlags.QuizEnabled then
+		return "Quiz desactive : aucun malus applique."
+	end
+
 	local profile = waitForProfileLoaded(player)
 
 	if profile.JumpBonusStacks <= 0 then
@@ -252,6 +275,10 @@ function JumpBonusService.SetExternalJumpMultiplier(player, multiplier)
 end
 
 function JumpBonusService.SavePlayer(player)
+	if not FeatureFlags.QuizEnabled then
+		return
+	end
+
 	saveProfile(player, false)
 end
 

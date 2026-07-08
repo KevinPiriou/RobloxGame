@@ -1,6 +1,13 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
+
+if not FeatureFlags.AdminToolsEnabled then
+	return
+end
+
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local resetPowerUpsRemote = ReplicatedStorage:WaitForChild("Admin_ResetPowerUps")

@@ -1,4 +1,8 @@
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
 
 local AdminService = require(script.Parent:WaitForChild("AdminService"))
 local ChestService = require(script.Parent:WaitForChild("ChestService"))
@@ -12,8 +16,14 @@ local WeaponService = require(script.Parent:WaitForChild("WeaponService"))
 local XpService = require(script.Parent:WaitForChild("XpService"))
 
 local function setupPlayer(player)
-	AdminService.SetupPlayer(player)
-	ScoreService.SetupPlayer(player)
+	if FeatureFlags.AdminToolsEnabled then
+		AdminService.SetupPlayer(player)
+	end
+
+	if FeatureFlags.QuizEnabled then
+		ScoreService.SetupPlayer(player)
+	end
+
 	PerkService.SetupPlayer(player)
 	XpService.SetupPlayer(player)
 	MonsterService.SetupPlayer(player)
@@ -30,16 +40,25 @@ end
 
 Players.PlayerAdded:Connect(setupPlayer)
 Players.PlayerRemoving:Connect(function(player)
-	RoundService.RemovePlayer(player)
+	if FeatureFlags.QuizEnabled then
+		RoundService.RemovePlayer(player)
+	end
+
 	WeaponService.RemovePlayer(player)
 	MonsterService.RemovePlayer(player)
 	ChestService.RemovePlayer(player)
-	AdminService.RemovePlayer(player)
+
+	if FeatureFlags.AdminToolsEnabled then
+		AdminService.RemovePlayer(player)
+	end
+
 	XpService.RemovePlayer(player)
 	CoinService.RemovePlayer(player)
 	PerkService.RemovePlayer(player)
 	JumpBonusService.RemovePlayer(player)
-	ScoreService.RemovePlayer(player)
+	if FeatureFlags.QuizEnabled then
+		ScoreService.RemovePlayer(player)
+	end
 end)
 
 for _, player in ipairs(Players:GetPlayers()) do
@@ -53,11 +72,17 @@ game:BindToClose(function()
 	end
 end)
 
-AdminService.Start()
+if FeatureFlags.AdminToolsEnabled then
+	AdminService.Start()
+end
+
 ChestService.Start()
 PerkService.Start()
 MonsterService.Start()
 WeaponService.Start()
 CoinService.Start()
 XpService.Start()
-RoundService.Start()
+
+if FeatureFlags.QuizEnabled then
+	RoundService.Start()
+end

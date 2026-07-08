@@ -586,3 +586,140 @@ Les coffres doivent devenir une vraie interaction de run : ils s'ouvrent avec le
 - Complexite ajoutee : moyenne faible.
 - Justification : le coffre devient un systeme interactif complet avec cout, pause et decision, mais reste isole de l'inventaire futur.
 - Voie de simplification possible : retirer temporairement les boutons et auto-resoudre en `Valider` si la boucle coffre ralentit trop les tests de combat.
+
+## 2026-07-08 04:11:35 +02:00 - Stabilisation boucle survivor sans quiz
+
+### Contexte
+
+Un audit externe a signale que l'ancien systeme de quiz restait actif et melangeait deux jeux : un quiz a manches et une boucle survivor-like. La direction produit clarifie que la V1 doit devenir lisible : spawn joueur, ennemis, arme auto, XP, level-up, choix de perk, reprise du combat. La generation procedurale, le boss, le lobby social et les microtransactions ne doivent pas etre ajoutes maintenant.
+
+### Changements
+
+- `src/shared/FeatureFlags.luau` ajoute les flags `QuizEnabled`, `AdminToolsEnabled` et `DebugUIEnabled`.
+- `src/shared/FeatureFlags.luau` desactive le quiz par defaut avec `QuizEnabled = false`.
+- `src/shared/FeatureFlags.luau` desactive le HUD debug par defaut avec `DebugUIEnabled = false`.
+- `src/server/GameManager.server.luau` ne lance plus `RoundService.Start()` quand `QuizEnabled = false`.
+- `src/server/GameManager.server.luau` ne cree plus le leaderstat `Score` quand le quiz est desactive.
+- `src/client/UI.client.luau` ne se connecte plus aux remotes quiz quand le quiz est desactive.
+- `src/client/UI.client.luau` conserve seulement l'affichage des coins.
+- `src/client/AdminUI.client.luau` respecte `AdminToolsEnabled`.
+- `src/client/DebugUI.client.luau` respecte `DebugUIEnabled`.
+- `src/server/JumpBonusService.luau` ignore les anciens stacks de saut quiz quand `QuizEnabled = false`, tout en gardant le multiplicateur externe utilise par les perks.
+- `src/server/CoinService.luau` ne persiste plus les coins : ils repartent a `0` au setup joueur pour cette V1 run/session.
+
+### Decisions
+
+- Juste : desactiver `RoundService.Start()` clarifie immediatement la boucle principale.
+- Juste : garder les fichiers quiz sans les supprimer conserve une possibilite de rollback.
+- Juste : les coins de run ne doivent pas etre une monnaie persistante.
+- Simplification : les coins sont remis a zero au setup joueur, faute de vrai `RunService` mort/victoire/lobby pour l'instant.
+- Contestable : `AdminToolsEnabled` reste `true` par defaut pour faciliter le stress test, meme si ce sont des outils debug.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_survivor_loop_build.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les avertissements CRLF habituels.
+
+### Angles morts
+
+- Angle mort : XP, niveau, perks et coins ne sont pas encore resets sur une vraie fin de run mort/victoire.
+- Angle mort : il n'existe pas encore de separation technique lobby/run.
+- Angle mort : le leaderstat `Level` actuel represente encore le niveau de run, pas un niveau valide permanent.
+- Angle mort : `MonsterMaxAlive = 1000` reste un plafond de stress test, pas une cible stable de gameplay.
+
+### Budget de complexite
+
+- Complexite reduite : l'ancien quiz ne s'execute plus dans la boucle principale.
+- Complexite ajoutee : faible, via un module de flags.
+- Gain produit : le Play Test doit maintenant lire comme une boucle survivor-like sans questions quiz parasites.
+
+## 2026-07-08 04:23:48 +02:00 - Equilibrage CombatConfig V1
+
+### Contexte
+
+La boucle survivor est maintenant prioritaire. L'objectif de cette passe est de rendre le Play Test plus lisible sans ajouter de systeme : pression ennemie progressive, premier level-up plus rapide, Fireball plus reactive, coins de run un peu plus accessibles, et courbe normale moins agressive pour ne pas viser trop vite le plafond technique de `1000` ennemis.
+
+### Changements
+
+- `src/shared/CombatConfig.luau` retarde legerement le premier spawn ennemi avec `MonsterInitialSpawnDelay = 3.5`.
+- `src/shared/CombatConfig.luau` rapproche un peu les spawns avec `MonsterMinSpawnDistance = 38` et `MonsterMaxSpawnDistance = 62`.
+- `src/shared/CombatConfig.luau` ralentit la croissance des vagues : `WaveDuration = 45`, `WaveBaseMaxAlive = 10`, `WaveMaxAliveIncrease = 6`.
+- `src/shared/CombatConfig.luau` ralentit la croissance des batches avec `WaveSpawnBatchIncreaseEvery = 3`.
+- `src/shared/CombatConfig.luau` baisse les PV ennemis a `36`.
+- `src/shared/CombatConfig.luau` baisse legerement la vitesse et les degats ennemis.
+- `src/shared/CombatConfig.luau` rend la Fireball plus reactive : cooldown `0.95`, vitesse `100`, portee `90`, homing `6`.
+- `src/shared/CombatConfig.luau` accelere le premier level-up : `LevelBaseXp = 6`, `LevelXpIncrease = 6`.
+- `src/shared/CombatConfig.luau` augmente le rayon de collecte XP a `8`.
+- `src/shared/CombatConfig.luau` augmente la chance de drop coin a `25%`.
+- `src/shared/CombatConfig.luau` rend la fusion XP un peu plus large mais moins frequente : rayon `16`, scan `0.3`, groupes max `60`.
+- `src/shared/CombatConfig.luau` reduit la distance de culling collectibles a `360`.
+
+### Decisions
+
+- Juste : `MonsterMaxAlive = 1000` reste un plafond technique/stress test, pas une cible de densite normale.
+- Juste : le premier level-up doit arriver vite pour rendre la boucle XP/perk visible.
+- Juste : la Fireball doit rester simple mais suffisamment reactive pour compenser le fait qu'il n'y a encore qu'une seule arme.
+- Simplification : l'equilibrage est fait par valeurs fixes, sans scaling dynamique avance.
+- Contestable : les coins de run restent lies au drop aleatoire simple, sans table de loot ni pity timer.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_combat_balance_build.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les avertissements CRLF habituels.
+
+### Angles morts
+
+- Angle mort : l'equilibrage doit etre juge en Play Test sur des reperes temporels : 1 min, 3 min, 5 min et 8 min.
+- Angle mort : `Monster1` peut rester trop lourd si les vagues depassent la capacite machine, meme avec une courbe plus lente.
+- Angle mort : les perks `Plus d'ennemis`, projectiles multiples et rebonds peuvent rendre la charge tres differente d'une run a l'autre.
+- Angle mort : le cout coffre devra etre re-teste apres le changement de drop coin.
+
+### Budget de complexite
+
+- Complexite ajoutee : nulle cote architecture.
+- Complexite reduite : pression normale moins agressive, donc meilleure lisibilite du gameplay.
+- Gain produit : la V1 doit laisser le joueur atteindre rapidement les premiers choix de perks sans etre submerge trop tot.
+
+## 2026-07-08 04:48:50 +02:00 - HUD joueur MegaRoblox V1
+
+### Contexte
+
+La boucle survivor-like est lisible, mais le HUD joueur devait devenir plus propre et mieux oriente run. L'objectif de cette passe est de remplacer l'ancien affichage minimal par une interface compacte, lisible et plus expressive, sans reprendre le quiz et sans masquer le terrain de jeu.
+
+### Changements
+
+- `src/client/CombatUI.client.luau` devient le HUD principal de run.
+- `src/client/CombatUI.client.luau` affiche les golds de run en haut a gauche.
+- `src/client/CombatUI.client.luau` affiche un panneau survie en bas a gauche avec PV, bouclier si present, vague, kills, monstres vivants, arme active et compteur de stacks de perks.
+- `src/client/CombatUI.client.luau` affiche une barre d'XP centrale basse avec niveau actuel et progression vers le niveau suivant.
+- `src/client/CombatUI.client.luau` ajoute une petite jauge de menace liee au ratio ennemis vivants / ennemis max de vague.
+- `src/client/CombatUI.client.luau` utilise des formes UI Roblox codees : panneaux, badges, gradients, contours et barres animees.
+- `src/client/CombatUI.client.luau` ecoute maintenant `Coin_UpdateCount` et `Perk_UpdateStats` en plus de `Combat_UpdateStats` et `Xp_UpdateCount`.
+- `src/client/CombatUI.client.luau` ajuste ses dimensions sur petits viewports.
+- `src/client/UI.client.luau` quitte completement quand `QuizEnabled = false`, avant d'attendre les remotes de coins ou de creer l'ancien affichage quiz.
+
+### Decisions
+
+- Juste : le HUD de run doit etre porte par `CombatUI.client.luau`, pas par l'ancien script quiz.
+- Juste : les golds affiches sont les golds de run actuels, coherents avec la decision de ne plus persister cette monnaie.
+- Juste : aucun asset externe ou payant n'est ajoute ; les assets 2D de cette V1 sont crees avec les primitives UI Roblox.
+- Contestable : l'identite visuelle `MegaRoblox` reste une premiere passe codee, sans bitmap importe ni vraie direction artistique definitive.
+- Simplification : les armes et perks restent sous forme de labels/badges, pas encore sous forme d'inventaire complet avec quatre slots.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_hud_build.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les avertissements CRLF habituels.
+
+### Angles morts
+
+- Angle mort : le rendu visuel doit encore etre juge en Play Test Roblox Studio, surtout sur petite resolution.
+- Angle mort : la lisibilite mobile n'est pas garantie tant que le projet n'a pas de cible mobile stabilisee.
+- Angle mort : le compteur de perks additionne les stacks, mais ne montre pas encore le detail des perks actifs.
+- Angle mort : l'UI chest et l'UI perk ont encore leur propre style ; une passe HUD globale pourra les harmoniser plus tard.
+
+### Budget de complexite
+
+- Complexite ajoutee : moyenne cote client UI.
+- Complexite reduite : les informations de run sont regroupees dans un seul HUD principal au lieu d'etre dispersees entre l'ancien quiz et le combat.
+- Gain produit : le joueur lit plus vite sa survie, son XP, ses golds, sa vague et sa progression sans perdre le controle visuel de l'arene.

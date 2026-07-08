@@ -2,15 +2,26 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
+
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local showQuestionRemote = ReplicatedStorage:WaitForChild("Quiz_ShowQuestion")
-local submitAnswerRemote = ReplicatedStorage:WaitForChild("Quiz_SubmitAnswer")
-local showResultRemote = ReplicatedStorage:WaitForChild("Quiz_ShowResult")
-local updateScoreRemote = ReplicatedStorage:WaitForChild("Quiz_UpdateScore")
-local updateEffectsRemote = ReplicatedStorage:WaitForChild("Quiz_UpdateEffects")
-local updateCoinsRemote = ReplicatedStorage:WaitForChild("Coin_UpdateCount")
+local isQuizEnabled = FeatureFlags.QuizEnabled == true
+local showQuestionRemote = nil
+local submitAnswerRemote = nil
+local showResultRemote = nil
+local updateScoreRemote = nil
+local updateEffectsRemote = nil
+
+if isQuizEnabled then
+	showQuestionRemote = ReplicatedStorage:WaitForChild("Quiz_ShowQuestion")
+	submitAnswerRemote = ReplicatedStorage:WaitForChild("Quiz_SubmitAnswer")
+	showResultRemote = ReplicatedStorage:WaitForChild("Quiz_ShowResult")
+	updateScoreRemote = ReplicatedStorage:WaitForChild("Quiz_UpdateScore")
+	updateEffectsRemote = ReplicatedStorage:WaitForChild("Quiz_UpdateEffects")
+end
 
 local activeRoundId = nil
 local selectedAnswerIndex = nil
@@ -25,6 +36,12 @@ local existingGui = playerGui:FindFirstChild("QuizGui")
 if existingGui ~= nil then
 	existingGui:Destroy()
 end
+
+if not isQuizEnabled then
+	return
+end
+
+local updateCoinsRemote = ReplicatedStorage:WaitForChild("Coin_UpdateCount")
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "QuizGui"
@@ -41,6 +58,7 @@ container.BackgroundColor3 = Color3.fromRGB(22, 25, 31)
 container.BackgroundTransparency = 0.12
 container.BorderSizePixel = 0
 container.Active = true
+container.Visible = isQuizEnabled
 container.Parent = screenGui
 
 local sizeConstraint = Instance.new("UISizeConstraint")
@@ -352,35 +370,37 @@ local function showResult(payload)
 	questionLabel.Text = payload.EffectMessage or ("Bonne reponse : " .. payload.CorrectAnswerText)
 end
 
-showQuestionRemote.OnClientEvent:Connect(showQuestion)
+if isQuizEnabled then
+	showQuestionRemote.OnClientEvent:Connect(showQuestion)
 
-showResultRemote.OnClientEvent:Connect(function(payload)
-	if payload.State == "Result" then
-		showResult(payload)
-	else
-		showStatus(payload)
-	end
-end)
+	showResultRemote.OnClientEvent:Connect(function(payload)
+		if payload.State == "Result" then
+			showResult(payload)
+		else
+			showStatus(payload)
+		end
+	end)
 
-updateScoreRemote.OnClientEvent:Connect(function(score)
-	scoreLabel.Text = "Score : " .. tostring(score)
-end)
+	updateScoreRemote.OnClientEvent:Connect(function(score)
+		scoreLabel.Text = "Score : " .. tostring(score)
+	end)
 
-updateEffectsRemote.OnClientEvent:Connect(function(payload)
-	local stackCount = payload.JumpBonusStacks or 0
-	local jumpMultiplier = payload.JumpMultiplier or 1
-	local saveStatus = ""
+	updateEffectsRemote.OnClientEvent:Connect(function(payload)
+		local stackCount = payload.JumpBonusStacks or 0
+		local jumpMultiplier = payload.JumpMultiplier or 1
+		local saveStatus = ""
 
-	if payload.LastSaveSucceeded == false then
-		saveStatus = " | non sauvegarde"
-	end
+		if payload.LastSaveSucceeded == false then
+			saveStatus = " | non sauvegarde"
+		end
 
-	if stackCount <= 0 then
-		effectsLabel.Text = "Bonus saut : aucun" .. saveStatus
-	else
-		effectsLabel.Text = ("Bonus saut : %d stacks | x%.1f%s"):format(stackCount, jumpMultiplier, saveStatus)
-	end
-end)
+		if stackCount <= 0 then
+			effectsLabel.Text = "Bonus saut : aucun" .. saveStatus
+		else
+			effectsLabel.Text = ("Bonus saut : %d stacks | x%.1f%s"):format(stackCount, jumpMultiplier, saveStatus)
+		end
+	end)
+end
 
 updateCoinsRemote.OnClientEvent:Connect(function(payload)
 	local coinCount = payload.Coins or 0
