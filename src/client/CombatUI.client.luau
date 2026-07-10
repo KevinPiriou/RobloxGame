@@ -1,15 +1,41 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local statsRemote = ReplicatedStorage:WaitForChild("Combat_UpdateStats")
-local updateXpRemote = ReplicatedStorage:WaitForChild("Xp_UpdateCount")
-local updateCoinsRemote = ReplicatedStorage:WaitForChild("Coin_UpdateCount")
-local updatePerksRemote = ReplicatedStorage:WaitForChild("Perk_UpdateStats")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
+
+local function setNativeHealthGuiEnabled(isEnabled)
+	task.spawn(function()
+		local lastError = nil
+
+		for _ = 1, 5 do
+			local success, err = pcall(function()
+				StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Health, isEnabled)
+			end)
+
+			if success then
+				return
+			end
+
+			lastError = err
+			task.wait(0.5)
+		end
+
+		DebugLog.Warn("UI", "CoreGui Health impossible a modifier", {
+			Enabled = isEnabled,
+			Error = tostring(lastError),
+		})
+	end)
+end
+
+setNativeHealthGuiEnabled(false)
 
 local existingGui = playerGui:FindFirstChild("CombatGui")
 
@@ -18,24 +44,69 @@ if existingGui ~= nil then
 end
 
 local COLORS = {
-	Panel = Color3.fromRGB(18, 20, 28),
-	PanelSoft = Color3.fromRGB(28, 32, 44),
-	Line = Color3.fromRGB(255, 255, 255),
-	Text = Color3.fromRGB(246, 248, 255),
-	Muted = Color3.fromRGB(174, 183, 198),
-	Health = Color3.fromRGB(255, 82, 92),
-	HealthDark = Color3.fromRGB(155, 39, 52),
-	Shield = Color3.fromRGB(85, 175, 255),
-	Xp = Color3.fromRGB(80, 220, 255),
-	XpAlt = Color3.fromRGB(168, 94, 255),
-	Gold = Color3.fromRGB(255, 206, 82),
-	Wave = Color3.fromRGB(255, 135, 72),
-	Kills = Color3.fromRGB(122, 239, 160),
-	Monster = Color3.fromRGB(230, 96, 255),
-	Weapon = Color3.fromRGB(120, 145, 255),
+	Text = Color3.fromRGB(248, 250, 255),
+	Muted = Color3.fromRGB(183, 190, 206),
+	Shadow = Color3.fromRGB(0, 0, 0),
+	Track = Color3.fromRGB(7, 10, 17),
+	Health = Color3.fromRGB(69, 255, 118),
+	HealthDark = Color3.fromRGB(15, 128, 58),
+	Shield = Color3.fromRGB(25, 255, 218),
+	ShieldDark = Color3.fromRGB(0, 104, 156),
+	Kills = Color3.fromRGB(255, 43, 57),
+	Gold = Color3.fromRGB(255, 202, 48),
+	Green = Color3.fromRGB(105, 245, 100),
+	Xp = Color3.fromRGB(190, 86, 255),
+	XpDark = Color3.fromRGB(82, 35, 210),
+	DamageFlash = Color3.fromRGB(255, 24, 44),
+	Glass = Color3.fromRGB(232, 247, 255),
+	GlassTint = Color3.fromRGB(157, 212, 255),
+	GlassStroke = Color3.fromRGB(255, 255, 255),
 }
 
-local BAR_TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+-- Remplacer les chaines vides par des ids du catalogue Roblox Studio si besoin.
+local ICON_IMAGES = {
+	Kills = "rbxassetid://78565181494437",
+	Gold = "rbxassetid://137648994340847",
+	Health = "rbxassetid://107129416801939",
+	Shield = "rbxassetid://125061574107320",
+}
+
+local UI_FONTS = {
+	Regular = Enum.Font.Gotham,
+	Medium = Enum.Font.GothamMedium,
+	Bold = Enum.Font.GothamBold,
+	Heavy = Enum.Font.GothamBlack,
+}
+
+local RUN_TIMER_SECONDS = 12 * 60
+local BAR_TWEEN = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local QUICK_TWEEN = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+local togglePauseRemote = nil
+local isPauseButtonBlocked = false
+local viewportConnection = nil
+local timerRemaining = RUN_TIMER_SECONDS
+local damageFlashTween = nil
+local hasReceivedStatsSnapshot = false
+
+local state = {
+	Health = 100,
+	MaxHealth = 100,
+	Shield = 0,
+	MaxShield = 0,
+	AliveMonsters = 0,
+	MaxAliveMonsters = 1,
+	Wave = 1,
+	Kills = 0,
+	WeaponName = "Fireball",
+	Coins = 0,
+	Level = 1,
+	Xp = 0,
+	XpRequired = 6,
+	PerkCount = 0,
+	IsUserPaused = false,
+	HasBlockingPause = false,
+}
 
 local function addCorner(instance, radius)
 	local corner = Instance.new("UICorner")
@@ -47,8 +118,8 @@ end
 
 local function addStroke(instance, color, transparency, thickness)
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = color or COLORS.Line
-	stroke.Transparency = transparency or 0.82
+	stroke.Color = color
+	stroke.Transparency = transparency or 0
 	stroke.Thickness = thickness or 1
 	stroke.Parent = instance
 
@@ -67,17 +138,6 @@ local function addGradient(instance, firstColor, secondColor, rotation)
 	return gradient
 end
 
-local function addPadding(instance, top, right, bottom, left)
-	local padding = Instance.new("UIPadding")
-	padding.PaddingTop = UDim.new(0, top)
-	padding.PaddingRight = UDim.new(0, right)
-	padding.PaddingBottom = UDim.new(0, bottom)
-	padding.PaddingLeft = UDim.new(0, left)
-	padding.Parent = instance
-
-	return padding
-end
-
 local function addTextSizeConstraint(textObject, minSize, maxSize)
 	local constraint = Instance.new("UITextSizeConstraint")
 	constraint.MinTextSize = minSize
@@ -91,49 +151,83 @@ local function createLabel(parent, name, text, font, textSize, color)
 	local label = Instance.new("TextLabel")
 	label.Name = name
 	label.BackgroundTransparency = 1
-	label.Font = font or Enum.Font.GothamMedium
+	label.Font = font or UI_FONTS.Bold
 	label.Text = text or ""
 	label.TextColor3 = color or COLORS.Text
-	label.TextSize = textSize or 12
+	label.TextSize = textSize or 14
+	label.TextStrokeColor3 = COLORS.Shadow
+	label.TextStrokeTransparency = 0.45
+	label.TextTruncate = Enum.TextTruncate.AtEnd
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.TextYAlignment = Enum.TextYAlignment.Center
-	label.TextTruncate = Enum.TextTruncate.AtEnd
 	label.Parent = parent
 
 	return label
 end
 
-local function createPanel(parent, name)
-	local panel = Instance.new("Frame")
-	panel.Name = name
-	panel.BackgroundColor3 = COLORS.Panel
-	panel.BackgroundTransparency = 0.08
-	panel.BorderSizePixel = 0
-	panel.Parent = parent
-	addCorner(panel, 8)
-	addStroke(panel, COLORS.Line, 0.82, 1)
-	addGradient(panel, Color3.fromRGB(31, 34, 46), Color3.fromRGB(12, 14, 20), 90)
+local function createIcon(parent, name, imageId, fallbackText, color)
+	local holder = Instance.new("Frame")
+	holder.Name = name
+	holder.BackgroundTransparency = 1
+	holder.BorderSizePixel = 0
+	holder.Parent = parent
 
-	return panel
+	if imageId ~= nil and imageId ~= "" then
+		local image = Instance.new("ImageLabel")
+		image.Name = "Image"
+		image.BackgroundTransparency = 1
+		image.Image = imageId
+		image.ImageColor3 = color or COLORS.Text
+		image.ScaleType = Enum.ScaleType.Fit
+		image.Size = UDim2.fromScale(1, 1)
+		image.Parent = holder
+	else
+		local label = createLabel(holder, "Fallback", fallbackText, UI_FONTS.Heavy, 18, color or COLORS.Text)
+		label.Size = UDim2.fromScale(1, 1)
+		label.TextXAlignment = Enum.TextXAlignment.Center
+		label.TextYAlignment = Enum.TextYAlignment.Center
+		addTextSizeConstraint(label, 11, 18)
+	end
+
+	return holder
 end
 
-local function createTag(parent, name, text, color)
-	local tag = Instance.new("TextLabel")
-	tag.Name = name
-	tag.Size = UDim2.fromOffset(34, 22)
-	tag.BackgroundColor3 = color
-	tag.BorderSizePixel = 0
-	tag.Font = Enum.Font.GothamBlack
-	tag.Text = text
-	tag.TextColor3 = Color3.fromRGB(12, 14, 20)
-	tag.TextSize = 11
-	tag.TextXAlignment = Enum.TextXAlignment.Center
-	tag.TextYAlignment = Enum.TextYAlignment.Center
-	tag.Parent = parent
-	addCorner(tag, 6)
-	addGradient(tag, Color3.fromRGB(255, 255, 255), color, 90)
+local function createBar(parent, name, fillColor, _fillDarkColor)
+	local track = Instance.new("Frame")
+	track.Name = name .. "Track"
+	track.BackgroundColor3 = COLORS.Track
+	track.BackgroundTransparency = 0.18
+	track.BorderSizePixel = 0
+	track.ClipsDescendants = true
+	track.Parent = parent
+	addCorner(track, 7)
 
-	return tag
+	local fill = Instance.new("Frame")
+	fill.Name = name .. "Fill"
+	fill.BackgroundColor3 = fillColor
+	fill.BorderSizePixel = 0
+	fill.Size = UDim2.fromScale(0, 1)
+	fill.Parent = track
+	addCorner(fill, 7)
+
+	return track, fill
+end
+
+local function addGlassBackground(parent, name, position, size, radius)
+	local glass = Instance.new("Frame")
+	glass.Name = name
+	glass.Position = position
+	glass.Size = size
+	glass.BackgroundColor3 = COLORS.Glass
+	glass.BackgroundTransparency = 0.74
+	glass.BorderSizePixel = 0
+	glass.ZIndex = 0
+	glass.Parent = parent
+	addCorner(glass, radius)
+	addStroke(glass, COLORS.GlassStroke, 0.58, 1)
+	addGradient(glass, COLORS.Glass, COLORS.GlassTint, 90)
+
+	return glass
 end
 
 local function setBarProgress(fill, progress)
@@ -142,260 +236,35 @@ local function setBarProgress(fill, progress)
 	}):Play()
 end
 
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "CombatGui"
-screenGui.ResetOnSpawn = false
-screenGui.DisplayOrder = 6
-screenGui.IgnoreGuiInset = false
-screenGui.Parent = playerGui
+local function formatNumber(value)
+	local number = math.floor(tonumber(value) or 0)
+	local text = tostring(number)
+	local left, middle, right = string.match(text, "^([^%d]*%d)(%d*)(.-)$")
 
-local currencyPanel = createPanel(screenGui, "CurrencyPanel")
-currencyPanel.Position = UDim2.fromOffset(14, 72)
-currencyPanel.Size = UDim2.fromOffset(178, 44)
-currencyPanel.BackgroundTransparency = 0.04
+	if left == nil then
+		return text
+	end
 
-local currencyIcon = createTag(currencyPanel, "CoinTag", "G", COLORS.Gold)
-currencyIcon.Position = UDim2.fromOffset(9, 11)
-
-local currencyLabel = createLabel(currencyPanel, "CurrencyLabel", "GOLDS DE RUN", Enum.Font.GothamBold, 10, COLORS.Muted)
-currencyLabel.Position = UDim2.fromOffset(50, 6)
-currencyLabel.Size = UDim2.new(1, -58, 0, 15)
-
-local coinsValueLabel = createLabel(currencyPanel, "CoinsValue", "0", Enum.Font.GothamBlack, 18, COLORS.Gold)
-coinsValueLabel.Position = UDim2.fromOffset(50, 20)
-coinsValueLabel.Size = UDim2.new(1, -58, 0, 20)
-addTextSizeConstraint(coinsValueLabel, 12, 18)
-
-local statusPanel = createPanel(screenGui, "StatusPanel")
-statusPanel.AnchorPoint = Vector2.new(0, 1)
-statusPanel.Position = UDim2.new(0, 14, 1, -18)
-statusPanel.Size = UDim2.fromOffset(302, 148)
-addPadding(statusPanel, 10, 10, 10, 10)
-
-local statusSizeConstraint = Instance.new("UISizeConstraint")
-statusSizeConstraint.MinSize = Vector2.new(260, 138)
-statusSizeConstraint.MaxSize = Vector2.new(330, 150)
-statusSizeConstraint.Parent = statusPanel
-
-local brandLabel = createLabel(statusPanel, "BrandLabel", "MEGAROBLOX", Enum.Font.GothamBlack, 13, COLORS.Text)
-brandLabel.Position = UDim2.fromOffset(0, 0)
-brandLabel.Size = UDim2.new(0.58, 0, 0, 18)
-
-local runLabel = createLabel(statusPanel, "RunLabel", "RUN SURVIVOR", Enum.Font.GothamBold, 10, COLORS.Muted)
-runLabel.AnchorPoint = Vector2.new(1, 0)
-runLabel.Position = UDim2.new(1, 0, 0, 1)
-runLabel.Size = UDim2.new(0.42, 0, 0, 16)
-runLabel.TextXAlignment = Enum.TextXAlignment.Right
-
-local healthTitle = createLabel(statusPanel, "HealthTitle", "PV", Enum.Font.GothamBlack, 11, COLORS.Health)
-healthTitle.Position = UDim2.fromOffset(0, 26)
-healthTitle.Size = UDim2.fromOffset(36, 16)
-
-local healthValueLabel = createLabel(statusPanel, "HealthValue", "100 / 100", Enum.Font.GothamBold, 12, COLORS.Text)
-healthValueLabel.AnchorPoint = Vector2.new(1, 0)
-healthValueLabel.Position = UDim2.new(1, 0, 0, 26)
-healthValueLabel.Size = UDim2.new(1, -42, 0, 16)
-healthValueLabel.TextXAlignment = Enum.TextXAlignment.Right
-
-local healthTrack = Instance.new("Frame")
-healthTrack.Name = "HealthTrack"
-healthTrack.Position = UDim2.fromOffset(0, 45)
-healthTrack.Size = UDim2.new(1, 0, 0, 12)
-healthTrack.BackgroundColor3 = Color3.fromRGB(51, 35, 43)
-healthTrack.BorderSizePixel = 0
-healthTrack.ClipsDescendants = true
-healthTrack.Parent = statusPanel
-addCorner(healthTrack, 5)
-
-local healthFill = Instance.new("Frame")
-healthFill.Name = "HealthFill"
-healthFill.Size = UDim2.fromScale(1, 1)
-healthFill.BackgroundColor3 = COLORS.Health
-healthFill.BorderSizePixel = 0
-healthFill.Parent = healthTrack
-addCorner(healthFill, 5)
-addGradient(healthFill, COLORS.Health, COLORS.HealthDark, 0)
-
-local shieldRow = Instance.new("Frame")
-shieldRow.Name = "ShieldRow"
-shieldRow.Position = UDim2.fromOffset(0, 62)
-shieldRow.Size = UDim2.new(1, 0, 0, 18)
-shieldRow.BackgroundTransparency = 1
-shieldRow.Visible = false
-shieldRow.Parent = statusPanel
-
-local shieldTitle = createLabel(shieldRow, "ShieldTitle", "SH", Enum.Font.GothamBlack, 10, COLORS.Shield)
-shieldTitle.Size = UDim2.fromOffset(32, 18)
-
-local shieldTrack = Instance.new("Frame")
-shieldTrack.Name = "ShieldTrack"
-shieldTrack.Position = UDim2.fromOffset(36, 4)
-shieldTrack.Size = UDim2.new(1, -92, 0, 10)
-shieldTrack.BackgroundColor3 = Color3.fromRGB(32, 43, 62)
-shieldTrack.BorderSizePixel = 0
-shieldTrack.ClipsDescendants = true
-shieldTrack.Parent = shieldRow
-addCorner(shieldTrack, 5)
-
-local shieldFill = Instance.new("Frame")
-shieldFill.Name = "ShieldFill"
-shieldFill.Size = UDim2.fromScale(0, 1)
-shieldFill.BackgroundColor3 = COLORS.Shield
-shieldFill.BorderSizePixel = 0
-shieldFill.Parent = shieldTrack
-addCorner(shieldFill, 5)
-addGradient(shieldFill, COLORS.Shield, Color3.fromRGB(98, 240, 255), 0)
-
-local shieldValueLabel = createLabel(shieldRow, "ShieldValue", "0 / 0", Enum.Font.GothamBold, 10, COLORS.Muted)
-shieldValueLabel.AnchorPoint = Vector2.new(1, 0)
-shieldValueLabel.Position = UDim2.new(1, 0, 0, 1)
-shieldValueLabel.Size = UDim2.fromOffset(52, 16)
-shieldValueLabel.TextXAlignment = Enum.TextXAlignment.Right
-
-local metricsRow = Instance.new("Frame")
-metricsRow.Name = "MetricsRow"
-metricsRow.Position = UDim2.fromOffset(0, 84)
-metricsRow.Size = UDim2.new(1, 0, 0, 28)
-metricsRow.BackgroundTransparency = 1
-metricsRow.Parent = statusPanel
-
-local metricsLayout = Instance.new("UIListLayout")
-metricsLayout.FillDirection = Enum.FillDirection.Horizontal
-metricsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-metricsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-metricsLayout.Padding = UDim.new(0, 6)
-metricsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-metricsLayout.Parent = metricsRow
-
-local function createMetricChip(name, tagText, color)
-	local chip = Instance.new("Frame")
-	chip.Name = name
-	chip.Size = UDim2.new(0.333, -4, 1, 0)
-	chip.BackgroundColor3 = COLORS.PanelSoft
-	chip.BackgroundTransparency = 0.06
-	chip.BorderSizePixel = 0
-	chip.Parent = metricsRow
-	addCorner(chip, 7)
-	addStroke(chip, color, 0.7, 1)
-
-	local tag = createTag(chip, "Tag", tagText, color)
-	tag.Position = UDim2.fromOffset(4, 3)
-	tag.Size = UDim2.fromOffset(24, 20)
-
-	local value = createLabel(chip, "Value", "0", Enum.Font.GothamBlack, 13, COLORS.Text)
-	value.Position = UDim2.fromOffset(33, 4)
-	value.Size = UDim2.new(1, -37, 0, 19)
-	value.TextXAlignment = Enum.TextXAlignment.Left
-	addTextSizeConstraint(value, 10, 13)
-
-	return value
+	return left .. (middle:reverse():gsub("(%d%d%d)", "%1,"):reverse()) .. right
 end
 
-local waveValueLabel = createMetricChip("WaveChip", "W", COLORS.Wave)
-local killsValueLabel = createMetricChip("KillsChip", "K", COLORS.Kills)
-local monsterValueLabel = createMetricChip("MonsterChip", "M", COLORS.Monster)
+local function formatTopStatNumber(value)
+	local number = math.max(0, math.floor(tonumber(value) or 0))
 
-local weaponPanel = Instance.new("Frame")
-weaponPanel.Name = "WeaponPanel"
-weaponPanel.Position = UDim2.fromOffset(0, 119)
-weaponPanel.Size = UDim2.new(1, 0, 0, 20)
-weaponPanel.BackgroundColor3 = COLORS.PanelSoft
-weaponPanel.BackgroundTransparency = 0.06
-weaponPanel.BorderSizePixel = 0
-weaponPanel.Parent = statusPanel
-addCorner(weaponPanel, 7)
-addStroke(weaponPanel, COLORS.Weapon, 0.72, 1)
+	if number >= 1000000 then
+		return "1M"
+	end
 
-local weaponTag = createTag(weaponPanel, "WeaponTag", "FB", COLORS.Weapon)
-weaponTag.Position = UDim2.fromOffset(5, 2)
-weaponTag.Size = UDim2.fromOffset(32, 16)
-weaponTag.TextSize = 9
+	return formatNumber(number)
+end
 
-local weaponLabel = createLabel(weaponPanel, "WeaponLabel", "Fireball auto", Enum.Font.GothamBold, 11, COLORS.Text)
-weaponLabel.Position = UDim2.fromOffset(44, 0)
-weaponLabel.Size = UDim2.new(1, -126, 1, 0)
+local function formatTimer(seconds)
+	local safeSeconds = math.max(0, math.floor(seconds + 0.5))
+	local minutes = math.floor(safeSeconds / 60)
+	local remainingSeconds = safeSeconds % 60
 
-local perkCountLabel = createLabel(weaponPanel, "PerkCount", "0 perks", Enum.Font.GothamMedium, 10, COLORS.Muted)
-perkCountLabel.AnchorPoint = Vector2.new(1, 0)
-perkCountLabel.Position = UDim2.new(1, -6, 0, 0)
-perkCountLabel.Size = UDim2.fromOffset(72, 20)
-perkCountLabel.TextXAlignment = Enum.TextXAlignment.Right
-
-local xpPanel = createPanel(screenGui, "XpPanel")
-xpPanel.AnchorPoint = Vector2.new(0.5, 1)
-xpPanel.Position = UDim2.new(0.5, 0, 1, -18)
-xpPanel.Size = UDim2.new(0.46, 0, 0, 48)
-xpPanel.BackgroundTransparency = 0.04
-
-local xpPanelSizeConstraint = Instance.new("UISizeConstraint")
-xpPanelSizeConstraint.MinSize = Vector2.new(320, 48)
-xpPanelSizeConstraint.MaxSize = Vector2.new(620, 48)
-xpPanelSizeConstraint.Parent = xpPanel
-
-local levelBadge = Instance.new("Frame")
-levelBadge.Name = "LevelBadge"
-levelBadge.Position = UDim2.fromOffset(8, 8)
-levelBadge.Size = UDim2.fromOffset(56, 32)
-levelBadge.BackgroundColor3 = COLORS.XpAlt
-levelBadge.BorderSizePixel = 0
-levelBadge.Parent = xpPanel
-addCorner(levelBadge, 7)
-addGradient(levelBadge, COLORS.Xp, COLORS.XpAlt, 35)
-
-local levelTitle = createLabel(levelBadge, "LevelTitle", "LV", Enum.Font.GothamBlack, 9, Color3.fromRGB(20, 23, 32))
-levelTitle.Position = UDim2.fromOffset(7, 2)
-levelTitle.Size = UDim2.new(1, -14, 0, 11)
-levelTitle.TextXAlignment = Enum.TextXAlignment.Center
-
-local levelValueLabel = createLabel(levelBadge, "LevelValue", "1", Enum.Font.GothamBlack, 17, Color3.fromRGB(20, 23, 32))
-levelValueLabel.Position = UDim2.fromOffset(7, 12)
-levelValueLabel.Size = UDim2.new(1, -14, 0, 17)
-levelValueLabel.TextXAlignment = Enum.TextXAlignment.Center
-addTextSizeConstraint(levelValueLabel, 11, 17)
-
-local xpTrack = Instance.new("Frame")
-xpTrack.Name = "XpTrack"
-xpTrack.Position = UDim2.fromOffset(72, 11)
-xpTrack.Size = UDim2.new(1, -88, 0, 25)
-xpTrack.BackgroundColor3 = Color3.fromRGB(39, 42, 57)
-xpTrack.BorderSizePixel = 0
-xpTrack.ClipsDescendants = true
-xpTrack.Parent = xpPanel
-addCorner(xpTrack, 7)
-addStroke(xpTrack, COLORS.Line, 0.9, 1)
-
-local xpFill = Instance.new("Frame")
-xpFill.Name = "XpFill"
-xpFill.Size = UDim2.fromScale(0, 1)
-xpFill.BackgroundColor3 = COLORS.Xp
-xpFill.BorderSizePixel = 0
-xpFill.Parent = xpTrack
-addCorner(xpFill, 7)
-addGradient(xpFill, COLORS.Xp, COLORS.XpAlt, 0)
-
-local xpTextLabel = createLabel(xpTrack, "XpText", "XP 0 / 6", Enum.Font.GothamBlack, 12, COLORS.Text)
-xpTextLabel.Size = UDim2.fromScale(1, 1)
-xpTextLabel.TextXAlignment = Enum.TextXAlignment.Center
-xpTextLabel.TextYAlignment = Enum.TextYAlignment.Center
-
-local threatTrack = Instance.new("Frame")
-threatTrack.Name = "ThreatTrack"
-threatTrack.Position = UDim2.fromOffset(72, 38)
-threatTrack.Size = UDim2.new(1, -88, 0, 3)
-threatTrack.BackgroundColor3 = Color3.fromRGB(45, 34, 38)
-threatTrack.BorderSizePixel = 0
-threatTrack.ClipsDescendants = true
-threatTrack.Parent = xpPanel
-addCorner(threatTrack, 2)
-
-local threatFill = Instance.new("Frame")
-threatFill.Name = "ThreatFill"
-threatFill.Size = UDim2.fromScale(0, 1)
-threatFill.BackgroundColor3 = COLORS.Wave
-threatFill.BorderSizePixel = 0
-threatFill.Parent = threatTrack
-addCorner(threatFill, 2)
-addGradient(threatFill, COLORS.Wave, COLORS.Monster, 0)
+	return ("%02d:%02d"):format(minutes, remainingSeconds)
+end
 
 local function getViewportSize()
 	local currentCamera = Workspace.CurrentCamera
@@ -407,27 +276,428 @@ local function getViewportSize()
 	return currentCamera.ViewportSize
 end
 
-local viewportConnection = nil
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CombatGui"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = false
+screenGui.DisplayOrder = 6
+screenGui.Parent = playerGui
+
+local damageFlash = Instance.new("Frame")
+damageFlash.Name = "DamageFlash"
+damageFlash.Size = UDim2.fromScale(1, 1)
+damageFlash.BackgroundColor3 = COLORS.DamageFlash
+damageFlash.BackgroundTransparency = 1
+damageFlash.BorderSizePixel = 0
+damageFlash.ZIndex = 1000
+damageFlash.Parent = screenGui
+
+local function playDamageFlash()
+	if damageFlashTween ~= nil then
+		damageFlashTween:Cancel()
+		damageFlashTween = nil
+	end
+
+	damageFlash.BackgroundTransparency = 0.82
+	damageFlashTween = TweenService:Create(damageFlash, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		BackgroundTransparency = 1,
+	})
+	damageFlashTween:Play()
+end
+
+local topCluster = Instance.new("Frame")
+topCluster.Name = "TopCluster"
+topCluster.AnchorPoint = Vector2.new(0.5, 0)
+topCluster.Position = UDim2.new(0.5, 0, 0, 12)
+topCluster.Size = UDim2.fromOffset(640, 70)
+topCluster.BackgroundTransparency = 1
+topCluster.BorderSizePixel = 0
+topCluster.Parent = screenGui
+
+local topScale = Instance.new("UIScale")
+topScale.Parent = topCluster
+
+local topPauseSize = 44
+local topStatSlotWidth = 138
+local topStatValueOffset = 52
+local topStatIconSize = math.floor(topPauseSize * 1.1)
+local topStatTextSize = math.floor(topPauseSize * 0.72)
+
+addGlassBackground(topCluster, "TopStatsGlassBackground", UDim2.fromOffset(-8, -1), UDim2.fromOffset(302, 45), 13)
+
+local killsSlot = Instance.new("Frame")
+killsSlot.Name = "KillsSlot"
+killsSlot.Position = UDim2.fromOffset(0, -3)
+killsSlot.Size = UDim2.fromOffset(topStatSlotWidth, 52)
+killsSlot.BackgroundTransparency = 1
+killsSlot.BorderSizePixel = 0
+killsSlot.Parent = topCluster
+
+local killsIcon = createIcon(killsSlot, "KillsIcon", ICON_IMAGES.Kills, "K", COLORS.Kills)
+killsIcon.Position = UDim2.fromOffset(0, 0)
+killsIcon.Size = UDim2.fromOffset(topStatIconSize, topStatIconSize)
+
+local killsValue = createLabel(killsSlot, "KillsValue", "0", UI_FONTS.Heavy, topStatTextSize, COLORS.Kills)
+killsValue.Position = UDim2.fromOffset(topStatValueOffset, 1)
+killsValue.Size = UDim2.fromOffset(topStatSlotWidth - topStatValueOffset, 43)
+killsValue.TextScaled = true
+killsValue.TextXAlignment = Enum.TextXAlignment.Left
+addTextSizeConstraint(killsValue, 15, topStatTextSize)
+
+local goldSlot = Instance.new("Frame")
+goldSlot.Name = "GoldSlot"
+goldSlot.Position = UDim2.fromOffset(148, -3)
+goldSlot.Size = UDim2.fromOffset(topStatSlotWidth, 52)
+goldSlot.BackgroundTransparency = 1
+goldSlot.BorderSizePixel = 0
+goldSlot.Parent = topCluster
+
+local goldIcon = createIcon(goldSlot, "GoldIcon", ICON_IMAGES.Gold, "G", COLORS.Gold)
+goldIcon.Position = UDim2.fromOffset(0, 0)
+goldIcon.Size = UDim2.fromOffset(topStatIconSize, topStatIconSize)
+
+local goldValue = createLabel(goldSlot, "GoldValue", "0", UI_FONTS.Heavy, topStatTextSize, COLORS.Gold)
+goldValue.Position = UDim2.fromOffset(topStatValueOffset, 1)
+goldValue.Size = UDim2.fromOffset(topStatSlotWidth - topStatValueOffset, 43)
+goldValue.TextScaled = true
+goldValue.TextXAlignment = Enum.TextXAlignment.Left
+addTextSizeConstraint(goldValue, 15, topStatTextSize)
+
+local pauseButton = Instance.new("TextButton")
+pauseButton.Name = "PauseButton"
+pauseButton.AnchorPoint = Vector2.new(0.5, 0)
+pauseButton.Position = UDim2.new(0.5, 0, 0, 0)
+pauseButton.Size = UDim2.fromOffset(topPauseSize, topPauseSize)
+pauseButton.BackgroundColor3 = Color3.fromRGB(5, 8, 14)
+pauseButton.BackgroundTransparency = 0.18
+pauseButton.BorderSizePixel = 0
+pauseButton.Font = UI_FONTS.Heavy
+pauseButton.Text = "||"
+pauseButton.TextColor3 = COLORS.Green
+pauseButton.TextSize = 22
+pauseButton.TextStrokeTransparency = 0.45
+pauseButton.AutoButtonColor = true
+pauseButton.Parent = topCluster
+addCorner(pauseButton, 10)
+addStroke(pauseButton, COLORS.Green, 0.38, 1)
+addTextSizeConstraint(pauseButton, 15, 22)
+
+local timerLabel = createLabel(topCluster, "TimerLabel", "12:00", UI_FONTS.Bold, 15, COLORS.Text)
+timerLabel.AnchorPoint = Vector2.new(0.5, 0)
+timerLabel.Position = UDim2.new(0.5, 0, 0, 45)
+timerLabel.Size = UDim2.fromOffset(82, 20)
+timerLabel.TextXAlignment = Enum.TextXAlignment.Center
+addTextSizeConstraint(timerLabel, 11, 15)
+
+local xpPanel = Instance.new("Frame")
+xpPanel.Name = "XpPanel"
+xpPanel.AnchorPoint = Vector2.new(0.5, 1)
+xpPanel.Position = UDim2.new(0.5, 0, 1, -16)
+xpPanel.Size = UDim2.new(0.52, 0, 0, 72)
+xpPanel.BackgroundTransparency = 1
+xpPanel.BorderSizePixel = 0
+xpPanel.Parent = screenGui
+
+local xpSize = Instance.new("UISizeConstraint")
+xpSize.MinSize = Vector2.new(390, 72)
+xpSize.MaxSize = Vector2.new(760, 72)
+xpSize.Parent = xpPanel
+
+local xpScale = Instance.new("UIScale")
+xpScale.Parent = xpPanel
+
+addGlassBackground(xpPanel, "BarsGlassBackground", UDim2.fromOffset(-14, -8), UDim2.new(1, 28, 1, 16), 13)
+
+local hpGroup = Instance.new("Frame")
+hpGroup.Name = "HpGroup"
+hpGroup.Position = UDim2.fromOffset(0, 0)
+hpGroup.Size = UDim2.new(0.45, 0, 0, 32)
+hpGroup.BackgroundTransparency = 1
+hpGroup.Parent = xpPanel
+
+local hpIcon = createIcon(hpGroup, "HealthIcon", ICON_IMAGES.Health, "+", COLORS.Health)
+hpIcon.Position = UDim2.fromOffset(-3, -7)
+hpIcon.Size = UDim2.fromOffset(28, 28)
+
+local hpText = createLabel(hpGroup, "HpText", "100 / 100", UI_FONTS.Heavy, 14, COLORS.Health)
+hpText.Position = UDim2.fromOffset(31, -1)
+hpText.Size = UDim2.new(1, -31, 0, 18)
+hpText.TextScaled = true
+addTextSizeConstraint(hpText, 11, 15)
+
+local hpTrack, hpFill = createBar(hpGroup, "Health", COLORS.Health, COLORS.HealthDark)
+hpTrack.Position = UDim2.fromOffset(0, 19)
+hpTrack.Size = UDim2.new(1, 0, 0, 13)
+
+local shieldGroup = Instance.new("Frame")
+shieldGroup.Name = "ShieldGroup"
+shieldGroup.AnchorPoint = Vector2.new(1, 0)
+shieldGroup.Position = UDim2.new(1, 0, 0, 0)
+shieldGroup.Size = UDim2.new(0.45, 0, 0, 32)
+shieldGroup.BackgroundTransparency = 1
+shieldGroup.Parent = xpPanel
+
+local shieldHeader = Instance.new("Frame")
+shieldHeader.Name = "ShieldHeader"
+shieldHeader.AnchorPoint = Vector2.new(1, 0)
+shieldHeader.Position = UDim2.new(1, 0, 0, 0)
+shieldHeader.Size = UDim2.fromOffset(136, 18)
+shieldHeader.BackgroundTransparency = 1
+shieldHeader.BorderSizePixel = 0
+shieldHeader.Parent = shieldGroup
+
+local shieldIcon = createIcon(shieldHeader, "ShieldIcon", ICON_IMAGES.Shield, "S", COLORS.Shield)
+shieldIcon.Position = UDim2.fromOffset(-3, -7)
+shieldIcon.Size = UDim2.fromOffset(28, 28)
+
+local shieldText = createLabel(shieldHeader, "ShieldText", "0 / 0", UI_FONTS.Heavy, 14, COLORS.Shield)
+shieldText.Position = UDim2.fromOffset(31, -1)
+shieldText.Size = UDim2.new(1, -31, 0, 18)
+shieldText.TextScaled = true
+shieldText.TextXAlignment = Enum.TextXAlignment.Right
+addTextSizeConstraint(shieldText, 11, 15)
+
+local shieldTrack, shieldFill = createBar(shieldGroup, "Shield", COLORS.Shield, COLORS.ShieldDark)
+shieldTrack.Position = UDim2.fromOffset(0, 19)
+shieldTrack.Size = UDim2.new(1, 0, 0, 13)
+
+local levelValue = createLabel(xpPanel, "LevelValue", "LVL 1", UI_FONTS.Heavy, 16, COLORS.Xp)
+levelValue.Position = UDim2.fromOffset(0, 37)
+levelValue.Size = UDim2.fromOffset(72, 18)
+addTextSizeConstraint(levelValue, 12, 16)
+
+local xpText = createLabel(xpPanel, "XpText", "XP 0 / 6", UI_FONTS.Heavy, 16, COLORS.Xp)
+xpText.AnchorPoint = Vector2.new(1, 0)
+xpText.Position = UDim2.new(1, 0, 0, 37)
+xpText.Size = UDim2.new(1, -78, 0, 18)
+xpText.TextXAlignment = Enum.TextXAlignment.Right
+addTextSizeConstraint(xpText, 12, 16)
+
+local xpTrack, xpFill = createBar(xpPanel, "Xp", COLORS.Xp, COLORS.XpDark)
+xpTrack.Position = UDim2.fromOffset(0, 58)
+xpTrack.Size = UDim2.new(1, 0, 0, 14)
 
 local function updateResponsiveLayout()
 	local viewportSize = getViewportSize()
 
-	if viewportSize.X < 760 then
-		currencyPanel.Position = UDim2.fromOffset(12, 108)
-		currencyPanel.Size = UDim2.fromOffset(154, 40)
-		statusPanel.Position = UDim2.new(0, 12, 1, -72)
-		statusPanel.Size = UDim2.fromOffset(270, 138)
-		xpPanel.Size = UDim2.new(0.72, 0, 0, 46)
+	if viewportSize.X < 560 then
+		topCluster.Position = UDim2.new(0.5, 0, 0, 8)
+		topScale.Scale = 0.68
+		xpPanel.Position = UDim2.new(0.5, 0, 1, -8)
+		xpPanel.Size = UDim2.new(0.88, 0, 0, 72)
+		xpScale.Scale = 0.8
+	elseif viewportSize.X < 760 then
+		topCluster.Position = UDim2.new(0.5, 0, 0, 8)
+		topScale.Scale = 0.78
+		xpPanel.Position = UDim2.new(0.5, 0, 1, -8)
+		xpPanel.Size = UDim2.new(0.82, 0, 0, 72)
+		xpScale.Scale = 0.86
+	elseif viewportSize.X < 1250 then
+		topCluster.Position = UDim2.new(0.5, 0, 0, 10)
+		topScale.Scale = 0.9
+		xpPanel.Position = UDim2.new(0.5, 0, 1, -12)
+		xpPanel.Size = UDim2.new(0.62, 0, 0, 72)
+		xpScale.Scale = 0.92
 	else
-		currencyPanel.Position = UDim2.fromOffset(14, 72)
-		currencyPanel.Size = UDim2.fromOffset(178, 44)
-		statusPanel.Position = UDim2.new(0, 14, 1, -18)
-		statusPanel.Size = UDim2.fromOffset(302, 148)
-		xpPanel.Size = UDim2.new(0.46, 0, 0, 48)
+		topCluster.Position = UDim2.new(0.5, 0, 0, 12)
+		topScale.Scale = 1
+		xpPanel.Position = UDim2.new(0.5, 0, 1, -16)
+		xpPanel.Size = UDim2.new(0.52, 0, 0, 72)
+		xpScale.Scale = 1
 	end
 end
 
-local function bindViewportResize()
+local function refreshCombatStats()
+	local healthProgress = state.Health / math.max(1, state.MaxHealth)
+	local shieldProgress = 0
+
+	if state.MaxShield > 0 then
+		shieldProgress = state.Shield / state.MaxShield
+	end
+
+	hpText.Text = ("%s / %s"):format(formatNumber(state.Health), formatNumber(state.MaxHealth))
+	shieldText.Text = ("%s / %s"):format(formatNumber(state.Shield), formatNumber(state.MaxShield))
+	killsValue.Text = formatTopStatNumber(state.Kills)
+	goldValue.Text = formatTopStatNumber(state.Coins)
+
+	setBarProgress(hpFill, healthProgress)
+	setBarProgress(shieldFill, shieldProgress)
+end
+
+local function refreshXp()
+	local progress = state.Xp / math.max(1, state.XpRequired)
+
+	levelValue.Text = ("LVL %s"):format(formatNumber(state.Level))
+	xpText.Text = ("XP %s / %s"):format(formatNumber(state.Xp), formatNumber(state.XpRequired))
+	setBarProgress(xpFill, progress)
+end
+
+local function refreshCoins()
+	goldValue.Text = formatTopStatNumber(state.Coins)
+end
+
+local function refreshTimer()
+	timerLabel.Text = formatTimer(timerRemaining)
+end
+
+local function isTimerPaused()
+	return state.IsUserPaused or state.HasBlockingPause
+end
+
+local function refreshPause()
+	isPauseButtonBlocked = state.HasBlockingPause and not state.IsUserPaused
+	pauseButton.Active = not isPauseButtonBlocked
+	pauseButton.AutoButtonColor = not isPauseButtonBlocked
+	pauseButton.Text = if state.IsUserPaused then ">" else "||"
+	pauseButton.TextColor3 = if isPauseButtonBlocked then COLORS.Muted else COLORS.Green
+	pauseButton.TextTransparency = if isPauseButtonBlocked then 0.42 else 0
+
+	local stroke = pauseButton:FindFirstChildWhichIsA("UIStroke")
+
+	if stroke ~= nil then
+		TweenService:Create(stroke, QUICK_TWEEN, {
+			Color = if isPauseButtonBlocked then COLORS.Muted else COLORS.Green,
+			Transparency = if state.IsUserPaused then 0.1 else 0.38,
+		}):Play()
+	end
+end
+
+local function onStatsPayload(payload)
+	payload = payload or {}
+
+	local previousHealth = state.Health
+	local previousShield = state.Shield
+
+	state.Health = payload.Health or state.Health
+	state.MaxHealth = math.max(1, payload.MaxHealth or state.MaxHealth)
+	state.Shield = payload.Shield or state.Shield
+	state.MaxShield = math.max(0, payload.MaxShield or state.MaxShield)
+	state.AliveMonsters = payload.AliveMonsters or state.AliveMonsters
+	state.MaxAliveMonsters = math.max(1, payload.MaxAliveMonsters or state.MaxAliveMonsters)
+	state.Wave = payload.Wave or state.Wave
+	state.Kills = payload.Kills or state.Kills
+	state.WeaponName = payload.WeaponName or state.WeaponName
+
+	if hasReceivedStatsSnapshot and (state.Health < previousHealth or state.Shield < previousShield) then
+		playDamageFlash()
+	end
+
+	hasReceivedStatsSnapshot = true
+	refreshCombatStats()
+end
+
+local function onXpPayload(payload)
+	payload = payload or {}
+
+	state.Xp = payload.Xp or state.Xp
+	state.Level = payload.Level or state.Level
+	state.XpRequired = math.max(1, payload.XpRequired or state.XpRequired)
+	refreshXp()
+end
+
+local function onCoinsPayload(payload)
+	payload = payload or {}
+
+	state.Coins = payload.Coins or state.Coins
+	refreshCoins()
+end
+
+local function onPerksPayload(payload)
+	payload = payload or {}
+
+	local previousShield = state.Shield
+
+	if payload.CurrentShield ~= nil then
+		state.Shield = payload.CurrentShield
+	end
+
+	if payload.MaxShield ~= nil then
+		state.MaxShield = math.max(0, payload.MaxShield)
+	end
+
+	if hasReceivedStatsSnapshot and state.Shield < previousShield then
+		playDamageFlash()
+	end
+
+	refreshCombatStats()
+end
+
+local function onPausePayload(payload)
+	payload = payload or {}
+
+	state.IsUserPaused = payload.IsUserPaused == true
+	state.HasBlockingPause = payload.HasBlockingPause == true
+	refreshPause()
+end
+
+local function waitForRemote(remoteName)
+	local remote = ReplicatedStorage:FindFirstChild(remoteName)
+
+	if remote == nil then
+		remote = ReplicatedStorage:WaitForChild(remoteName, 20)
+	end
+
+	if remote == nil then
+		DebugLog.Warn("UI", "Remote HUD introuvable", {
+			Remote = remoteName,
+		})
+	end
+
+	return remote
+end
+
+local function bindRemote(remoteName, callback)
+	task.spawn(function()
+		local remote = waitForRemote(remoteName)
+
+		if remote == nil then
+			return
+		end
+
+		remote.OnClientEvent:Connect(callback)
+		DebugLog.Info("UI", "Remote HUD connecte", {
+			Remote = remoteName,
+		})
+	end)
+end
+
+bindRemote("Combat_UpdateStats", onStatsPayload)
+bindRemote("Xp_UpdateCount", onXpPayload)
+bindRemote("Coin_UpdateCount", onCoinsPayload)
+bindRemote("Perk_UpdateStats", onPerksPayload)
+bindRemote("Combat_PauseState", onPausePayload)
+
+task.spawn(function()
+	togglePauseRemote = waitForRemote("Combat_TogglePause")
+end)
+
+pauseButton.Activated:Connect(function()
+	if isPauseButtonBlocked then
+		return
+	end
+
+	if togglePauseRemote == nil then
+		DebugLog.Warn("UI", "Pause ignoree, remote pas encore pret")
+		return
+	end
+
+	togglePauseRemote:FireServer()
+end)
+
+RunService.RenderStepped:Connect(function(deltaTime)
+	if timerRemaining <= 0 or isTimerPaused() then
+		return
+	end
+
+	timerRemaining = math.max(0, timerRemaining - deltaTime)
+	refreshTimer()
+end)
+
+if Workspace.CurrentCamera ~= nil then
+	viewportConnection = Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateResponsiveLayout)
+end
+
+Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
 	if viewportConnection ~= nil then
 		viewportConnection:Disconnect()
 		viewportConnection = nil
@@ -436,77 +706,17 @@ local function bindViewportResize()
 	if Workspace.CurrentCamera ~= nil then
 		viewportConnection = Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateResponsiveLayout)
 	end
-end
 
-local function updateXpDisplay(payload)
-	local level = payload.Level or 1
-	local xp = payload.Xp or 0
-	local xpRequired = math.max(1, payload.XpRequired or 1)
-	local progress = math.clamp(xp / xpRequired, 0, 1)
-
-	levelValueLabel.Text = tostring(level)
-	setBarProgress(xpFill, progress)
-	xpTextLabel.Text = ("XP %d / %d"):format(xp, xpRequired)
-end
-
-local function updatePerkDisplay(payload)
-	local stacksByPerkId = payload.StacksByPerkId or {}
-	local stackCount = 0
-
-	for _, count in pairs(stacksByPerkId) do
-		if typeof(count) == "number" then
-			stackCount += count
-		end
-	end
-
-	perkCountLabel.Text = ("%d perks"):format(stackCount)
-end
-
-statsRemote.OnClientEvent:Connect(function(payload)
-	local health = payload.Health or 0
-	local maxHealth = math.max(1, payload.MaxHealth or 100)
-	local shield = payload.Shield or 0
-	local maxShield = payload.MaxShield or 0
-	local aliveMonsters = payload.AliveMonsters or 0
-	local maxAliveMonsters = math.max(1, payload.MaxAliveMonsters or aliveMonsters)
-	local wave = payload.Wave or 1
-	local kills = payload.Kills or 0
-	local weaponName = payload.WeaponName or "Fireball"
-	local healthProgress = math.clamp(health / maxHealth, 0, 1)
-	local threatProgress = math.clamp(aliveMonsters / maxAliveMonsters, 0, 1)
-
-	healthValueLabel.Text = ("%d / %d"):format(health, maxHealth)
-	setBarProgress(healthFill, healthProgress)
-
-	shieldRow.Visible = maxShield > 0
-
-	if maxShield > 0 then
-		shieldValueLabel.Text = ("%d / %d"):format(shield, maxShield)
-		setBarProgress(shieldFill, math.clamp(shield / math.max(1, maxShield), 0, 1))
-	end
-
-	waveValueLabel.Text = tostring(wave)
-	killsValueLabel.Text = tostring(kills)
-	monsterValueLabel.Text = ("%d/%d"):format(aliveMonsters, maxAliveMonsters)
-	weaponLabel.Text = weaponName .. " auto"
-	setBarProgress(threatFill, threatProgress)
-end)
-
-updateXpRemote.OnClientEvent:Connect(updateXpDisplay)
-
-updateCoinsRemote.OnClientEvent:Connect(function(payload)
-	local coinCount = payload.Coins or 0
-
-	coinsValueLabel.Text = tostring(coinCount)
-end)
-
-updatePerksRemote.OnClientEvent:Connect(updatePerkDisplay)
-
-bindViewportResize()
-
-Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
-	bindViewportResize()
 	updateResponsiveLayout()
 end)
 
+refreshCombatStats()
+refreshXp()
+refreshCoins()
+refreshTimer()
+refreshPause()
 updateResponsiveLayout()
+
+DebugLog.Info("UI", "HUD combat epure initialise", {
+	Player = player.Name,
+})

@@ -2,6 +2,7 @@ local DataStoreService = game:GetService("DataStoreService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 
@@ -159,7 +160,10 @@ local function saveProfile(player, shouldNotify)
 	profile.LastSaveSucceeded = success
 
 	if not success then
-		warn("Impossible de sauvegarder les bonus du joueur " .. player.Name .. " : " .. tostring(errorMessage))
+		DebugLog.Warn("Perks", "Sauvegarde bonus saut impossible", {
+			Player = player.Name,
+			Error = tostring(errorMessage),
+		})
 	end
 
 	if shouldNotify then
@@ -178,7 +182,10 @@ local function loadProfile(player)
 	if success and typeof(data) == "table" then
 		profile.JumpBonusStacks = sanitizeStackCount(data.JumpBonusStacks)
 	elseif not success then
-		warn("Impossible de charger les bonus du joueur " .. player.Name .. " : " .. tostring(data))
+		DebugLog.Warn("Perks", "Chargement bonus saut impossible", {
+			Player = player.Name,
+			Error = tostring(data),
+		})
 	end
 
 	profile.Loaded = true
@@ -195,6 +202,10 @@ local function updateBonusStacks(player, nextStackCount)
 end
 
 function JumpBonusService.SetupPlayer(player)
+	DebugLog.Info("Perks", "Setup joueur bonus saut", {
+		Player = player.Name,
+		QuizEnabled = FeatureFlags.QuizEnabled,
+	})
 	getOrCreateProfile(player)
 
 	characterConnectionsByUserId[player.UserId] = player.CharacterAdded:Connect(function(character)
@@ -272,6 +283,10 @@ function JumpBonusService.SetExternalJumpMultiplier(player, multiplier)
 	externalJumpMultipliersByUserId[player.UserId] = math.max(1, multiplier or 1)
 	applyJumpMultiplier(player)
 	sendBonusState(player)
+	DebugLog.ThrottledInfo("Perks", "jump_external_" .. player.UserId, 1, "Multiplicateur saut externe applique", {
+		Player = player.Name,
+		Multiplier = externalJumpMultipliersByUserId[player.UserId],
+	})
 end
 
 function JumpBonusService.SavePlayer(player)

@@ -2,20 +2,38 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
 
 local AdminService = require(script.Parent:WaitForChild("AdminService"))
 local ChestService = require(script.Parent:WaitForChild("ChestService"))
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
+local JarService = require(script.Parent:WaitForChild("JarService"))
 local JumpBonusService = require(script.Parent:WaitForChild("JumpBonusService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local PortalService = require(script.Parent:WaitForChild("PortalService"))
 local RoundService = require(script.Parent:WaitForChild("RoundService"))
 local ScoreService = require(script.Parent:WaitForChild("ScoreService"))
+local ShrineService = require(script.Parent:WaitForChild("ShrineService"))
+local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WeaponService = require(script.Parent:WaitForChild("WeaponService"))
 local XpService = require(script.Parent:WaitForChild("XpService"))
 
+DebugLog.Info("GameManager", "Demarrage GameManager", {
+	AdminToolsEnabled = FeatureFlags.AdminToolsEnabled,
+	DebugUIEnabled = FeatureFlags.DebugUIEnabled,
+	QuizEnabled = FeatureFlags.QuizEnabled,
+})
+
+TemplateService.Start()
+
 local function setupPlayer(player)
+	DebugLog.Info("GameManager", "Setup joueur", {
+		Player = player.Name,
+		UserId = player.UserId,
+	})
+
 	if FeatureFlags.AdminToolsEnabled then
 		AdminService.SetupPlayer(player)
 	end
@@ -27,6 +45,7 @@ local function setupPlayer(player)
 	PerkService.SetupPlayer(player)
 	XpService.SetupPlayer(player)
 	MonsterService.SetupPlayer(player)
+	ShrineService.SetupPlayer(player)
 
 	task.spawn(function()
 		CoinService.SetupPlayer(player)
@@ -40,12 +59,18 @@ end
 
 Players.PlayerAdded:Connect(setupPlayer)
 Players.PlayerRemoving:Connect(function(player)
+	DebugLog.Info("GameManager", "Remove joueur", {
+		Player = player.Name,
+		UserId = player.UserId,
+	})
+
 	if FeatureFlags.QuizEnabled then
 		RoundService.RemovePlayer(player)
 	end
 
 	WeaponService.RemovePlayer(player)
 	MonsterService.RemovePlayer(player)
+	ShrineService.RemovePlayer(player)
 	ChestService.RemovePlayer(player)
 
 	if FeatureFlags.AdminToolsEnabled then
@@ -73,16 +98,30 @@ game:BindToClose(function()
 end)
 
 if FeatureFlags.AdminToolsEnabled then
+	DebugLog.Info("GameManager", "Start AdminService")
 	AdminService.Start()
 end
 
-ChestService.Start()
+DebugLog.Info("GameManager", "Start PerkService")
 PerkService.Start()
+DebugLog.Info("GameManager", "Start PortalService")
+PortalService.Start()
+DebugLog.Info("GameManager", "Start ShrineService")
+ShrineService.Start()
+DebugLog.Info("GameManager", "Start ChestService")
+ChestService.Start()
+DebugLog.Info("GameManager", "Start MonsterService")
 MonsterService.Start()
+DebugLog.Info("GameManager", "Start WeaponService")
 WeaponService.Start()
+DebugLog.Info("GameManager", "Start CoinService")
 CoinService.Start()
+DebugLog.Info("GameManager", "Start XpService")
 XpService.Start()
+DebugLog.Info("GameManager", "Start JarService")
+JarService.Start()
 
 if FeatureFlags.QuizEnabled then
+	DebugLog.Info("GameManager", "Start RoundService")
 	RoundService.Start()
 end

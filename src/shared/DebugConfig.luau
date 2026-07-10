@@ -1,0 +1,20 @@
+return {
+	ConsoleEnabled = true,
+	DefaultCategoryEnabled = false,
+	Categories = {
+		Admin = true,
+		Audio = true,
+		Chest = true,
+		Coin = true,
+		Combat = true,
+		GameManager = true,
+		Jar = true,
+		Perks = true,
+		Portal = true,
+		Shrine = true,
+		Templates = true,
+		UI = true,
+		Weapon = true,
+		Xp = true,
+	},
+}

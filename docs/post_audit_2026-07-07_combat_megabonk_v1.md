@@ -723,3 +723,1029 @@ La boucle survivor-like est lisible, mais le HUD joueur devait devenir plus prop
 - Complexite ajoutee : moyenne cote client UI.
 - Complexite reduite : les informations de run sont regroupees dans un seul HUD principal au lieu d'etre dispersees entre l'ancien quiz et le combat.
 - Gain produit : le joueur lit plus vite sa survie, son XP, ses golds, sa vague et sa progression sans perdre le controle visuel de l'arene.
+
+## 2026-07-08 10:42:49 +02:00 - Arborescence templates/runtime et PerkShrine V1
+
+### Contexte
+
+Les templates places dans `Workspace` finissent par exister comme objets reels de la map : ils peuvent etre visibles, repliques, detectes par les scripts, touches par des raycasts ou pris pour des objets runtime. La passe separe donc clairement les sources serveur et les objets actifs, puis ajoute une premiere generation d'autel de perk.
+
+### Changements
+
+- `src/server/TemplateService.luau` centralise la creation des dossiers de templates et de runtime.
+- `src/server/TemplateService.luau` cree ou reutilise `ServerStorage/CombatTemplates`, `ServerStorage/CollectibleTemplates`, `ServerStorage/ShrineTemplates`, `ServerStorage/MapTemplates` et `ServerStorage/ChestTemplates`.
+- `src/server/TemplateService.luau` cree ou reutilise `Workspace/CombatRuntime`, `Workspace/CombatRuntime/Monsters`, `Workspace/CombatRuntime/Projectiles`, `Workspace/CombatRuntime/Loot`, `Workspace/ShrinesRuntime` et `Workspace/MapRuntime`.
+- `src/server/TemplateService.luau` cherche les templates en priorite dans `ServerStorage`.
+- `src/server/TemplateService.luau` garde une compatibilite temporaire : un template trouve dans `Workspace` est deplace vers le bon dossier `ServerStorage` avec un warning explicite.
+- `src/server/MonsterService.luau`, `src/server/WeaponService.luau`, `src/server/CoinService.luau` et `src/server/XpService.luau` utilisent maintenant `TemplateService` pour recuperer leurs templates.
+- `src/shared/ShrineConfig.luau` ajoute la configuration V1 des autels de perk.
+- `src/server/ShrineService.luau` clone `ServerStorage/ShrineTemplates/PerkShrine` dans `Workspace/ShrinesRuntime`.
+- `src/server/ShrineService.luau` cache `Bubble` au spawn, l'affiche pendant la charge, puis la cache quand l'autel devient inactif.
+- `src/server/ShrineService.luau` ajoute un `ProximityPrompt` maintenu sur `E` pour charger l'autel.
+- `src/server/ShrineService.luau` declenche un choix de perk bonus via `PerkService.QueueBonusChoice`.
+- `src/server/PerkService.luau` expose une petite API `QueueBonusChoice` sans modifier la table des perks ni la logique d'application des choix.
+- `src/client/PerkUI.client.luau` accepte un titre optionnel pour afficher `Autel de perk` au lieu de forcer un titre de niveau.
+- `src/server/GameManager.server.luau` demarre `TemplateService` puis `ShrineService`.
+
+### Decisions
+
+- Juste : `Workspace` reste le lieu des objets actifs, pas le lieu principal des templates source.
+- Juste : la migration temporaire depuis `Workspace` est volontairement accompagnee d'un warning pour signaler les templates encore mal ranges dans Studio.
+- Juste : `default.project.json` n'est pas modifie, car les assets 3D restent geres dans Roblox Studio et Rojo ne sert ici qu'aux scripts.
+- Juste : les collectibles runtime continuent d'aller dans `Workspace/CombatRuntime/Loot`, mais leurs sources viennent de `ServerStorage/CollectibleTemplates`.
+- Contestable : `ChestTemplates` est cree pour preparer la suite, mais les coffres deja presents en scene restent consideres comme objets actifs tant qu'il n'existe pas encore de generateur de coffres.
+- Simplification : la V1 genere un seul autel de perk initial autour du joueur, pas encore un reseau procedural d'autels.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_templates_shrines_build.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les avertissements CRLF habituels.
+
+### Angles morts
+
+- Angle mort : le deplacement reel des instances Studio vers `ServerStorage` se fait au lancement serveur, pas en mode edition Studio avant Play.
+- Angle mort : si `PerkShrine` ne contient aucune `BasePart`, le service ne pourra pas la generer.
+- Angle mort : si `Bubble` n'est pas enfant de `PerkShrine`, le service tente de rattacher une `Bubble` trouvee dans `Workspace`, mais il faut quand meme verifier la hierarchie propre dans Studio.
+- Angle mort : le placement de l'autel utilise un raycast autour du joueur ; il faudra l'adapter quand la generation procedurale de map arrivera.
+- Angle mort : la pause reste celle du choix de perk, pas de la charge de l'autel.
+
+### Budget de complexite
+
+- Complexite ajoutee : moyenne, car un service de structure et un service interactable sont ajoutes.
+- Complexite reduite : la recherche de templates n'est plus dupliquee dans chaque service gameplay.
+- Gain produit : la scene devient plus lisible et les sources `Monster1`, `Monster3`, `Fireball`, `Coin`, `XpGem*` et `PerkShrine` ne doivent plus rester actifs dans `Workspace` par accident.
+
+## 2026-07-08 10:58:45 +02:00 - Correction ancrage sol PerkShrine
+
+### Contexte
+
+La `PerkShrine` se genere correctement avec sa bulle et son interaction, mais son placement peut etre influence par `Bubble` ou `ChargePart`. Le resultat observe est une shrine trop haute, comme si le contact au sol etait calcule depuis un enfant utilitaire au lieu du corps reel de l'autel.
+
+### Changements
+
+- `src/server/ShrineService.luau` exclut maintenant `Bubble` et `ChargePart` du choix de racine de placement.
+- `src/server/ShrineService.luau` calcule le bas de la shrine uniquement avec les `BasePart` utiles au contact au sol.
+- `src/server/ShrineService.luau` garde un fallback sur le bounding box global si aucun morceau exploitable n'est trouve.
+
+### Decisions
+
+- Juste : `Bubble` est un feedback visuel de charge, pas une piece de placement.
+- Juste : `ChargePart` est une zone d'interaction invisible, pas une piece de placement.
+- Simplification : le calcul utilise les parties solides/visuelles du modele sans imposer une PrimaryPart parfaite dans Studio.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_shrine_grounding_build.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les avertissements CRLF habituels.
+
+### Angles morts
+
+- Angle mort : si le modele visuel de la shrine contient des pieces decoratives tres basses, elles determineront le contact au sol.
+- Angle mort : le rendu final doit etre verifie en Play Test, car la geometrie exacte du modele Studio n'est pas visible depuis les fichiers Rojo.
+
+### Budget de complexite
+
+- Complexite ajoutee : faible.
+- Gain produit : la shrine doit maintenant toucher le sol avec son corps reel, sans etre surelevee par la bulle ou la zone de charge.
+
+## 2026-07-08 11:02:45 +02:00 - Audio interaction PerkShrine
+
+### Contexte
+
+Deux sons du catalogue Roblox doivent accompagner l'interaction avec la shrine : un son pendant le chargement et un son bref de fin de chargement. L'audio doit rester attache a l'autel dans le monde, pas au HUD.
+
+### Changements
+
+- `src/shared/ShrineConfig.luau` ajoute `ChargeSoundId`, `ChargeSoundVolume`, `ChargeSoundMaxDistance`, `CompleteSoundId`, `CompleteSoundVolume` et `CompleteSoundMaxDistance`.
+- `src/server/ShrineService.luau` cree un `Sound` boucle nomme `ShrineChargeSound` sur la partie du `ProximityPrompt`.
+- `src/server/ShrineService.luau` cree un `Sound` non boucle nomme `ShrineCompleteSound` sur la partie du `ProximityPrompt`.
+- `src/server/ShrineService.luau` lance le son de charge au debut du maintien de `E`.
+- `src/server/ShrineService.luau` stoppe le son de charge si le joueur relache avant la fin.
+- `src/server/ShrineService.luau` stoppe le son de charge et joue le son de fin quand la shrine est chargee avec succes.
+
+### Decisions
+
+- Juste : les sons sont spatialises sur la shrine, donc ils suivent l'objet monde.
+- Juste : les IDs vides ne jouent rien, ce qui permet de garder le systeme actif sans asset configure.
+- Simplification : les IDs audio restent dans `ShrineConfig` pour cette V1, pas encore dans des attributs Studio par shrine.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_shrine_audio_build.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les avertissements CRLF habituels.
+
+### Angles morts
+
+- Angle mort : les assets audio du catalogue doivent etre autorises par Roblox pour l'experience, sinon le code joue le son mais Roblox peut le bloquer.
+- Angle mort : l'equilibrage du volume et de la distance doit etre juge en Play Test.
+
+### Budget de complexite
+
+- Complexite ajoutee : faible.
+- Gain produit : l'interaction shrine donne maintenant un feedback sonore pendant la charge et au moment de la validation.
+
+## 2026-07-08 11:13:54 +02:00 - Spawn anticipe PerkShrine
+
+### Contexte
+
+La shrine apparaissait apres un delai proche de la securite utilisee pour les monstres. Cette securite est utile pour eviter des spawns ennemis pendant que le joueur tombe ou n'a pas encore touche le sol, mais elle ne doit pas retarder un interactable statique comme la `PerkShrine`.
+
+### Changements
+
+- `src/shared/ShrineConfig.luau` reduit `InitialSpawnDelay` a `0.25`.
+- `src/shared/ShrineConfig.luau` ajoute `SpawnRootWaitTimeout` et `SpawnRootWaitInterval`.
+- `src/server/ShrineService.luau` attend seulement que le joueur ait un `HumanoidRootPart` avant de tenter le spawn.
+- `src/shared/CombatConfig.luau` conserve `MonsterSpawnGroundedDelay = 3` pour les monstres.
+
+### Decisions
+
+- Juste : le delai de sol appartient au spawn des mobs, pas aux shrines.
+- Juste : attendre la racine du personnage reste necessaire pour placer la shrine autour du joueur.
+- Simplification : la shrine ne verifie pas encore que le joueur est pose au sol ; le raycast de placement suffit pour cette V1.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_shrine_early_spawn_build.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les avertissements CRLF habituels.
+
+### Angles morts
+
+- Angle mort : si le personnage met plus de `2` secondes a obtenir son `HumanoidRootPart`, la shrine ne sera pas generee sur cette tentative.
+- Angle mort : sur une future generation procedurale, le spawn de shrine devra attendre que la map runtime autour du joueur existe.
+
+### Budget de complexite
+
+- Complexite ajoutee : faible.
+- Gain produit : la shrine devient disponible avant la premiere pression ennemie, ce qui clarifie le rythme de debut de run.
+
+## 2026-07-08 11:31:59 +02:00 - Passe debug console structuree V1
+
+### Contexte
+
+La `PerkShrine` ne spawn plus de maniere visible en Play Test, et les retours disponibles reposent trop sur l'observation visuelle ou la supposition. Le besoin de cette passe est de rendre la console Studio exploitable : savoir quels services demarrent, ou les templates sont cherches, si les dossiers runtime existent, pourquoi une shrine ne spawn pas, et quels evenements client/serveur circulent reellement.
+
+### Changements
+
+- `src/shared/DebugConfig.luau` ajoute une configuration centrale des logs console.
+- `src/shared/DebugLog.luau` ajoute un logger structure avec categories, contexte serialise et logs throttles.
+- Les lignes de debug utilisent le prefixe stable `[MegaRoblox][LEVEL][Categorie]`.
+- `src/server/TemplateService.luau` log la creation des dossiers, la migration des templates et les fallbacks.
+- `src/server/GameManager.server.luau` log le demarrage des services, les feature flags et le setup/remove joueur.
+- `src/server/ShrineService.luau` log le cycle complet de shrine : template, bulle, audio, planification, racine joueur, tentatives de spawn, raycast sans surface, generation, charge et validation.
+- `src/server/ShrineService.luau` ajoute une logique de retry courte pour le spawn initial de shrine afin de ne pas perdre la tentative si la racine joueur ou la map runtime arrivent juste apres.
+- `src/server/MonsterService.luau`, `src/server/WeaponService.luau`, `src/server/XpService.luau`, `src/server/CoinService.luau`, `src/server/ChestService.luau`, `src/server/PerkService.luau`, `src/server/AdminService.luau`, `src/server/CombatStateService.luau` et `src/server/JumpBonusService.luau` utilisent maintenant `DebugLog` sur leurs transitions importantes.
+- Les scripts client principaux log leurs initialisations et les evenements utiles : HUD combat, UI admin, UI debug, UI quiz, UI coffre, animation collectibles et choix de perks.
+- `src/shared/Hello.luau` ne produit plus de `print("Hello, world!")` non structure.
+
+### Decisions
+
+- Juste : un logger centralise est plus utile que des `print` disperses, car il donne une categorie, un niveau et un contexte lisible.
+- Juste : les logs frequents comme les spawns de mobs, tirs, collectes et fusions XP sont throttles pour eviter de noyer l'Output Studio.
+- Juste : les logs de shrine ne sont pas trop throttles, car c'est precisement le chantier bloque.
+- Simplification : il n'y a pas encore de panneau de logs en jeu ni d'export automatique ; la source de verite reste l'Output Studio.
+- Contestable : `ConsoleEnabled = true` par defaut est pratique en developpement, mais devra etre desactive ou filtre avant une publication publique.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_console_debug_build.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les avertissements CRLF habituels.
+- Juste : `rg -n "warn\\(|print\\(" src/server src/client src/shared` ne trouve plus que les appels internes de `DebugLog`.
+
+### Angles morts
+
+- Angle mort : Rojo build ne remplace pas un vrai Play Test Studio ; il valide la structure projet mais pas toutes les erreurs runtime Luau.
+- Angle mort : si Studio contient encore un `Script` manuel dans `Workspace` qui imprime `Hello world`, ce bruit ne vient pas de Rojo et doit etre retire dans Studio, pas dans `src`.
+- Angle mort : les assets audio peuvent encore etre refuses par Roblox si les permissions du son ne sont pas compatibles avec l'experience.
+- Angle mort : si aucun log `[MegaRoblox][INFO][Shrine] PerkShrine generee` n'apparait, il faudra lire les logs `[Templates]` et `[Shrine]` precedents pour savoir si le probleme vient du template, du joueur, du raycast ou de la limite de spawn.
+
+### Budget de complexite
+
+- Complexite ajoutee : moyenne, car un systeme de logs transverse est ajoute.
+- Complexite reduite : les futurs retours Play Test pourront s'appuyer sur des faits console au lieu de deviner depuis l'image.
+- Gain produit : le prochain diagnostic shrine/combat devrait etre beaucoup plus court et plus fiable.
+
+## 2026-07-08 11:42:12 +02:00 - Generation repartie shrines et coffres V1
+
+### Contexte
+
+Les logs du Play Test montrent que la shrine fonctionne bien : template trouve, instance generee, charge detectee, choix de perk affiche, perk applique et reprise du combat. Le probleme n'est donc plus un blocage de service, mais un besoin de densite et de repartition dans l'espace de jeu. La V1 doit generer 15 `PerkShrine` et 30 `Chest` sur le sol disponible, sans modifier la map Studio.
+
+### Changements
+
+- `src/server/WorldSpawnService.luau` ajoute un module serveur de placement par raycast sur surface.
+- `src/server/WorldSpawnService.luau` repartit les positions avec une distribution en spirale/jitter, une distance minimale et un filtre de surface.
+- `src/server/WorldSpawnService.luau` exclut les personnages et les dossiers runtime dynamiques des raycasts.
+- `src/server/WorldSpawnService.luau` rejette les surfaces trop verticales et les noms configures comme `MurInvisible`.
+- `src/shared/ShrineConfig.luau` passe `InitialSpawnCount` a `15`.
+- `src/shared/ShrineConfig.luau` remplace les anciens reglages de spawn pres du joueur par des reglages de spawn monde.
+- `src/server/ShrineService.luau` genere maintenant les shrines en une passe initiale repartie dans `Workspace/ShrinesRuntime`.
+- `src/shared/ChestConfig.luau` ajoute `TemplateFolderName`, `RuntimeFolderName` et les reglages de generation de 30 coffres.
+- `src/server/ChestService.luau` recupere `ServerStorage/ChestTemplates/Chest`, clone les coffres dans `Workspace/ChestsRuntime`, puis les tracke comme coffres ouvrables.
+- `src/server/ChestService.luau` cree un fallback visuel simple si aucun template `Chest` n'est trouve.
+- `src/server/TemplateService.luau` gere maintenant `ChestTemplates` et `ChestsRuntime`, avec migration temporaire depuis `Workspace`.
+- `src/server/GameManager.server.luau` demarre `PerkService`, puis `ShrineService`, puis `ChestService` afin que les coffres puissent eviter les shrines deja placees.
+
+### Decisions
+
+- Juste : le log prouve que la shrine n'etait pas cassee ; elle etait generee et validait bien un choix de perk.
+- Juste : le placement monde doit etre independant du joueur, contrairement aux monstres qui restent lies au joueur.
+- Juste : les templates restent dans `ServerStorage`, les instances jouables vont dans `Workspace`.
+- Juste : `MurInvisible` est exclu du placement afin d'eviter les spawns sur les murs invisibles.
+- Simplification : il n'y a pas encore de generateur procedural de map ; on echantillonne le sol existant par raycast.
+- Contestable : les rayons de spawn sont centres sur `(0, 0, 0)`, ce qui est adapte a la map actuelle mais devra devenir un contrat de run/map plus tard.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_interactables_spawn_build.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les avertissements CRLF habituels.
+- Juste : `rg -n "warn\\(|print\\(" src/server src/client src/shared` ne trouve plus que les appels internes de `DebugLog`.
+
+### Angles morts
+
+- Angle mort : la distribution reelle doit etre jugee en Play Test, car elle depend de la geometrie Studio effective.
+- Angle mort : si moins de 15 shrines ou 30 coffres apparaissent, les logs `Placement surface incomplet` indiqueront si le rayon, la distance minimale ou les surfaces rejetees sont trop restrictifs.
+- Angle mort : la generation est encore globale a la session serveur, pas rattachee a une instance de run solo.
+- Angle mort : les coffres generes coutent les coins de run actuels ; l'economie coffre devra etre re-equilibree quand les recompenses reelles existeront.
+
+### Budget de complexite
+
+- Complexite ajoutee : moyenne, avec un module de placement reutilisable.
+- Complexite reduite : les futurs interactables pourront reutiliser `WorldSpawnService` au lieu de recreer un raycast de sol specifique.
+- Gain produit : la map contient maintenant plusieurs objectifs optionnels visibles/repartis, ce qui rapproche la boucle du survivor-like vise.
+
+## 2026-07-08 11:51:04 +02:00 - Validation Play Test generation interactables
+
+### Contexte
+
+Un Play Test d'environ quatre minutes confirme que la generation repartie des shrines et coffres fonctionne dans Studio. Cette entree documente la validation utilisateur et les preuves console observees.
+
+### Preuves observees
+
+- Juste : les logs indiquent `Placement surface pret` avec `Placed=15` pour les shrines.
+- Juste : les logs indiquent `Generation shrines initiale terminee` avec `SpawnedCount=15`.
+- Juste : les logs indiquent `Placement surface pret` avec `Placed=30` pour les coffres.
+- Juste : les coffres sont generes dans `Workspace.ChestsRuntime`.
+- Juste : un coffre a ete ouvert avec depense de coins, pause combat, animation client, validation de recompense et reprise combat.
+- Juste : le cout de coffre augmente bien apres ouverture : exemple observe `Cost=10`, puis `NextOpenCost=15`.
+- Juste : la boucle combat continue ensuite : monstres, projectiles, XP, coins et vagues restent actifs.
+
+### Angles morts restants
+
+- Angle mort : le `Hello world! - Serveur - Script:1` vient encore d'un `Script` manuel dans Studio, hors Rojo.
+- Angle mort : la validation porte sur la map actuelle ; une future generation procedurale devra reprendre le centre/rayon de placement comme contrat de run.
+- Angle mort : les recompenses de coffre restent des placeholders non appliques au gameplay.
+
+### Verdict
+
+- Juste : le palier `15 shrines + 30 coffres runtime repartis sur sol disponible` est valide en Play Test Studio.
+
+## 2026-07-08 11:59:37 +02:00 - Jarres cassables V1
+
+### Contexte
+
+Un nouvel element `Jar` est ajoute dans Studio. Les jarres doivent etre cassables instantanement avec `E` et pouvoir laisser au sol de l'XP, de l'or ou les deux.
+
+### Changements
+
+- `src/shared/JarConfig.luau` ajoute la configuration V1 des jarres.
+- `src/server/JarService.luau` tracke les instances actives nommees `Jar` dans `Workspace`.
+- `src/server/JarService.luau` ajoute un `ProximityPrompt` serveur instantane sur `E`.
+- `src/server/JarService.luau` valide cote serveur que le joueur est assez proche et que la jarre n'est pas deja cassee.
+- `src/server/JarService.luau` detruit la jarre apres interaction validee.
+- `src/server/JarService.luau` choisit un drop pondere : XP, coin ou les deux.
+- `src/server/JarService.luau` utilise `XpService.SpawnXpGem` et `CoinService.SpawnCoin` pour rester coherent avec les collectibles existants.
+- `src/server/JarService.luau` pose les drops par raycast sur la surface sous la jarre.
+- `src/server/TemplateService.luau` cree aussi `ServerStorage/JarTemplates` et `Workspace/JarsRuntime` pour preparer le rangement propre.
+- `src/server/GameManager.server.luau` demarre `JarService` apres `CoinService` et `XpService`.
+
+### Decisions
+
+- Juste : la casse de jarre reste serveur-autoritaire ; le client ne decide ni du drop ni de la destruction.
+- Juste : la V1 ne pause pas le combat, contrairement aux coffres.
+- Juste : les drops reutilisent les services XP/coin existants, donc ils profitent deja de l'attraction, du culling et du HUD.
+- Simplification : pas d'animation de casse ni de fragments physiques pour cette V1.
+- Contestable : aucune generation automatique de jarres n'est ajoutee tant qu'un nombre cible n'est pas demande.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_jar_breakables_build.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les avertissements CRLF habituels.
+
+### Angles morts
+
+- Angle mort : pour cette V1, une jarre visible et active doit etre dans `Workspace`, par exemple `Workspace/JarsRuntime/Jar` ou dans la map active.
+- Angle mort : si `Jar` est seulement rangee comme template source dans `ServerStorage/JarTemplates`, elle ne sera pas visible et donc pas cassable tant qu'un generateur de jarres n'existe pas.
+- Angle mort : les chances et quantites de drop devront etre equilibrees apres Play Test.
+
+### Budget de complexite
+
+- Complexite ajoutee : faible a moyenne, avec un service interactable dedie.
+- Complexite reduite : les jarres evitent de reutiliser le systeme coffre, qui a des responsabilites differentes.
+- Gain produit : la run gagne un interactable instantane, lisible et compatible avec l'economie XP/or actuelle.
+
+## 2026-07-08 12:02:59 +02:00 - Generation runtime des jarres
+
+### Contexte
+
+La V1 precedente rendait les instances `Jar` actives cassables, mais ne les generait pas automatiquement. Pour aligner les jarres avec les shrines et coffres, le service doit cloner un template source et placer 40 jarres runtime sur le sol disponible.
+
+### Changements
+
+- `src/shared/JarConfig.luau` ajoute `InitialSpawnCount = 40`.
+- `src/shared/JarConfig.luau` ajoute les reglages de placement monde des jarres.
+- `src/server/TemplateService.luau` migre maintenant `Jar` vers `ServerStorage/JarTemplates` si le template est encore dans `Workspace`.
+- `src/server/JarService.luau` recupere `ServerStorage/JarTemplates/Jar`.
+- `src/server/JarService.luau` clone les jarres dans `Workspace/JarsRuntime`.
+- `src/server/JarService.luau` repartit les jarres avec `WorldSpawnService`, en evitant les shrines et coffres deja places.
+- `src/server/JarService.luau` cree un fallback simple si aucun template `Jar` n'est trouve.
+
+### Decisions
+
+- Juste : les jarres suivent maintenant le meme contrat source/runtime que coffres et shrines.
+- Juste : les jarres restent des interactables instantanes sans pause combat.
+- Simplification : la generation est globale et initiale, pas encore rattachee a une instance de run.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_jar_generation_build.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les avertissements CRLF habituels.
+- Juste : `rg -n "warn\\(|print\\(" src/server src/client src/shared` ne trouve plus que les appels internes de `DebugLog`.
+
+### Angles morts
+
+- Angle mort : la distribution exacte doit etre validee en Play Test avec les logs `Placement surface pret` et `Generation jarres initiale terminee`.
+- Angle mort : si moins de 40 jarres apparaissent, il faudra ajuster rayon, distance minimale ou surfaces rejetees dans `JarConfig`.
+
+## 2026-07-08 12:08:01 +02:00 - Validation Play Test jarres, coffres et shrines
+
+### Contexte
+
+Un Play Test Studio d'environ une minute a ete fourni apres l'ajout de la generation runtime des jarres. L'objectif etait de verifier que la scene genere bien les interactables attendus et que les jarres cassables produisent des drops exploitables.
+
+### Observations logs
+
+- Juste : `GameManager` demarre avec `QuizEnabled=false`, donc l'ancien quiz reste bien hors boucle principale.
+- Juste : `ShrineService` genere `15` shrines, avec `Generation shrines initiale terminee | {Requested=15, SpawnedCount=15}`.
+- Juste : `ChestService` genere `30` coffres, avec `Generation coffres initiale terminee | {Requested=30, SpawnedCount=30}`.
+- Juste : `JarService` genere `40` jarres, avec `Generation jarres initiale terminee | {Requested=40, SpawnedCount=40}`.
+- Juste : plusieurs jarres sont cassees pendant le test et produisent bien les trois cas attendus : `Coin`, `Xp` et `Both`.
+- Juste : les drops de jarre passent par `CoinService` et `XpService`, puis sont collectes par le joueur.
+- Juste : les refus d'ouverture coffre observes sont des refus metier normaux : le joueur n'avait pas assez de coins pour le prochain cout.
+
+### Verdict
+
+- Juste : le palier `15 shrines + 30 coffres + 40 jarres` est valide en Play Test Studio.
+- Juste : la boucle jarre V1 est validee : interaction `E`, destruction, drop, collecte et mise a jour economie runtime.
+- Contestable : le cout croissant des coffres fonctionne techniquement, mais son rythme devra etre equilibre quand l'economie de run sera plus stable.
+
+### Angles morts
+
+- Angle mort : la validation porte sur un seul joueur en Studio, pas encore sur une run longue avec forte densite de monstres.
+- Angle mort : les jarres n'ont pas encore d'effet visuel de casse, de son ou de feedback HUD dedie.
+- Angle mort : la distribution spatiale est validee fonctionnellement, mais pas encore jugee comme interessante pour le flow de navigation.
+
+## 2026-07-08 13:57:14 +02:00 - Equilibrage difficulte combat V1
+
+### Contexte
+
+Avec les coffres, les jarres et le leveling, la boucle de run devient trop permissive. L'objectif est d'augmenter la difficulte dans le temps sans modifier les attributs de `Monster1`, afin de garder ce monstre comme reference stable et de preparer l'ajout futur d'autres ennemis.
+
+### Point d'impact
+
+- Juste : `src/shared/CombatConfig.luau` est un fichier partage lu par combat, armes, XP, coins et templates.
+- Juste : la passe ne modifie que les parametres de pression ennemie.
+- Juste : `src/server/MonsterService.luau` est le seul service dont la logique change.
+- Juste : les stats de `Monster1` restent inchangees : vie, vitesse, degats, portee et cooldown d'attaque.
+
+### Changements
+
+- `src/shared/CombatConfig.luau` ajoute une fenetre calme de `20` secondes.
+- `src/shared/CombatConfig.luau` limite cette fenetre calme a `6` ennemis vivants.
+- `src/shared/CombatConfig.luau` rend les vagues plus courtes : `30` secondes au lieu de `45`.
+- `src/shared/CombatConfig.luau` augmente plus vite le plafond d'ennemis vivants par vague.
+- `src/shared/CombatConfig.luau` ajoute une reduction progressive de l'intervalle de spawn.
+- `src/shared/CombatConfig.luau` ajoute un intervalle minimum de spawn pour eviter une derive infinie.
+- `src/shared/CombatConfig.luau` ajoute un plafond de taille de batch.
+- `src/server/MonsterService.luau` applique dynamiquement le plafond calme, l'intervalle de spawn courant et le batch courant.
+
+### Decisions
+
+- Juste : la difficulte augmente par densite et cadence, pas par buff invisible de `Monster1`.
+- Juste : le debut reste lisible pour laisser le joueur comprendre la run et trouver les premiers interactables.
+- Simplification : aucune table multi-ennemis n'est ajoutee maintenant ; les futurs monstres seront un chantier separe.
+- Contestable : le plafond theorique `MonsterMaxAlive = 1000` reste present pour debug, mais la courbe reelle ne doit pas chercher a l'atteindre rapidement.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_difficulty_curve_build.rbxlx` passe.
+- Juste : `git diff --check -- src/shared/CombatConfig.luau src/server/MonsterService.luau` ne remonte que les avertissements CRLF habituels.
+
+### Angles morts
+
+- Angle mort : la sensation exacte doit etre validee en Play Test, surtout autour de 20, 60 et 120 secondes.
+- Angle mort : le nouveau rythme peut rendre les coffres moins accessibles si la pression arrive trop vite.
+- Angle mort : cette V1 ne separe pas encore les runs par instance joueur ; la pause globale reste une dette connue.
+
+### Rollback conceptuel
+
+- Revenir a l'ancien ressenti revient a remettre `MonsterSpawnInterval = 2.2`, `WaveDuration = 45`, `WaveBaseMaxAlive = 10`, `WaveMaxAliveIncrease = 6` et `WaveSpawnBatchIncreaseEvery = 3`, puis a ignorer les nouveaux champs de courbe.
+
+## 2026-07-08 16:10:08 +02:00 - Pause joueur et distances interactables
+
+### Contexte
+
+Les coffres et jarres pouvaient etre actives a une distance trop confortable, ce qui affaiblissait la lecture physique des interactables. En parallele, les pauses de combat arretaient les systemes serveur, mais le joueur pouvait encore se deplacer. L'objectif est de rendre les interactions plus proches et de centraliser une vraie pause joueur.
+
+### Point d'impact
+
+- Juste : `src/shared/ChestConfig.luau` et `src/shared/JarConfig.luau` changent uniquement les distances d'interaction.
+- Juste : `src/server/CombatStateService.luau` devient responsable du verrouillage mouvement pendant toute pause de combat.
+- Juste : `src/client/CombatUI.client.luau` ajoute seulement le bouton UI de pause et son etat visuel.
+- Juste : les ouvertures de coffre, choix de perk et pause utilisateur passent par le meme rail serveur de pause.
+
+### Changements
+
+- `ChestConfig.PromptDistance` passe a `7`.
+- `ChestConfig.OpenDistance` passe a `7.5`.
+- `ChestConfig.PromptMaxDistance` passe a `16`.
+- `JarConfig.BreakDistance` passe a `5`.
+- `JarConfig.BreakValidationTolerance` ajoute une tolerance serveur de `0.75`.
+- `JarService` utilise maintenant cette tolerance au lieu d'un bonus fixe de `2` studs.
+- `CombatStateService` cree les remotes `Combat_TogglePause` et `Combat_PauseState`.
+- `CombatStateService` verrouille `WalkSpeed`, `JumpPower`, `JumpHeight`, `Jump` et `AutoRotate` pendant les pauses.
+- `CombatStateService` conserve les changements de mouvement recus pendant une pause, afin que les perks de vitesse ou de saut ne soient pas perdus a la reprise.
+- `CombatUI` ajoute un bouton pause `||` a cote du compteur d'or de run.
+- `CombatUI` affiche `>` quand la pause utilisateur est active et bloque le bouton quand une autre pause systeme est deja active.
+
+### Decisions
+
+- Juste : la pause reste serveur-autoritaire ; le client demande seulement un toggle.
+- Juste : une pause utilisateur n'est pas empilee au-dessus d'une pause coffre/perk deja active.
+- Simplification : pas de menu pause complet pour l'instant ; le bouton est un interrupteur minimal.
+- Contestable : le verrouillage mouvement agit sur tous les joueurs parce que les runs ne sont pas encore instanciees par joueur.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_pause_interactions_build.rbxlx` passe.
+- Juste : `git diff --check -- src/shared/ChestConfig.luau src/shared/JarConfig.luau src/server/JarService.luau src/server/CombatStateService.luau src/client/CombatUI.client.luau` ne remonte que les avertissements CRLF habituels.
+
+### Angles morts
+
+- Angle mort : la sensation exacte des distances doit etre validee en Play Test sur les assets reels `Chest` et `Jar`, car leurs pivots et tailles influencent la distance ressentie.
+- Angle mort : la pause globale reste acceptable en run solo, mais devra devenir une pause par run quand lobby et runs instanciees coexisteront.
+- Angle mort : le bouton pause n'ouvre pas encore d'ecran de menu ; il suspend seulement le gameplay.
+
+### Rollback conceptuel
+
+- Revenir au comportement precedent revient a remettre `ChestConfig.PromptDistance = 18`, `ChestConfig.OpenDistance = 20`, `ChestConfig.PromptMaxDistance = 40`, `JarConfig.BreakDistance = 10`, puis a ignorer les remotes `Combat_TogglePause` et `Combat_PauseState`.
+
+## 2026-07-08 16:31:18 +02:00 - Portail boss, shrines speciales et magnetisme global
+
+### Contexte
+
+De nouveaux templates Studio ont ete ajoutes : `PortalBoss`, `EliteChallengeShrine` et `MagnetShrine`. Le besoin est de les integrer dans la generation runtime sans encore ouvrir le chantier boss ou ennemis elites. Le magnet doit en revanche avoir un premier comportement jouable : attirer l'XP et les coins de toute la map vers le joueur.
+
+### Point d'impact
+
+- Juste : `PortalService` est isole, car le portail boss n'a pas encore d'interaction.
+- Juste : `ShrineService` devient le rail commun des shrines activables : perk, elite placeholder et magnet.
+- Juste : `XpService` et `CoinService` exposent maintenant une collecte globale serveur-autoritaire.
+- Juste : `CombatUI` deplace l'or de run et le bouton pause/play vers le haut-centre.
+- Contestable : `MagnetInitialSpawnCount = 3` est un choix V1 conservateur, car l'effet est tres fort.
+
+### Changements
+
+- `src/shared/PortalConfig.luau` ajoute la configuration du portail boss.
+- `src/server/PortalService.luau` genere `1` instance `PortalBoss` dans `Workspace/PortalsRuntime`.
+- `src/server/GameManager.server.luau` demarre `PortalService` avant `ShrineService`.
+- `src/server/TemplateService.luau` gere `ServerStorage/PortalBossTemplate` et `Workspace/PortalsRuntime`.
+- `src/server/TemplateService.luau` migre aussi `EliteChallengeShrine` et `MagnetShrine` vers `ServerStorage/ShrineTemplates`.
+- `src/shared/ShrineConfig.luau` ajoute les templates et compteurs des shrines speciales.
+- `src/server/ShrineService.luau` genere maintenant :
+  - `15` shrines de perk ;
+  - `5` `EliteChallengeShrine` ;
+  - `3` `MagnetShrine`.
+- `src/server/ShrineService.luau` ajoute un marker `!` au-dessus des shrines actives non consommees.
+- `src/server/ShrineService.luau` desactive le marker `!` apres activation.
+- `src/server/ShrineService.luau` bloque l'activation si une pause combat est deja active.
+- `src/server/ShrineService.luau` active le magnet via `XpService.CollectAllForPlayer` et `CoinService.CollectAllForPlayer`.
+- `src/server/XpService.luau` et `src/server/CoinService.luau` trient les collectibles par distance et etalent leur collecte.
+- `src/client/CombatUI.client.luau` affiche le bloc golds + pause/play en haut-centre.
+
+### Decisions
+
+- Juste : le portail boss est volontairement non interactif pour l'instant.
+- Juste : `EliteChallengeShrine` est generable et activable, mais son effet reste un placeholder tant que les ennemis elites ne sont pas implementes.
+- Juste : le magnet reste serveur-autoritaire ; le client ne decide jamais des gains XP/coins.
+- Juste : le systeme de level-up existant queue les choix de perks successivement, donc un gros magnet ne doit pas ouvrir plusieurs propositions en meme temps.
+- Simplification : aucun service generique `InteractableService` n'est introduit maintenant ; `ShrineService` suffit pour les trois shrines proches conceptuellement.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_portal_shrines_magnet_build.rbxlx` passe.
+- Juste : `git diff --check` sur les fichiers du chantier ne remonte que les avertissements CRLF habituels.
+- Juste : aucune nouvelle utilisation brute de `print(` ou `warn(` n'est ajoutee dans les services touches.
+
+### Angles morts
+
+- Angle mort : les positions reelles doivent etre validees en Play Test avec les assets Studio, car les pivots et tailles des templates peuvent changer la perception du placement.
+- Angle mort : le marker `!` peut etre trop haut ou trop bas selon le bounding box reel des meshes importes.
+- Angle mort : le magnet peut provoquer beaucoup d'evenements d'animation si une run longue laisse trop de loot au sol.
+- Angle mort : l'activation elite devra etre remplacee par un vrai spawn d'ennemis elites quand le type `Elite` existera.
+
+### Rollback conceptuel
+
+- Desactiver le portail revient a ne plus demarrer `PortalService`.
+- Desactiver les shrines speciales revient a mettre `EliteChallengeInitialSpawnCount = 0` et `MagnetInitialSpawnCount = 0`.
+- Revenir a l'ancien HUD revient a remettre `CurrencyPanel` et `PauseButton` sur leurs positions haut-gauche precedentes.
+
+## 2026-07-08 16:38:34 +02:00 - Correction du spawn MagnetShrine apres Play Test
+
+### Contexte
+
+Le Play Test a montre que les `MagnetShrine` n'apparaissaient pas. Les logs indiquaient pourtant que le template `MagnetShrine` etait bien trouve dans `ServerStorage/ShrineTemplates`. Le probleme venait donc du placement runtime, pas du rangement Studio.
+
+### Diagnostic
+
+- Juste : les logs montrent `Template trouve` pour `MagnetShrine`.
+- Juste : les logs montrent `Placement surface incomplet` puis `SpawnedCount=0` pour `TypeId=Magnet`.
+- Juste : la generation des `PerkShrine`, `EliteChallengeShrine`, coffres et jarres occupe deja beaucoup de positions avant les magnets.
+- Simplification : la correction ne change pas le service de spawn mondial ; elle relache uniquement les contraintes Magnet et ajoute un retry local en cas de placement incomplet.
+
+### Changements
+
+- `src/server/ShrineService.luau` baisse la distance minimale de placement des `MagnetShrine`.
+- `src/server/ShrineService.luau` autorise les magnets a chercher un peu plus loin que les shrines standards.
+- `src/server/ShrineService.luau` ajoute un retry de placement avec contraintes relachees si une definition de shrine n'obtient pas assez de positions.
+- Le retry garde les positions deja trouvees et les positions occupees pour eviter de superposer les objets.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_magnet_spawn_fix.rbxlx` passe.
+- Juste : les prochains logs attendus doivent montrer `TypeId=Magnet`, puis `SpawnedCount=3`.
+
+### Angles morts
+
+- Angle mort : le ressenti exact de repartition doit etre valide en Play Test, car la taille reelle des assets Magnet peut donner une impression de proximite differente de la distance entre pivots.
+- Angle mort : si la map procedurale devient plus petite ou plus dense, il faudra probablement passer a un systeme de reservation de zones plutot qu'a un simple retry.
+
+### Rollback conceptuel
+
+- Revenir au comportement precedent revient a remettre les contraintes Magnet a `SpawnMinRadius = 30`, `SpawnMaxRadius = ShrineConfig.SpawnWorldMaxRadius`, `SpawnMinDistance = 34`, et a supprimer le retry relache.
+
+## 2026-07-08 16:48:19 +02:00 - Charge PerkShrine par presence dans la bulle
+
+### Contexte
+
+Les `PerkShrine` devaient perdre l'interaction `E maintenu` pour devenir plus naturelles : le joueur entre dans la bulle, la shrine se charge, puis elle se decharge a la meme vitesse quand le joueur sort. Les shrines `Magnet` et `EliteChallenge` doivent rester activables rapidement sans changer leur logique fonctionnelle.
+
+### Point d'impact
+
+- Juste : `ShrineService` reste le bon point d'impact, car les trois types de shrines y sont deja centralises.
+- Juste : le serveur mesure la presence du joueur dans la zone de bulle ; le client ne valide pas l'activation.
+- Contestable : la charge par presence est appliquee uniquement aux `PerkShrine` pour l'instant, car `Magnet` et `EliteChallenge` ont encore des effets plus ponctuels.
+- Simplification : aucune UI de jauge n'est ajoutee maintenant ; le feedback repose sur la bulle, le son et l'apparition de l'ecran de perk.
+
+### Changements
+
+- `src/server/ShrineService.luau` ajoute un mode `BubblePresence` pour les `PerkShrine`.
+- `src/server/ShrineService.luau` supprime le `ProximityPrompt` des instances `PerkShrine` clonees.
+- `src/server/ShrineService.luau` charge progressivement une `PerkShrine` quand un joueur est dans sa bulle.
+- `src/server/ShrineService.luau` decharge progressivement la shrine a la meme vitesse quand aucun joueur n'est dans la bulle.
+- `src/server/ShrineService.luau` divise par deux le temps de charge des shrines `Magnet` et `EliteChallenge`.
+- `src/shared/ShrineConfig.luau` abaisse legerement le marker `!`.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_shrine_bubble_charge_build.rbxlx` passe.
+
+### Angles morts
+
+- Angle mort : si `Bubble` est un asset tres grand ou mal centre, la zone ressentie peut etre trop large ou trop etroite ; le Play Test doit valider la taille reelle.
+- Angle mort : il n'y a pas encore de jauge visuelle de charge ; si le son ne suffit pas, une petite barre proche de la shrine deviendra utile.
+- Angle mort : en multi-run futur, cette charge devra etre rattachee a une instance de run plutot qu'au monde global.
+
+### Rollback conceptuel
+
+- Revenir au comportement precedent revient a retirer `ActivationMode = "BubblePresence"` des `PerkShrine`, a rebrancher leur `ProximityPrompt`, et a remettre `ChargeDuration = ShrineConfig.ChargeDuration` pour `Magnet` et `EliteChallenge`.
+
+## 2026-07-08 17:00:57 +02:00 - Analyse Play Test shrines et robustesse spawn mobs
+
+### Contexte
+
+Un Play Test d'environ dix minutes a ete partage apres l'ajout des shrines speciales et de la charge par presence. Le but etait de verifier si les magnets apparaissent, si les shrines s'activent correctement et si la boucle XP/perks reste stable sur une duree plus longue.
+
+### Diagnostic logs
+
+- Juste : aucune erreur serveur ou client n'apparait dans les logs fournis.
+- Juste : les `MagnetShrine` spawnent maintenant correctement avec `SpawnedCount=3`.
+- Juste : les trois `MagnetShrine` ont ete activees pendant le test.
+- Juste : les `PerkShrine` par presence fonctionnent ; les logs montrent des charges, des interruptions et des validations.
+- Juste : les level-ups provoques par les magnets sont bien mis en file, puis presentes successivement.
+- Angle mort : 34 warnings `Aucune surface trouvee pour spawn mob` indiquent que le spawn des ennemis reste trop fragile pres des bords ou quand le point aleatoire tombe hors plateforme.
+
+### Changements
+
+- `src/shared/CombatConfig.luau` ajoute `MonsterSpawnSurfaceAttempts = 10`.
+- `src/server/MonsterService.luau` tente maintenant plusieurs positions autour du joueur avant de declarer qu'aucune surface n'a ete trouvee.
+- `src/server/MonsterService.luau` ajoute le nombre de tentatives dans le warning restant pour rendre les prochains logs plus exploitables.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_monster_spawn_attempts_build.rbxlx` passe.
+
+### Angles morts
+
+- Angle mort : cette correction reduit les echecs aleatoires, mais ne remplace pas encore un vrai systeme de spawn par zones reservees.
+- Angle mort : si le joueur est vraiment au bord extreme de la plateforme, certains echecs de spawn resteront normaux.
+- Angle mort : les logs restent tres bavards en fin de run, surtout autour de l'XP, des coins et des projectiles.
+
+### Rollback conceptuel
+
+- Revenir au comportement precedent revient a retirer `MonsterSpawnSurfaceAttempts` et a refaire un seul raycast aleatoire par tentative de spawn.
+
+## 2026-07-09 06:34:15 +02:00 - Compatibilite assets catalogue et rotation des templates runtime
+
+### Contexte
+
+Le remplacement de plusieurs assets Studio a revele deux problemes distincts : l'animation d'un modele catalogue est bien appelee par le script mais bloquee par les droits Roblox, et plusieurs templates importes apparaissent couches sur le cote au moment de leur generation runtime.
+
+### Diagnostic
+
+- Juste : le log `Animation monstre lancee` prouve que `MonsterService` charge bien `Walk`.
+- Juste : l'erreur `L'experience n'a pas le droit d'utiliser l'identifiant` signifie que Roblox refuse l'asset d'animation, pas que le script ne le joue pas.
+- Juste : les objets couches viennent d'un placement runtime en `CFrame.new(position)` qui effacait la rotation du template Studio.
+- Juste : `PerkShrine`, `EliteChallengeShrine` et `MagnetShrine` passent tous par `ShrineService`; une correction dans ce service couvre donc les trois types.
+- Angle mort : les droits d'animation doivent etre regles dans Roblox Studio/Creator Dashboard en publiant l'animation sous le bon compte ou groupe.
+
+### Changements
+
+- `src/server/WorldSpawnService.luau` ajoute une aide pour replacer un template au sol en conservant sa rotation de pivot.
+- `src/server/ChestService.luau` conserve maintenant la rotation du template `Chest` tout en gardant une rotation aleatoire autour de l'axe Y.
+- `src/server/JarService.luau` conserve maintenant la rotation du template `Jar` tout en gardant une rotation aleatoire autour de l'axe Y.
+- `src/server/PortalService.luau` conserve maintenant la rotation du template `PortalBoss`.
+- `src/server/ShrineService.luau` conserve maintenant la rotation des templates `PerkShrine`, `EliteChallengeShrine` et `MagnetShrine`.
+- `src/server/ShrineService.luau` cree une bulle runtime de secours si `PerkShrine` n'a plus d'enfant `Bubble`.
+- `src/shared/ShrineConfig.luau` ajoute la taille et la hauteur de cette bulle de secours.
+- `src/server/MonsterService.luau` conserve la rotation du template `Monster1` au spawn et pendant le mouvement procedural des monstres sans `Humanoid`.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_template_rotation_build.rbxlx` passe.
+- Juste : `git diff --check` sur les fichiers touches ne remonte que les avertissements CRLF habituels.
+
+### Angles morts
+
+- Angle mort : si un asset catalogue a un pivot mal place, conserver sa rotation ne suffira pas toujours ; il faudra corriger le pivot dans Studio ou Blender.
+- Angle mort : la bulle runtime de secours rend le gameplay jouable, mais ne remplace pas une vraie bulle artistique dans le template `PerkShrine`.
+- Angle mort : les animations catalogue restent soumises aux droits Roblox ; aucun script serveur ne peut contourner une animation non autorisee pour l'experience.
+
+### Rollback conceptuel
+
+- Revenir au comportement precedent revient a replacer les clones avec `CFrame.new(position)` et a supprimer la creation runtime de bulle fallback, mais cela recreerait le risque d'assets couches apres import catalogue.
+
+## 2026-07-10 13:03:41 +02:00 - Rebuild HUD combat MegaRoblox
+
+### Contexte
+
+Une reprise du chantier UI a ete necessaire apres une interruption pendant une modification precedente. En Play Test, l'utilisateur ne voyait plus de GUI principale.
+
+### Diagnostic
+
+- Juste : `src/client/CombatUI.client.luau` etait supprime dans l'etat Git courant, ce qui empechait le HUD combat principal d'apparaitre.
+- Juste : `rojo build` passait malgre tout, car l'absence du fichier n'est pas une erreur de compilation Rojo.
+- Juste : les autres GUI ne remplacent pas le HUD principal : `QuizGui` est desactive par `FeatureFlags.QuizEnabled = false`, `DebugGui` est desactive par `FeatureFlags.DebugUIEnabled = false`, `AdminGui` depend de l'attribut admin, et les UI perks/coffres ne s'affichent que lors d'une interaction.
+- Contestable : une refonte purement en Frames/TextLabels ne peut pas reproduire pixel-perfect les images de reference, mais elle evite d'ajouter des assets externes ou une dependance fragile.
+
+### Changements
+
+- `src/client/CombatUI.client.luau` est recree comme HUD autonome.
+- Le HUD affiche immediatement un etat par defaut, puis se met a jour quand les remotes serveur arrivent.
+- Le style reprend la direction des references : badge `LVL`, longue barre XP bleue/violette, panneau stats sombre/neon, cartes `KILLS`, `GOLDS`, `MOBS`, cartes `WEAPON` et `PERKS`, bouton pause compact vert.
+- Les remotes existants sont conserves : `Combat_UpdateStats`, `Xp_UpdateCount`, `Coin_UpdateCount`, `Perk_UpdateStats`, `Combat_PauseState`, `Combat_TogglePause`.
+- La logique gameplay n'est pas modifiee.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_gui_rebuild.rbxlx` passe.
+- Juste : `git diff --check -- src/client/CombatUI.client.luau` ne remonte que l'avertissement CRLF habituel.
+
+### Angles morts
+
+- Angle mort : le rendu visuel final doit etre juge en Play Test Studio, car Rojo build valide la structure mais pas la perception UI en camera reelle.
+- Angle mort : le HUD est volontairement plus riche que l'ancien ; si la vue joueur est trop couverte, il faudra reduire l'echelle ou basculer certaines stats dans un panneau repliable.
+- Angle mort : les icones sont des lettres stylisees pour eviter des assets externes ; une passe artistique future pourra remplacer ces placeholders par de vrais sprites.
+
+### Budget de complexite
+
+- Ajoute de la complexite UI locale.
+- Ne deplace pas de complexite gameplay.
+- Le gain utilisateur attendu est net : recuperer un HUD visible et lisible, avec une direction visuelle plus proche de MegaRoblox.
+
+### Rollback conceptuel
+
+- Revenir a un comportement plus simple revient a garder les memes callbacks remotes et a remplacer seulement la construction visuelle du HUD par une version compacte.
+
+## 2026-07-10 13:22:54 +02:00 - Epuration HUD joueur
+
+### Contexte
+
+Le premier rebuild du HUD MegaRoblox etait fonctionnel mais trop dense en Play Test : grand panneau en bas a gauche, carte XP tres visible, compteur d'or central et nombreuses informations secondaires.
+
+### Diagnostic
+
+- Juste : le HUD couvrait trop l'ecran pour un survivor-like ou le joueur doit lire la scene, esquiver et continuer a agir.
+- Juste : les informations `Weapon`, `Mobs`, `Perks`, `Wave` et le titre `MEGAROBLOX SURVIVOR` n'etaient pas indispensables dans le panneau principal.
+- Contestable : garder les icones en fallback texte est moins beau qu'une vraie bibliotheque d'assets, mais cela evite des IDs catalogue non autorises ou introuvables.
+
+### Changements
+
+- `src/client/CombatUI.client.luau` retire le compteur d'or haut-centre et conserve seulement le bouton pause/play en haut.
+- `src/client/CombatUI.client.luau` retire le titre, la vague, `Weapon`, `Mobs` et `Perks` du panneau bas gauche.
+- `src/client/CombatUI.client.luau` reduit fortement la taille de la zone HP/Shield/Kills/Gold.
+- `src/client/CombatUI.client.luau` rend le panneau bas gauche transparent et supprime les encadres de cartes.
+- `src/client/CombatUI.client.luau` reduit la hauteur des barres HP, Shield et XP.
+- `src/client/CombatUI.client.luau` prepare une table `ICON_IMAGES` pour brancher ensuite des icons du catalogue Roblox Studio sans changer la logique.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_hud_minimal_build.rbxlx` passe.
+
+### Angles morts
+
+- Angle mort : la lisibilite sur fond tres clair ou tres charge dependra de la scene reelle ; les textes utilisent une ombre mais pas de panneau opaque.
+- Angle mort : les vrais icons catalogue doivent encore etre choisis avec des IDs fiables et autorises pour l'experience.
+- Angle mort : le panneau Admin/Debug de droite n'a pas ete modifie, conformement a la demande.
+
+### Rollback conceptuel
+
+- Revenir a la version dense revient a restaurer les cartes `Weapon`, `Mobs`, `Perks`, le titre, la vague et le compteur d'or central, sans toucher aux callbacks remotes.
+
+## 2026-07-10 13:38:13 +02:00 - Repositionnement HUD et timer de run
+
+### Contexte
+
+Apres test visuel, le HUD epure restait trop separe : HP/Shield etaient encore en bas a gauche tandis que la barre XP etait centree. La demande etait de rapprocher les jauges principales de la barre XP, de placer kills/golds autour du bouton pause, et d'ajouter un timer de run local.
+
+### Diagnostic
+
+- Juste : HP et Shield sont des informations de survie immediates ; les placer au-dessus de l'XP reduit les allers-retours visuels.
+- Juste : le compteur de kills et les golds peuvent etre lus en haut-centre sans polluer la zone basse de deplacement.
+- Contestable : le timer client local suffit pour l'affichage V1, mais il ne doit pas encore devenir une source d'autorite gameplay.
+
+### Changements
+
+- `src/client/CombatUI.client.luau` place HP et Shield sur une meme ligne au-dessus de la barre XP, aux limites gauche et droite du bloc XP.
+- `src/client/CombatUI.client.luau` supprime les placeholders HP et Shield.
+- `src/client/CombatUI.client.luau` deplace kills a gauche du bouton pause/play et golds a droite.
+- `src/client/CombatUI.client.luau` ajoute un timer local de 12:00 sous le bouton pause/play.
+- `src/client/CombatUI.client.luau` stoppe la descente du timer quand une pause utilisateur ou systeme est active.
+- `src/client/CombatUI.client.luau` epaissit legerement les barres HP, Shield et XP.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_hud_timer_layout_build.rbxlx` passe.
+
+### Angles morts
+
+- Angle mort : le timer est volontairement client-only pour l'instant ; il ne doit pas servir a valider une victoire ou une defaite tant que le serveur ne l'autorise pas.
+- Angle mort : les icones kills/golds utilisent encore les fallbacks si aucun asset catalogue fiable n'est renseigne.
+- Angle mort : la lisibilite exacte dependra de la camera et du fond de map en Play Test.
+
+### Rollback conceptuel
+
+- Revenir a l'affichage precedent revient a remettre HP/Shield/Kills/Gold dans le bloc bas gauche et a retirer la boucle `RunService.RenderStepped` du timer.
+
+## 2026-07-10 14:06:03 +02:00 - Proportions icones HUD et regle Gotham
+
+### Contexte
+
+Les icones kills/golds et leurs valeurs etaient encore trop petites par rapport au bouton pause/play. La valeur des kills devait aussi reprendre une couleur rouge coherente avec sa fonction.
+
+### Diagnostic
+
+- Juste : le bouton pause/play est le meilleur repere de proportion du bloc haut-centre.
+- Juste : colorer la valeur kills en rouge ameliore la lecture par symetrie avec la valeur golds en jaune.
+- Juste : les scripts UI client existants utilisent deja majoritairement Gotham et ses variantes ; il n'etait pas utile d'ajouter une couche globale lourde.
+
+### Changements
+
+- `src/client/CombatUI.client.luau` ajoute une table locale `UI_FONTS` pour declarer clairement Gotham Regular, Medium, Bold et Heavy.
+- `src/client/CombatUI.client.luau` utilise cette table sur le HUD combat.
+- Les icones kills/golds passent a une proportion de `1.22` fois la taille du bouton pause.
+- Les valeurs kills/golds passent a une proportion de `0.66` fois la taille du bouton pause.
+- La valeur kills utilise maintenant la couleur rouge de vie/combat.
+- L'icone gold est encore rapprochee de sa valeur sans deplacer l'ancrage de la valeur.
+
+### Proof of done local
+
+- Juste : `rojo build -o $env:TEMP\TestRoblox_hud_typography_build.rbxlx` passe.
+
+### Angles morts
+
+- Angle mort : Gotham Italic ou Light ne sont pas utilises dans ce HUD car aucun libelle actuel ne justifie une variante decorative ou secondaire.
+- Angle mort : les proportions restent a valider visuellement en Play Test, car les images importees peuvent avoir du padding transparent interne.
+
+### Rollback conceptuel
+
+- Revenir au rendu precedent revient a remettre les proportions `1.1` et `0.6`, puis a repasser la valeur kills en blanc.
+
+## 2026-07-10 14:14:59 +02:00 - Regroupement responsive kills et golds
+
+### Contexte
+
+Le placement symetrique kills a gauche et golds a droite du bouton pause creait un probleme d'equilibre visuel. L'icone gold pouvait sembler trop eloignee de sa valeur, et les variations de longueur des nombres risquaient de deplacer la lecture du bloc.
+
+### Diagnostic
+
+- Juste : mettre kills et golds du meme cote reduit la complexite du bloc haut-centre.
+- Juste : les valeurs doivent vivre dans des zones fixes afin qu'un score court ou long ne pousse pas les icones ni le bouton pause.
+- Simplification : il vaut mieux supprimer la symetrie artificielle que compenser avec de nouveaux offsets a droite.
+
+### Changements
+
+- `src/client/CombatUI.client.luau` agrandit la zone logique `TopCluster` sans ajouter de fond visible.
+- `src/client/CombatUI.client.luau` place kills et golds dans deux slots fixes a gauche du bouton pause/play.
+- `src/client/CombatUI.client.luau` reserve une largeur stable aux valeurs kills/golds.
+- `src/client/CombatUI.client.luau` active `TextScaled` sur ces deux valeurs pour absorber les montants plus longs sans deplacer le HUD.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+
+### Angles morts
+
+- Angle mort : la validation exacte du ressenti visuel reste a faire en Play Test, surtout avec des valeurs tres longues comme `999,999`.
+- Angle mort : le padding transparent interne des images catalogue peut encore donner une impression d'ecart meme si le slot est correctement place.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a remettre golds a droite du bouton pause et a supprimer les slots fixes `KillsSlot` et `GoldSlot`.
+
+## 2026-07-10 14:29:03 +02:00 - Renforcement responsive des compteurs haut-centre
+
+### Contexte
+
+Avec des valeurs intermediaires comme `5,260` kills et `1,194` golds, le groupe de compteurs restait lisible mais se rapprochait deja trop du bouton pause. La demande etait de deplacer le bloc vers la gauche et de garantir une lecture stable jusqu'a un plafond visuel de `1M`.
+
+### Diagnostic
+
+- Juste : le risque principal n'est pas la valeur courte, mais l'accumulation icone + texte + bouton pause sur une meme ligne.
+- Juste : un slot plus large et fixe est plus robuste qu'un deplacement dynamique selon la longueur du texte.
+- Simplification : le format compact `1M` sur les compteurs haut-centre evite de sacrifier la lisibilite du HUD pour afficher `1,000,000`.
+
+### Changements
+
+- `src/client/CombatUI.client.luau` elargit la zone invisible `TopCluster` afin de reculer le groupe kills/golds vers la gauche.
+- `src/client/CombatUI.client.luau` augmente la largeur reservee a chaque slot de compteur.
+- `src/client/CombatUI.client.luau` ajoute `formatTopStatNumber` pour afficher `1M` a partir de `1,000,000` sur kills/golds.
+- `src/client/CombatUI.client.luau` ajoute un palier responsive supplementaire pour les viewports tres etroits.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+
+### Angles morts
+
+- Angle mort : le choix `1M` perd le detail exact au-dessus du million dans le HUD haut-centre ; le detail pourra rester disponible ailleurs si un ecran de stats est ajoute plus tard.
+- Angle mort : la validation finale reste visuelle en Play Test, car les assets catalogue peuvent contenir du padding transparent interne.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a repasser `TopCluster` a `520`, les slots a `116`, et a remplacer `formatTopStatNumber` par `formatNumber` pour les deux compteurs haut-centre.
+
+## 2026-07-10 14:47:34 +02:00 - Icones jauges et feedback de degats joueur
+
+### Contexte
+
+Le HUD bas devait quitter les libelles texte `HP` et `SHIELD` au profit d'icones catalogue. La barre de vie devait devenir verte, le shield bleu/vert electrique, et l'XP adopter une identite violette plus arcane. Une barre de vie native Roblox apparaissait aussi en haut a droite lors des degats.
+
+### Diagnostic
+
+- Juste : remplacer les libelles par des icones reduit le bruit textuel sans supprimer les valeurs importantes.
+- Juste : la barre de vie native Roblox devient redondante avec le HUD custom et doit etre masquee cote client.
+- Juste : un flash rouge leger au moment ou la vie ou le shield baisse donne une alerte de danger sans ajouter une nouvelle UI persistante.
+- Simplification : le flash utilise les remotes de stats deja existants au lieu d'ajouter un nouveau RemoteEvent dedie aux degats.
+
+### Changements
+
+- `src/client/CombatUI.client.luau` desactive `Enum.CoreGuiType.Health` via `StarterGui:SetCoreGuiEnabled`.
+- `src/client/CombatUI.client.luau` ajoute `Health_GUI` et `Shield_GUI` dans `ICON_IMAGES`.
+- `src/client/CombatUI.client.luau` remplace les textes `HP` et `SHIELD` par les icones correspondantes.
+- `src/client/CombatUI.client.luau` conserve les valeurs de vie et de shield sans prefixe texte.
+- `src/client/CombatUI.client.luau` passe la vie en vert et le shield en bleu/vert electrique.
+- `src/client/CombatUI.client.luau` passe les labels et la barre XP en violet arcane.
+- `src/client/CombatUI.client.luau` epaissit legerement les barres vie, shield et XP.
+- `src/client/CombatUI.client.luau` ajoute un overlay `DamageFlash` rouge tres transparent quand la vie ou le shield baisse.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+
+### Angles morts
+
+- Angle mort : les assets `Health_GUI` et `Shield_GUI` doivent etre autorises pour l'experience, sinon Roblox affichera une erreur de chargement d'image.
+- Angle mort : la suppression de la CoreGui Health doit etre confirmee en Play Test, car le comportement final depend du client Roblox Studio.
+- Angle mort : le flash rouge est base sur les snapshots de stats ; il indique une baisse de vie ou de shield, mais ne distingue pas encore la source du degat.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a remettre les labels `HP` et `SHIELD`, a restaurer les anciennes couleurs de vie/shield/XP, a retirer `DamageFlash`, et a ne plus appeler `SetCoreGuiEnabled` pour la CoreGui Health.
+
+## 2026-07-10 14:54:48 +02:00 - Fonds glassmorphisme HUD
+
+### Contexte
+
+Les elements HUD etaient lisibles sur certaines zones mais pouvaient se perdre sur la map, surtout avec le sol vert et le ciel clair. La demande etait d'ajouter un fond glassmorphisme translucide clair derriere chaque groupe important afin de mieux faire ressortir les informations sans revenir a un panneau massif.
+
+### Diagnostic
+
+- Juste : un fond translucide leger ameliore la lisibilite sans bloquer la vue du joueur.
+- Juste : Roblox UI ne fournit pas un blur local simple comparable au CSS ; un glassmorphisme simule par transparence, gradient, stroke et brillance est plus adapte pour cette V1.
+- Simplification : les fonds sont appliques aux groupes existants au lieu de restructurer toute la hierarchie HUD.
+
+### Changements
+
+- `src/client/CombatUI.client.luau` ajoute les couleurs `Glass`, `GlassTint` et `GlassStroke`.
+- `src/client/CombatUI.client.luau` ajoute le helper `addGlassBackground`.
+- `src/client/CombatUI.client.luau` applique un fond glass aux groupes kills et golds en haut.
+- `src/client/CombatUI.client.luau` applique un fond glass aux groupes vie et shield.
+- `src/client/CombatUI.client.luau` applique un fond glass au groupe XP bas.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+
+### Angles morts
+
+- Angle mort : l'opacite exacte devra etre ajustee apres Play Test selon le fond de map reel.
+- Angle mort : l'effet est un glassmorphisme simule, pas un vrai flou local du monde 3D.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a supprimer `addGlassBackground`, les couleurs `Glass*`, et les appels places sur les groupes HUD.
+
+## 2026-07-10 14:58:39 +02:00 - Unification des fonds glass HUD
+
+### Contexte
+
+Les fonds glass etaient appliques a chaque slot separement, ce qui creait une lecture fragmentees : un fond pour kills, un fond pour golds, puis des fonds separes pour vie, shield et XP. Un trait blanc de brillance apparaissait aussi en haut de chaque fond.
+
+### Diagnostic
+
+- Juste : les fonds doivent suivre la localisation fonctionnelle, pas chaque element individuel.
+- Juste : kills et golds forment un groupe de compteurs haut-centre et doivent partager un seul fond.
+- Juste : vie, shield et XP forment le bloc d'etat principal et doivent partager un seul fond.
+- Simplification : supprimer la ligne `TopShine` reduit le bruit visuel et evite l'effet de trait blanc parasite.
+
+### Changements
+
+- `src/client/CombatUI.client.luau` supprime la creation du sous-element `TopShine`.
+- `src/client/CombatUI.client.luau` remplace les fonds separes kills/golds par `TopStatsGlassBackground`.
+- `src/client/CombatUI.client.luau` remplace les fonds separes vie/shield/XP par `BarsGlassBackground`.
+- `src/client/CombatUI.client.luau` force les fonds glass en `ZIndex = 0` pour rester derriere les icones, labels et barres.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+- Juste : il ne reste plus de reference `TopShine` dans `src/client/CombatUI.client.luau`.
+
+### Angles morts
+
+- Angle mort : la taille exacte du fond unifie devra etre ajustee visuellement si le bloc parait trop large ou trop proche du bouton pause.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a remettre les appels `addGlassBackground` sur chaque slot separe et a restaurer le sous-element `TopShine`.
+
+## 2026-07-10 15:04:00 +02:00 - Ajustement icones jauges et barres pleines
+
+### Contexte
+
+Les icones vie et shield restaient trop petites dans le bloc bas alors que l'espace visuel existant permettait de les agrandir sans modifier la taille du fond glass ni des groupes. Les barres utilisaient aussi encore un gradient lineaire qui ajoutait du bruit visuel.
+
+### Diagnostic
+
+- Juste : agrandir les icones dans le meme conteneur ameliore la lecture sans impacter le layout global.
+- Juste : les barres pleines sont plus nettes dans une interface deja translucide.
+- Simplification : retirer le gradient des fills reduit le nombre d'effets superposes.
+
+### Changements
+
+- `src/client/CombatUI.client.luau` agrandit les icones `HealthIcon` et `ShieldIcon` a `28x28`.
+- `src/client/CombatUI.client.luau` decale legerement les valeurs vie/shield pour conserver l'espacement avec les icones agrandies.
+- `src/client/CombatUI.client.luau` augmente legerement la taille des textes vie, shield, level et XP.
+- `src/client/CombatUI.client.luau` retire le gradient lineaire des fills de barres dans `createBar`.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+- Juste : les fills de barres n'appellent plus `addGradient`.
+
+### Angles morts
+
+- Angle mort : selon le padding interne des assets `Health_GUI` et `Shield_GUI`, les icones peuvent encore paraitre plus petites que leur conteneur reel.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a remettre les icones a `20x20`, les textes a leurs tailles precedentes, et a restaurer `addGradient(fill, fillColor, fillDarkColor, 0)` dans `createBar`.

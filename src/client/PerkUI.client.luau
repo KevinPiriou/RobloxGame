@@ -3,6 +3,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local showChoicesRemote = ReplicatedStorage:WaitForChild("Perk_ShowChoices")
 local hideChoicesRemote = ReplicatedStorage:WaitForChild("Perk_HideChoices")
@@ -194,17 +196,29 @@ local function hideChoices()
 	isSubmitting = false
 	screenGui.Enabled = false
 	setButtonsEnabled(true)
+	DebugLog.Info("Perks", "UI choix perk cachee", {
+		Player = player.Name,
+	})
 end
 
 local function showChoices(payload)
+	local choices = payload.Choices or {}
+
 	currentChoiceId = payload.ChoiceId
 	isSubmitting = false
-	titleLabel.Text = "Niveau " .. tostring(payload.Level or "?")
+	titleLabel.Text = payload.Title or ("Niveau " .. tostring(payload.Level or "?"))
 	screenGui.Enabled = true
 	setButtonsEnabled(true)
+	DebugLog.Info("Perks", "UI choix perk affichee", {
+		Player = player.Name,
+		ChoiceId = payload.ChoiceId,
+		Title = payload.Title,
+		Level = payload.Level,
+		Choices = #choices,
+	})
 
 	for index, entry in ipairs(optionButtons) do
-		local option = payload.Choices[index]
+		local option = choices[index]
 		entry.Option = option
 
 		if option == nil then
@@ -227,6 +241,12 @@ for _, entry in ipairs(optionButtons) do
 
 		isSubmitting = true
 		setButtonsEnabled(false)
+		DebugLog.Info("Perks", "UI choix perk envoye", {
+			Player = player.Name,
+			ChoiceId = currentChoiceId,
+			OptionId = entry.Option.OptionId,
+			PerkId = entry.Option.PerkId,
+		})
 		selectChoiceRemote:FireServer(currentChoiceId, entry.Option.OptionId)
 	end)
 end

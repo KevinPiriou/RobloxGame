@@ -6,6 +6,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ChestConfig = require(Shared:WaitForChild("ChestConfig"))
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -173,6 +174,9 @@ local function trackChest(instance)
 	}
 
 	updatePromptLabel(trackedChests[chest])
+	DebugLog.ThrottledInfo("UI", "chest_tracked", 2, "Coffre detecte cote client", {
+		Chest = chest,
+	})
 end
 
 local function getPlayerRoot()
@@ -514,6 +518,10 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
 	pendingChest = currentPromptChest
 	setPromptVisible(pendingChest, false)
+	DebugLog.Info("UI", "Demande ouverture coffre envoyee", {
+		Chest = pendingChest,
+		Cost = currentOpenCost,
+	})
 	openRequestRemote:FireServer(pendingChest)
 
 	local requestedChest = pendingChest
@@ -534,6 +542,12 @@ acceptButton.Activated:Connect(function()
 end)
 
 openResultRemote.OnClientEvent:Connect(function(payload)
+	payload = payload or {}
+	DebugLog.Info("UI", "Ouverture coffre recue cote client", {
+		OpeningId = payload.OpeningId,
+		Cost = payload.Cost,
+	})
+
 	if payload.Chest ~= nil then
 		setPromptVisible(payload.Chest, false)
 	end
@@ -543,10 +557,14 @@ openResultRemote.OnClientEvent:Connect(function(payload)
 	end)
 end)
 
-openFailedRemote.OnClientEvent:Connect(showOpenFailed)
+openFailedRemote.OnClientEvent:Connect(function(payload)
+	DebugLog.Info("UI", "Ouverture coffre refusee cote client", payload)
+	showOpenFailed(payload)
+end)
 
 choiceResultRemote.OnClientEvent:Connect(function(payload)
 	payload = payload or {}
+	DebugLog.Info("UI", "Choix coffre termine cote client", payload)
 
 	if payload.NextOpenCost ~= nil then
 		currentOpenCost = payload.NextOpenCost
@@ -576,3 +594,8 @@ priceUpdateRemote.OnClientEvent:Connect(function(payload)
 		updatePromptLabel(chestState)
 	end
 end)
+
+DebugLog.Info("UI", "UI coffre initialisee", {
+	Player = player.Name,
+	BaseOpenCost = currentOpenCost,
+})

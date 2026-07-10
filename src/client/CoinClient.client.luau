@@ -5,6 +5,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 
 local player = Players.LocalPlayer
@@ -247,6 +248,12 @@ local function playCollectAnimation(coin, collectorUserId, duration)
 		return
 	end
 
+	DebugLog.ThrottledInfo("UI", "collectible_animation", 0.5, "Animation collectible recue", {
+		Collectible = coin,
+		CollectorUserId = collectorUserId,
+		Duration = duration,
+	})
+
 	animatedCollectibles[coin] = nil
 	hiddenCollectibles[coin] = nil
 
@@ -290,3 +297,8 @@ end
 
 collectCoinRemote.OnClientEvent:Connect(playCollectAnimation)
 collectXpRemote.OnClientEvent:Connect(playCollectAnimation)
+
+DebugLog.Info("UI", "Animation collectibles initialisee", {
+	Player = player.Name,
+	CullingEnabled = CombatConfig.CollectibleCullingEnabled,
+})

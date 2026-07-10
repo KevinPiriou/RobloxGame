@@ -1,3 +1,3 @@
 return function()
-	print("Hello, world!")
+	-- Module de demonstration conserve pour compatibilite avec le squelette Rojo.
 end

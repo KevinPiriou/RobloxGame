@@ -4,9 +4,11 @@ local RunService = game:GetService("RunService")
 local Stats = game:GetService("Stats")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
 
 if not FeatureFlags.DebugUIEnabled then
+	DebugLog.Info("UI", "Debug UI desactivee par FeatureFlags")
 	return
 end
 
@@ -167,3 +169,7 @@ RunService.RenderStepped:Connect(function(deltaTime)
 	elapsedSinceUpdate = 0
 	updateDebugValues(fps)
 end)
+
+DebugLog.Info("UI", "Debug UI initialisee", {
+	Player = player.Name,
+})

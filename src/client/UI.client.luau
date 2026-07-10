@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
 
 local player = Players.LocalPlayer
@@ -38,6 +39,7 @@ if existingGui ~= nil then
 end
 
 if not isQuizEnabled then
+	DebugLog.Info("UI", "UI quiz desactivee par FeatureFlags")
 	return
 end
 
@@ -412,6 +414,10 @@ updateCoinsRemote.OnClientEvent:Connect(function(payload)
 
 	coinsLabel.Text = "Golds : " .. tostring(coinCount) .. saveStatus
 end)
+
+DebugLog.Info("UI", "UI quiz initialisee", {
+	Player = player.Name,
+})
 
 local function getViewportSize()
 	local currentCamera = workspace.CurrentCamera

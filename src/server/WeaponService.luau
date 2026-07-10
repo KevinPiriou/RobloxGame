@@ -1,15 +1,15 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local ServerStorage = game:GetService("ServerStorage")
-local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 
 local WeaponService = {}
 
@@ -20,27 +20,9 @@ local heartbeatConnection = nil
 local cooldownsByUserId = {}
 local projectilesByInstance = {}
 
-local function getOrCreateFolder(parent, folderName)
-	local folder = parent:FindFirstChild(folderName)
-
-	if folder == nil then
-		folder = Instance.new("Folder")
-		folder.Name = folderName
-		folder.Parent = parent
-	end
-
-	assert(folder:IsA("Folder"), folderName .. " doit etre un Folder.")
-
-	return folder
-end
-
 local function setupFolders()
-	runtimeFolder = getOrCreateFolder(Workspace, CombatConfig.RuntimeFolderName)
-	projectileFolder = getOrCreateFolder(runtimeFolder, CombatConfig.ProjectileFolderName)
-end
-
-local function isRuntimeInstance(instance)
-	return runtimeFolder ~= nil and instance:IsDescendantOf(runtimeFolder)
+	runtimeFolder = TemplateService.GetCombatRuntimeFolder()
+	projectileFolder = TemplateService.GetCombatProjectileFolder()
 end
 
 local function createFallbackFireballTemplate(templateStorage)
@@ -56,35 +38,15 @@ local function createFallbackFireballTemplate(templateStorage)
 	part.CanQuery = false
 	part.Parent = templateStorage
 
-	warn("Template Fireball introuvable. Une boule de feu simple de secours a ete creee pour le test.")
+	DebugLog.Warn("Weapon", "Template Fireball introuvable, fallback cree", {
+		Template = CombatConfig.FireballTemplateName,
+	})
 
 	return part
 end
 
 local function findTemplate(templateName)
-	local templateStorage = getOrCreateFolder(ServerStorage, CombatConfig.TemplateFolderName)
-	local storedTemplate = templateStorage:FindFirstChild(templateName)
-
-	if storedTemplate ~= nil then
-		return storedTemplate
-	end
-
-	for _, root in ipairs({ ServerStorage, ReplicatedStorage, Workspace }) do
-		local candidate = root:FindFirstChild(templateName, true)
-
-		if candidate ~= nil and not isRuntimeInstance(candidate) and not candidate:IsDescendantOf(templateStorage) then
-			if candidate:IsDescendantOf(Workspace) then
-				candidate.Parent = templateStorage
-				return candidate
-			end
-
-			local clone = candidate:Clone()
-			clone.Parent = templateStorage
-			return clone
-		end
-	end
-
-	return createFallbackFireballTemplate(templateStorage)
+	return TemplateService.GetTemplate(CombatConfig.TemplateFolderName, templateName, createFallbackFireballTemplate)
 end
 
 local function findRoot(instance)
@@ -179,7 +141,9 @@ local function createProjectile(player, spawnPosition, targetMonster, targetRoot
 	local projectileRoot = prepareProjectile(projectile)
 
 	if projectileRoot == nil then
-		warn("Fireball ne contient aucune BasePart, impossible de tirer.")
+		DebugLog.Warn("Weapon", "Projectile Fireball sans BasePart, tir annule", {
+			Projectile = projectile,
+		})
 		projectile:Destroy()
 		return
 	end
@@ -198,6 +162,13 @@ local function createProjectile(player, spawnPosition, targetMonster, targetRoot
 		BounceRemaining = PerkService.GetBounceCount(player),
 		HitMonsters = {},
 	}
+
+	DebugLog.ThrottledInfo("Weapon", "fireball_created_" .. player.UserId, 1, "Projectile cree", {
+		Player = player.Name,
+		Position = spawnPosition,
+		ProjectileCount = PerkService.GetProjectileCount(player),
+		Target = targetMonster,
+	})
 end
 
 local function rotateDirection(direction, radians)
@@ -218,6 +189,11 @@ local function fireAtClosestMonster(player)
 	local targetMonster, targetRoot = MonsterService.GetClosestMonster(spawnPosition, CombatConfig.FireballRange)
 
 	if targetMonster == nil or targetRoot == nil then
+		DebugLog.ThrottledInfo("Weapon", "no_target_" .. player.UserId, 3, "Aucune cible Fireball en portee", {
+			Player = player.Name,
+			Range = CombatConfig.FireballRange,
+			Position = spawnPosition,
+		})
 		return
 	end
 
@@ -291,6 +267,12 @@ local function updateProjectile(projectileState, deltaTime)
 
 		if didDamage then
 			PerkService.ApplyLifeSteal(projectileState.Owner, damageDealt or 0)
+			DebugLog.ThrottledInfo("Weapon", "fireball_hit", 0.5, "Fireball touche un monstre", {
+				Player = projectileState.Owner.Name,
+				Damage = damage,
+				DamageDealt = damageDealt,
+				Target = hitMonster,
+			})
 		end
 
 		if projectileState.BounceRemaining > 0 then
@@ -329,6 +311,14 @@ end
 function WeaponService.Start()
 	setupFolders()
 	fireballTemplate = findTemplate(CombatConfig.FireballTemplateName)
+
+	DebugLog.Info("Weapon", "WeaponService demarre", {
+		RuntimeFolder = runtimeFolder,
+		ProjectileFolder = projectileFolder,
+		Template = fireballTemplate,
+		Cooldown = CombatConfig.FireballCooldown,
+		Range = CombatConfig.FireballRange,
+	})
 
 	if heartbeatConnection ~= nil then
 		return

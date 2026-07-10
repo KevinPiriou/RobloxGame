@@ -1,15 +1,17 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
+local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
 local XpService = require(script.Parent:WaitForChild("XpService"))
 
 local MonsterService = {}
@@ -44,27 +46,9 @@ end
 
 local statsRemote = getOrCreateRemote("Combat_UpdateStats")
 
-local function getOrCreateFolder(parent, folderName)
-	local folder = parent:FindFirstChild(folderName)
-
-	if folder == nil then
-		folder = Instance.new("Folder")
-		folder.Name = folderName
-		folder.Parent = parent
-	end
-
-	assert(folder:IsA("Folder"), folderName .. " doit etre un Folder.")
-
-	return folder
-end
-
 local function setupFolders()
-	runtimeFolder = getOrCreateFolder(Workspace, CombatConfig.RuntimeFolderName)
-	monsterFolder = getOrCreateFolder(runtimeFolder, CombatConfig.MonsterFolderName)
-end
-
-local function isRuntimeInstance(instance)
-	return runtimeFolder ~= nil and instance:IsDescendantOf(runtimeFolder)
+	runtimeFolder = TemplateService.GetCombatRuntimeFolder()
+	monsterFolder = TemplateService.GetCombatMonsterFolder()
 end
 
 local function createFallbackMonsterTemplate(templateStorage)
@@ -77,35 +61,15 @@ local function createFallbackMonsterTemplate(templateStorage)
 	part.CanCollide = true
 	part.Parent = templateStorage
 
-	warn("Template Monster1 introuvable. Un monstre simple de secours a ete cree pour le test.")
+	DebugLog.Warn("Combat", "Template monstre introuvable, fallback cree", {
+		Template = CombatConfig.MonsterTemplateName,
+	})
 
 	return part
 end
 
 local function findTemplate(templateName)
-	local templateStorage = getOrCreateFolder(ServerStorage, CombatConfig.TemplateFolderName)
-	local storedTemplate = templateStorage:FindFirstChild(templateName)
-
-	if storedTemplate ~= nil then
-		return storedTemplate
-	end
-
-	for _, root in ipairs({ ServerStorage, ReplicatedStorage, Workspace }) do
-		local candidate = root:FindFirstChild(templateName, true)
-
-		if candidate ~= nil and not isRuntimeInstance(candidate) and not candidate:IsDescendantOf(templateStorage) then
-			if candidate:IsDescendantOf(Workspace) then
-				candidate.Parent = templateStorage
-				return candidate
-			end
-
-			local clone = candidate:Clone()
-			clone.Parent = templateStorage
-			return clone
-		end
-	end
-
-	return createFallbackMonsterTemplate(templateStorage)
+	return TemplateService.GetTemplate(CombatConfig.TemplateFolderName, templateName, createFallbackMonsterTemplate)
 end
 
 local function findRoot(instance)
@@ -160,6 +124,16 @@ local function findAnimationController(instance)
 	return nil
 end
 
+local function findAnimationHost(instance)
+	local humanoid = findHumanoid(instance)
+
+	if humanoid ~= nil then
+		return humanoid
+	end
+
+	return findAnimationController(instance)
+end
+
 local function findAnimation(instance)
 	local configuredAnimation = instance:FindFirstChild(CombatConfig.MonsterAnimationName, true)
 
@@ -177,18 +151,30 @@ local function findAnimation(instance)
 end
 
 local function playMonsterAnimation(monster)
-	local animationController = findAnimationController(monster)
+	local animationHost = findAnimationHost(monster)
 	local animation = findAnimation(monster)
 
-	if animationController == nil or animation == nil then
+	if animation == nil then
+		DebugLog.ThrottledWarn("Combat", "monster_animation_missing", 8, "Animation monstre introuvable", {
+			Monster = monster,
+			ExpectedName = CombatConfig.MonsterAnimationName,
+		})
 		return nil
 	end
 
-	local animator = animationController:FindFirstChildWhichIsA("Animator")
+	if animationHost == nil then
+		DebugLog.ThrottledWarn("Combat", "monster_animation_host_missing", 8, "Support animation monstre introuvable", {
+			Monster = monster,
+			Expected = "Humanoid ou AnimationController",
+		})
+		return nil
+	end
+
+	local animator = animationHost:FindFirstChildWhichIsA("Animator")
 
 	if animator == nil then
 		animator = Instance.new("Animator")
-		animator.Parent = animationController
+		animator.Parent = animationHost
 	end
 
 	local success, track = pcall(function()
@@ -196,12 +182,24 @@ local function playMonsterAnimation(monster)
 	end)
 
 	if not success then
-		warn("Impossible de charger l'animation du monstre : " .. tostring(track))
+		DebugLog.Warn("Combat", "Impossible de charger l'animation du monstre", {
+			Error = tostring(track),
+			Monster = monster,
+			AnimationId = animation.AnimationId,
+		})
 		return nil
 	end
 
+	track.Priority = CombatConfig.MonsterAnimationPriority or Enum.AnimationPriority.Action
 	track.Looped = true
-	track:Play()
+	track:Play(0.15, 1, 1)
+
+	DebugLog.Info("Combat", "Animation monstre lancee", {
+		Monster = monster,
+		Animation = animation,
+		AnimationId = animation.AnimationId,
+		Priority = tostring(track.Priority),
+	})
 
 	return track
 end
@@ -331,6 +329,9 @@ end
 local function hasPlayerBeenGroundedLongEnough(player, now)
 	if not isPlayerGrounded(player) then
 		groundedSinceByUserId[player.UserId] = nil
+		DebugLog.ThrottledInfo("Combat", "mob_ground_wait_" .. player.UserId, 2, "Spawn mob en attente sol joueur", {
+			Player = player.Name,
+		})
 		return false
 	end
 
@@ -372,8 +373,18 @@ local function getAlivePlayerCount()
 	return count
 end
 
+local function getRunElapsed()
+	return math.max(0, CombatStateService.GetTime() - waveStartedAt)
+end
+
+local function isInCalmDifficultyWindow()
+	local calmDuration = CombatConfig.DifficultyCalmDuration or 0
+
+	return getRunElapsed() < calmDuration
+end
+
 local function getCurrentWaveNumber()
-	local elapsed = math.max(0, CombatStateService.GetTime() - waveStartedAt)
+	local elapsed = getRunElapsed()
 
 	return math.floor(elapsed / CombatConfig.WaveDuration) + 1
 end
@@ -392,14 +403,42 @@ local function getCurrentWaveMaxAlive()
 
 	totalPlayerMultiplier = math.max(1, totalPlayerMultiplier)
 
-	return math.min(CombatConfig.MonsterMaxAlive, math.floor(waveMaxAlive * totalPlayerMultiplier))
+	local finalMaxAlive = math.floor(waveMaxAlive * totalPlayerMultiplier)
+
+	if isInCalmDifficultyWindow() then
+		finalMaxAlive = math.min(finalMaxAlive, CombatConfig.DifficultyCalmMaxAlive or finalMaxAlive)
+	end
+
+	return math.min(CombatConfig.MonsterMaxAlive, finalMaxAlive)
 end
 
 local function getCurrentWaveSpawnBatch()
 	local waveNumber = getCurrentWaveNumber()
 	local extraBatch = math.floor((waveNumber - 1) / CombatConfig.WaveSpawnBatchIncreaseEvery)
 
-	return math.max(1, CombatConfig.WaveSpawnBatchBase + extraBatch)
+	if isInCalmDifficultyWindow() then
+		return math.max(1, CombatConfig.WaveSpawnBatchBase)
+	end
+
+	local spawnBatch = math.max(1, CombatConfig.WaveSpawnBatchBase + extraBatch)
+
+	if CombatConfig.WaveSpawnBatchMax ~= nil then
+		spawnBatch = math.min(spawnBatch, CombatConfig.WaveSpawnBatchMax)
+	end
+
+	return spawnBatch
+end
+
+local function getCurrentSpawnInterval()
+	if isInCalmDifficultyWindow() then
+		return CombatConfig.MonsterSpawnInterval
+	end
+
+	local waveNumber = getCurrentWaveNumber()
+	local intervalReduction = (waveNumber - 1) * (CombatConfig.MonsterSpawnIntervalDecreasePerWave or 0)
+	local spawnInterval = CombatConfig.MonsterSpawnInterval - intervalReduction
+
+	return math.max(CombatConfig.MonsterSpawnIntervalMin or CombatConfig.MonsterSpawnInterval, spawnInterval)
 end
 
 local function getPlayerStatsPayload(player)
@@ -531,20 +570,24 @@ local function getSpawnSurfacePositionNearPlayer(player)
 		return nil
 	end
 
-	local angle = rng:NextNumber(0, math.pi * 2)
-	local distance = rng:NextNumber(CombatConfig.MonsterMinSpawnDistance, CombatConfig.MonsterMaxSpawnDistance)
-	local horizontalOffset = Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
-	local rayOrigin = root.Position + horizontalOffset + Vector3.new(0, CombatConfig.MonsterGroundRaycastHeight, 0)
-	local rayDirection = Vector3.new(0, -CombatConfig.MonsterGroundRaycastDepth, 0)
-	local raycastParams = RaycastParams.new()
+	local attempts = math.max(1, CombatConfig.MonsterSpawnSurfaceAttempts or 1)
 
-	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	raycastParams.FilterDescendantsInstances = { player.Character, runtimeFolder }
+	for _ = 1, attempts do
+		local angle = rng:NextNumber(0, math.pi * 2)
+		local distance = rng:NextNumber(CombatConfig.MonsterMinSpawnDistance, CombatConfig.MonsterMaxSpawnDistance)
+		local horizontalOffset = Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
+		local rayOrigin = root.Position + horizontalOffset + Vector3.new(0, CombatConfig.MonsterGroundRaycastHeight, 0)
+		local rayDirection = Vector3.new(0, -CombatConfig.MonsterGroundRaycastDepth, 0)
+		local raycastParams = RaycastParams.new()
 
-	local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+		raycastParams.FilterDescendantsInstances = { player.Character, runtimeFolder }
 
-	if result ~= nil then
-		return result.Position
+		local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+
+		if result ~= nil then
+			return result.Position
+		end
 	end
 
 	return nil
@@ -569,12 +612,24 @@ end
 
 local function spawnMonsterNearPlayer(player)
 	if monsterTemplate == nil or not isPlayerAlive(player) then
+		DebugLog.ThrottledWarn("Combat", "mob_spawn_blocked_" .. player.UserId, 2, "Spawn mob bloque", {
+			Player = player.Name,
+			HasTemplate = monsterTemplate ~= nil,
+			PlayerAlive = isPlayerAlive(player),
+		})
 		return false
 	end
 
 	local spawnSurfacePosition = getSpawnSurfacePositionNearPlayer(player)
 
 	if spawnSurfacePosition == nil then
+		DebugLog.ThrottledWarn("Combat", "mob_no_surface_" .. player.UserId, 2, "Aucune surface trouvee pour spawn mob", {
+			Player = player.Name,
+			Root = getCharacterRoot(player),
+			RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
+			RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
+			Attempts = CombatConfig.MonsterSpawnSurfaceAttempts,
+		})
 		return false
 	end
 
@@ -587,20 +642,24 @@ local function spawnMonsterNearPlayer(player)
 	local humanoid, root = prepareMonsterInstance(monster)
 
 	if root == nil then
-		warn("Monster1 ne contient aucune BasePart, impossible de le deplacer.")
+		DebugLog.Warn("Combat", "Monstre sans BasePart, spawn annule", {
+			Monster = monster,
+		})
 		monster:Destroy()
 		return false
 	end
 
+	local pivotRotation = WorldSpawnService.GetPivotRotation(monster)
 	local spawnPivotPosition = getSurfacePivotPosition(monster, spawnSurfacePosition)
 
-	pivotInstance(monster, CFrame.new(spawnPivotPosition))
+	pivotInstance(monster, WorldSpawnService.GetPivotCFrameAtPosition(monster, spawnPivotPosition))
 
 	local monsterState = {
 		Instance = monster,
 		Humanoid = humanoid,
 		Root = root,
 		BasePosition = spawnPivotPosition,
+		PivotRotation = pivotRotation,
 		Health = CombatConfig.MonsterHealth,
 		AnimationTrack = playMonsterAnimation(monster),
 		AnimationTime = rng:NextNumber(0, 10),
@@ -624,6 +683,13 @@ local function spawnMonsterNearPlayer(player)
 			removeMonster(monsterState, monsterState.PendingKiller)
 		end)
 	end
+
+	DebugLog.ThrottledInfo("Combat", "mob_spawn_success", 1.5, "Monstre genere", {
+		Player = player.Name,
+		Position = spawnPivotPosition,
+		Alive = getAliveMonsterCount(),
+		Wave = getCurrentWaveNumber(),
+	})
 
 	return true
 end
@@ -726,8 +792,9 @@ local function getProceduralAnimationCFrame(monsterState, position, moveDirectio
 	local sway = math.sin(monsterState.AnimationTime * 7) * math.rad(CombatConfig.MonsterProceduralSwayDegrees)
 	local visualPosition = position + Vector3.new(0, bob, 0)
 	local lookTarget = visualPosition + moveDirection
+	local pivotRotation = monsterState.PivotRotation or CFrame.new()
 
-	return CFrame.lookAt(visualPosition, lookTarget) * CFrame.Angles(0, 0, sway)
+	return CFrame.lookAt(visualPosition, lookTarget) * CFrame.Angles(0, 0, sway) * pivotRotation
 end
 
 local function updateMonsterMovement(monsterState, deltaTime, now, spatialGrid)
@@ -830,8 +897,9 @@ local function updateSpawns(now)
 
 		if isPlayerAlive(player) and hasPlayerBeenGroundedLongEnough(player, now) then
 			local lastSpawnAt = lastSpawnAtByUserId[player.UserId] or 0
+			local spawnInterval = getCurrentSpawnInterval()
 
-			if now - lastSpawnAt >= CombatConfig.MonsterSpawnInterval then
+			if now - lastSpawnAt >= spawnInterval then
 				lastSpawnAtByUserId[player.UserId] = now
 
 				local spawnBatch = math.max(
@@ -900,6 +968,10 @@ local function bindCharacter(player, character)
 end
 
 function MonsterService.SetupPlayer(player)
+	DebugLog.Info("Combat", "Setup joueur combat", {
+		Player = player.Name,
+	})
+
 	killsByUserId[player.UserId] = killsByUserId[player.UserId] or 0
 	groundedSinceByUserId[player.UserId] = nil
 	lastSpawnAtByUserId[player.UserId] = os.clock() + CombatConfig.MonsterInitialSpawnDelay - CombatConfig.MonsterSpawnInterval
@@ -938,6 +1010,11 @@ function MonsterService.RemovePlayer(player)
 end
 
 function MonsterService.DebugSpawnMonstersNearPlayer(player, requestedCount)
+	DebugLog.Info("Combat", "Debug spawn monstres demande", {
+		Player = player.Name,
+		Requested = requestedCount,
+	})
+
 	local count = math.clamp(math.floor(requestedCount or 0), 0, CombatConfig.MonsterMaxAlive)
 	local aliveMonsterCount = getAliveMonsterCount()
 	local maxToSpawn = math.max(0, math.min(count, CombatConfig.MonsterMaxAlive - aliveMonsterCount))
@@ -961,6 +1038,8 @@ function MonsterService.DebugSpawnMonstersNearPlayer(player, requestedCount)
 end
 
 function MonsterService.DebugKillAllMonsters()
+	DebugLog.Info("Combat", "Debug kill all monstres demande")
+
 	local monsterStates = {}
 
 	for _, monsterState in pairs(monstersByInstance) do
@@ -1078,6 +1157,18 @@ function MonsterService.Start()
 	setupFolders()
 	monsterTemplate = findTemplate(CombatConfig.MonsterTemplateName)
 	waveStartedAt = CombatStateService.GetTime()
+
+	DebugLog.Info("Combat", "MonsterService demarre", {
+		RuntimeFolder = runtimeFolder,
+		MonsterFolder = monsterFolder,
+		Template = monsterTemplate,
+		MaxAlive = CombatConfig.MonsterMaxAlive,
+		CalmDuration = CombatConfig.DifficultyCalmDuration,
+		CalmMaxAlive = CombatConfig.DifficultyCalmMaxAlive,
+		SpawnInterval = CombatConfig.MonsterSpawnInterval,
+		SpawnIntervalMin = CombatConfig.MonsterSpawnIntervalMin,
+		GroundedDelay = CombatConfig.MonsterSpawnGroundedDelay,
+	})
 
 	if heartbeatConnection ~= nil then
 		return

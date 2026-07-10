@@ -3,9 +3,12 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ChestConfig = require(Shared:WaitForChild("ChestConfig"))
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
+local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
+local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
 
 local ChestService = {}
 
@@ -13,6 +16,9 @@ local rng = Random.new()
 local profilesByUserId = {}
 local trackedChests = {}
 local isStarted = false
+local runtimeFolder = nil
+local chestTemplate = nil
+local spawnedChestCount = 0
 
 local function getOrCreateRemote(remoteName)
 	local remote = ReplicatedStorage:FindFirstChild(remoteName)
@@ -34,6 +40,44 @@ local openFailedRemote = getOrCreateRemote("Chest_OpenFailed")
 local choiceRequestRemote = getOrCreateRemote("Chest_ChoiceRequest")
 local choiceResultRemote = getOrCreateRemote("Chest_ChoiceResult")
 local priceUpdateRemote = getOrCreateRemote("Chest_PriceUpdate")
+
+local function createFallbackChestTemplate(templateStorage)
+	local model = Instance.new("Model")
+	model.Name = ChestConfig.ChestName
+
+	local base = Instance.new("Part")
+	base.Name = "Base"
+	base.Size = Vector3.new(4, 2.4, 3)
+	base.Color = Color3.fromRGB(115, 74, 38)
+	base.Material = Enum.Material.Wood
+	base.Anchored = true
+	base.Parent = model
+
+	local lid = Instance.new("Part")
+	lid.Name = "Lid"
+	lid.Size = Vector3.new(4.2, 0.7, 3.2)
+	lid.Position = Vector3.new(0, 1.55, 0)
+	lid.Color = Color3.fromRGB(145, 96, 47)
+	lid.Material = Enum.Material.WoodPlanks
+	lid.Anchored = true
+	lid.Parent = model
+
+	local band = Instance.new("Part")
+	band.Name = "Band"
+	band.Size = Vector3.new(4.4, 0.25, 0.35)
+	band.Position = Vector3.new(0, 0.45, -1.62)
+	band.Color = Color3.fromRGB(235, 188, 82)
+	band.Material = Enum.Material.Metal
+	band.Anchored = true
+	band.Parent = model
+
+	model.PrimaryPart = base
+	model.Parent = templateStorage
+
+	DebugLog.Warn("Chest", "Template Chest introuvable, fallback cree")
+
+	return model
+end
 
 local function getPauseReason(player)
 	return "ChestOpening_" .. player.UserId
@@ -86,7 +130,13 @@ local function findChestRoot(chest)
 		return chest.PrimaryPart
 	end
 
-	return chest:FindFirstChildWhichIsA("BasePart", true)
+	local root = chest:FindFirstChildWhichIsA("BasePart", true)
+
+	if root ~= nil and chest:IsA("Model") then
+		chest.PrimaryPart = root
+	end
+
+	return root
 end
 
 local function resolveChest(instance)
@@ -149,6 +199,142 @@ local function scanExistingChests()
 	end
 end
 
+local function pivotInstance(instance, cframe)
+	if instance:IsA("Model") or instance:IsA("BasePart") then
+		instance:PivotTo(cframe)
+	end
+end
+
+local function prepareChestInstance(chest)
+	for _, descendant in ipairs(chest:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+		end
+	end
+
+	if chest:IsA("BasePart") then
+		chest.Anchored = true
+	end
+
+	if chest:GetAttribute("ChestOpened") == nil then
+		chest:SetAttribute("ChestOpened", false)
+	end
+
+	if chest:GetAttribute("ChestOpening") == nil then
+		chest:SetAttribute("ChestOpening", false)
+	end
+end
+
+local function getOccupiedSurfacePositions()
+	local occupiedPositions = WorldSpawnService.GetPositionsFromFolder(runtimeFolder)
+
+	for _, position in ipairs(WorldSpawnService.GetPositionsFromFolder(TemplateService.GetShrinesRuntimeFolder())) do
+		table.insert(occupiedPositions, position)
+	end
+
+	for chest in pairs(trackedChests) do
+		local position = WorldSpawnService.GetInstancePosition(chest)
+
+		if position ~= nil then
+			table.insert(occupiedPositions, position)
+		end
+	end
+
+	return occupiedPositions
+end
+
+local function spawnChestAtSurface(surfacePosition)
+	if chestTemplate == nil then
+		return nil
+	end
+
+	local chest = chestTemplate:Clone()
+	chest.Name = ChestConfig.ChestName
+	chest.Parent = runtimeFolder
+	prepareChestInstance(chest)
+
+	local root = findChestRoot(chest)
+
+	if root == nil then
+		DebugLog.Warn("Chest", "Chest sans BasePart, generation annulee", {
+			Chest = chest,
+		})
+		chest:Destroy()
+		return nil
+	end
+
+	local pivotPosition = WorldSpawnService.GetSurfacePivotPosition(
+		chest,
+		surfacePosition,
+		ChestConfig.SpawnSurfaceOffset
+	)
+
+	pivotInstance(chest, WorldSpawnService.GetPivotCFrameAtPosition(chest, pivotPosition, rng:NextNumber(0, math.pi * 2)))
+	trackChest(chest)
+	spawnedChestCount += 1
+
+	DebugLog.Info("Chest", "Chest genere", {
+		Chest = chest,
+		SurfacePosition = surfacePosition,
+		PivotPosition = pivotPosition,
+		SpawnedCount = spawnedChestCount,
+	})
+
+	return chest
+end
+
+local function spawnInitialChests()
+	if chestTemplate == nil then
+		DebugLog.Warn("Chest", "Generation coffres impossible, template absent")
+		return
+	end
+
+	local neededCount = math.max(0, ChestConfig.InitialSpawnCount - spawnedChestCount)
+
+	if neededCount <= 0 then
+		DebugLog.Info("Chest", "Generation coffres ignoree, limite deja atteinte", {
+			SpawnedCount = spawnedChestCount,
+			Limit = ChestConfig.InitialSpawnCount,
+		})
+		return
+	end
+
+	DebugLog.Info("Chest", "Generation coffres repartis demandee", {
+		Requested = neededCount,
+		MaxRadius = ChestConfig.SpawnWorldMaxRadius,
+		MinDistance = ChestConfig.SpawnWorldMinObjectDistance,
+	})
+
+	local surfacePositions = WorldSpawnService.FindDistributedSurfacePositions({
+		Count = neededCount,
+		Center = ChestConfig.SpawnWorldCenter,
+		MinRadius = ChestConfig.SpawnWorldMinRadius,
+		MaxRadius = ChestConfig.SpawnWorldMaxRadius,
+		MinDistance = ChestConfig.SpawnWorldMinObjectDistance,
+		AttemptsPerPoint = ChestConfig.SpawnWorldAttemptsPerChest,
+		JitterRadius = ChestConfig.SpawnWorldJitterRadius,
+		RaycastHeight = ChestConfig.SpawnRaycastHeight,
+		RaycastDepth = ChestConfig.SpawnRaycastDepth,
+		RejectedSurfaceNameContains = ChestConfig.RejectedSurfaceNameContains,
+		OccupiedPositions = getOccupiedSurfacePositions(),
+		LogCategory = "Chest",
+		LogLabel = "coffres",
+	})
+
+	for _, surfacePosition in ipairs(surfacePositions) do
+		if spawnedChestCount >= ChestConfig.InitialSpawnCount then
+			break
+		end
+
+		spawnChestAtSurface(surfacePosition)
+	end
+
+	DebugLog.Info("Chest", "Generation coffres initiale terminee", {
+		Requested = ChestConfig.InitialSpawnCount,
+		SpawnedCount = spawnedChestCount,
+	})
+end
+
 local function getPlayerRoot(player)
 	local character = player.Character
 
@@ -203,6 +389,13 @@ end
 local function sendOpenFailed(player, reason)
 	local profile = getOrCreateProfile(player)
 
+	DebugLog.Info("Chest", "Ouverture coffre refusee", {
+		Player = player.Name,
+		Reason = reason,
+		NextOpenCost = profile.NextOpenCost,
+		Coins = CoinService.GetCoins(player),
+	})
+
 	openFailedRemote:FireClient(player, {
 		Reason = reason,
 		NextOpenCost = profile.NextOpenCost,
@@ -216,7 +409,10 @@ local function applyReward(player, reward)
 		return
 	end
 
-	print(player.Name .. " a valide le coffre : " .. tostring(reward.Name))
+	DebugLog.Info("Chest", "Recompense coffre validee", {
+		Player = player.Name,
+		Reward = reward.Name,
+	})
 end
 
 local function destroyChest(chest)
@@ -242,6 +438,11 @@ local function finishOpening(player, accepted)
 	end
 
 	destroyChest(activeOpening.Chest)
+	DebugLog.Info("Chest", "Ouverture coffre terminee", {
+		Player = player.Name,
+		Accepted = accepted,
+		NextOpenCost = profile.NextOpenCost,
+	})
 
 	choiceResultRemote:FireClient(player, {
 		Accepted = accepted,
@@ -326,6 +527,14 @@ local function onOpenRequested(player, chest)
 	CombatStateService.Pause(getPauseReason(player))
 	sendPrice(player)
 
+	DebugLog.Info("Chest", "Ouverture coffre demarree", {
+		Player = player.Name,
+		Chest = chest,
+		Cost = currentCost,
+		NextOpenCost = profile.NextOpenCost,
+		Reward = reward.Name,
+	})
+
 	openResultRemote:FireClient(player, {
 		OpeningId = profile.ActiveOpening.OpeningId,
 		Chest = chest,
@@ -353,6 +562,9 @@ local function onChoiceRequested(player, openingId, action)
 end
 
 function ChestService.SetupPlayer(player)
+	DebugLog.Info("Chest", "Setup joueur coffre", {
+		Player = player.Name,
+	})
 	getOrCreateProfile(player)
 	sendPrice(player)
 end
@@ -374,7 +586,22 @@ function ChestService.Start()
 	end
 
 	isStarted = true
+	runtimeFolder = TemplateService.GetChestsRuntimeFolder()
+	chestTemplate = TemplateService.GetTemplate(
+		ChestConfig.TemplateFolderName,
+		ChestConfig.ChestName,
+		createFallbackChestTemplate
+	)
 	scanExistingChests()
+	spawnInitialChests()
+	DebugLog.Info("Chest", "ChestService demarre", {
+		RuntimeFolder = runtimeFolder,
+		Template = chestTemplate,
+		TrackedChests = "scan et generation termines",
+		SpawnedChestCount = spawnedChestCount,
+		BaseOpenCost = ChestConfig.BaseOpenCost,
+		OpenCostIncrease = ChestConfig.OpenCostIncrease,
+	})
 
 	Workspace.DescendantAdded:Connect(function(descendant)
 		task.defer(function()

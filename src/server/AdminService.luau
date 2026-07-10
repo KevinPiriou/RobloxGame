@@ -3,6 +3,7 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AdminConfig = require(Shared:WaitForChild("AdminConfig"))
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local JumpBonusService = require(script.Parent:WaitForChild("JumpBonusService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
@@ -62,7 +63,9 @@ end
 
 local function runAdminAction(player, refusedWarning, callback)
 	if not canUseAdminTools(player) then
-		warn(refusedWarning .. " refuse pour " .. player.Name)
+		DebugLog.Warn("Admin", refusedWarning .. " refuse", {
+			Player = player.Name,
+		})
 		sendAdminMessage(player, false, "Acces admin refuse")
 		return
 	end
@@ -70,16 +73,27 @@ local function runAdminAction(player, refusedWarning, callback)
 	local success, message = pcall(callback)
 
 	if not success then
-		warn(refusedWarning .. " erreur pour " .. player.Name .. " : " .. tostring(message))
+		DebugLog.Warn("Admin", refusedWarning .. " erreur", {
+			Player = player.Name,
+			Error = tostring(message),
+		})
 		sendAdminMessage(player, false, "Erreur admin")
 		return
 	end
 
+	DebugLog.Info("Admin", refusedWarning .. " execute", {
+		Player = player.Name,
+		Message = message,
+	})
 	sendAdminMessage(player, true, message)
 end
 
 function AdminService.SetupPlayer(player)
 	player:SetAttribute(ADMIN_ATTRIBUTE, canUseAdminTools(player))
+	DebugLog.Info("Admin", "Setup joueur admin", {
+		Player = player.Name,
+		CanUseAdminTools = player:GetAttribute(ADMIN_ATTRIBUTE),
+	})
 end
 
 function AdminService.RemovePlayer(player)
@@ -88,10 +102,12 @@ end
 
 function AdminService.Start()
 	if isStarted then
+		DebugLog.Info("Admin", "Start ignore, service deja demarre")
 		return
 	end
 
 	isStarted = true
+	DebugLog.Info("Admin", "AdminService demarre")
 
 	resetPowerUpsRemote.OnServerEvent:Connect(function(player)
 		runAdminAction(player, "Reset admin", function()

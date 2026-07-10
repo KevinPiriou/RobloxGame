@@ -1,14 +1,15 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 
 local XpService = {}
 
@@ -37,30 +38,8 @@ end
 local updateXpRemote = getOrCreateRemote("Xp_UpdateCount")
 local collectXpRemote = getOrCreateRemote("Xp_PlayCollect")
 
-local function getOrCreateFolder(parent, folderName)
-	local folder = parent:FindFirstChild(folderName)
-
-	if folder == nil then
-		folder = Instance.new("Folder")
-		folder.Name = folderName
-		folder.Parent = parent
-	end
-
-	assert(folder:IsA("Folder"), folderName .. " doit etre un Folder.")
-
-	return folder
-end
-
 local function getRuntimeLootFolder()
-	local runtimeFolder = Workspace:FindFirstChild(CombatConfig.RuntimeFolderName)
-
-	if runtimeFolder == nil then
-		runtimeFolder = Instance.new("Folder")
-		runtimeFolder.Name = CombatConfig.RuntimeFolderName
-		runtimeFolder.Parent = Workspace
-	end
-
-	return getOrCreateFolder(runtimeFolder, CombatConfig.LootFolderName)
+	return TemplateService.GetCombatLootFolder()
 end
 
 local function getTierName(tier)
@@ -226,31 +205,20 @@ local function createFallbackGemTemplate(templateStorage, tier)
 	part.CanQuery = false
 	part.Parent = templateStorage
 
-	warn("Template " .. getTierName(tier) .. " introuvable. Une gemme XP simple de secours a ete creee.")
+	DebugLog.Warn("Xp", "Template gemme XP introuvable, fallback cree", {
+		Template = getTierName(tier),
+		Tier = tier,
+	})
 
 	return part
 end
 
 local function findGemTemplate(tier)
 	local tierName = getTierName(tier)
-	local templateStorage = getOrCreateFolder(ServerStorage, TEMPLATE_FOLDER_NAME)
-	local storedTemplate = templateStorage:FindFirstChild(tierName)
 
-	if storedTemplate ~= nil then
-		return storedTemplate
-	end
-
-	for _, root in ipairs({ ServerStorage, ReplicatedStorage, Workspace }) do
-		local candidate = root:FindFirstChild(tierName, true)
-
-		if candidate ~= nil and not candidate:IsDescendantOf(templateStorage) then
-			local clone = candidate:Clone()
-			clone.Parent = templateStorage
-			return clone
-		end
-	end
-
-	return createFallbackGemTemplate(templateStorage, tier)
+	return TemplateService.GetTemplate(TEMPLATE_FOLDER_NAME, tierName, function(templateStorage)
+		return createFallbackGemTemplate(templateStorage, tier)
+	end)
 end
 
 local function pivotCollectible(instance, position)
@@ -317,6 +285,12 @@ local function awardXp(player, xpValue)
 	while profile.Xp >= requiredXp do
 		profile.Xp -= requiredXp
 		profile.Level += 1
+		DebugLog.Info("Xp", "Level up joueur", {
+			Player = player.Name,
+			Level = profile.Level,
+			RemainingXp = profile.Xp,
+			NextRequiredXp = getRequiredXpForLevel(profile.Level),
+		})
 		PerkService.QueueLevelUp(player, profile.Level)
 		requiredXp = getRequiredXpForLevel(profile.Level)
 	end
@@ -326,20 +300,53 @@ local function awardXp(player, xpValue)
 	sendXpCount(player)
 end
 
-local function collectGem(player, gem, gemState)
-	if gemState.Collected then
+local function finishGemCollection(player, gem, gemState, attractDuration)
+	if player.Parent ~= Players or gem.Parent == nil then
+		if gem.Parent ~= nil then
+			gemState.Collected = false
+		end
 		return
 	end
 
-	gemState.Collected = true
-	collectXpRemote:FireAllClients(gem, player.UserId, CombatConfig.XpAttractDuration)
+	collectXpRemote:FireAllClients(gem, player.UserId, attractDuration)
+	DebugLog.ThrottledInfo("Xp", "xp_collect_" .. player.UserId, 0.5, "Gemme XP collectee", {
+		Player = player.Name,
+		Gem = gem,
+		Tier = gemState.Tier,
+		XpValue = gemState.XpValue,
+	})
 	awardXp(player, gemState.XpValue or CombatConfig.XpPerGem)
 
-	task.delay(CombatConfig.XpAttractDuration + 0.1, function()
+	task.delay(attractDuration + 0.1, function()
 		if gem.Parent ~= nil then
 			gem:Destroy()
 		end
 	end)
+end
+
+local function collectGem(player, gem, gemState, attractDuration)
+	if gemState.Collected then
+		return false
+	end
+
+	gemState.Collected = true
+	finishGemCollection(player, gem, gemState, attractDuration or CombatConfig.XpAttractDuration)
+
+	return true
+end
+
+local function scheduleGemCollection(player, gem, gemState, attractDuration, delaySeconds)
+	if gemState.Collected then
+		return false
+	end
+
+	gemState.Collected = true
+
+	task.delay(delaySeconds, function()
+		finishGemCollection(player, gem, gemState, attractDuration)
+	end)
+
+	return true
 end
 
 local function scanGemProximity()
@@ -468,6 +475,11 @@ local function mergeGroup(group, nextTier)
 	end
 
 	center /= #group
+	DebugLog.ThrottledInfo("Xp", "xp_merge", 1, "Fusion de gemmes XP", {
+		Count = #group,
+		NextTier = nextTier,
+		Position = center,
+	})
 	XpService.SpawnXpGem(center, nextTier)
 end
 
@@ -504,6 +516,11 @@ end
 
 function XpService.SetupPlayer(player)
 	local profile = getOrCreateProfile(player)
+	DebugLog.Info("Xp", "Setup joueur XP", {
+		Player = player.Name,
+		Level = profile.Level,
+		TotalXp = profile.TotalXp,
+	})
 	getOrCreateXpValue(player).Value = profile.TotalXp
 	getOrCreateLevelValue(player).Value = profile.Level
 	sendXpCount(player)
@@ -528,10 +545,83 @@ function XpService.SpawnXpGem(position, tier)
 	pivotCollectible(gem, position)
 	trackGem(gem)
 
+	DebugLog.ThrottledInfo("Xp", "xp_spawn", 1, "Gemme XP generee", {
+		Gem = gem,
+		Tier = gemTier,
+		Position = position,
+	})
+
 	return gem
 end
 
+function XpService.CollectAllForPlayer(player, attractDuration, spreadDuration)
+	local playerRoot = getPlayerRoot(player)
+
+	if playerRoot == nil then
+		return 0
+	end
+
+	local candidates = {}
+
+	for gem, gemState in pairs(trackedGems) do
+		if gem.Parent == nil then
+			trackedGems[gem] = nil
+			continue
+		end
+
+		if gemState.Collected then
+			continue
+		end
+
+		local gemRoot = findGemRoot(gem)
+
+		if gemRoot ~= nil then
+			table.insert(candidates, {
+				Gem = gem,
+				State = gemState,
+				Distance = (playerRoot.Position - gemRoot.Position).Magnitude,
+			})
+		end
+	end
+
+	table.sort(candidates, function(left, right)
+		return left.Distance < right.Distance
+	end)
+
+	local collectedCount = 0
+	local duration = attractDuration or CombatConfig.XpAttractDuration
+	local spread = spreadDuration or 0
+	local delayStep = 0
+
+	if #candidates > 1 then
+		delayStep = spread / (#candidates - 1)
+	end
+
+	for index, candidate in ipairs(candidates) do
+		local delaySeconds = math.min(spread, (index - 1) * delayStep)
+
+		if scheduleGemCollection(player, candidate.Gem, candidate.State, duration, delaySeconds) then
+			collectedCount += 1
+		end
+	end
+
+	DebugLog.Info("Xp", "Magnetisme global XP demande", {
+		Player = player.Name,
+		CollectedCount = collectedCount,
+		Duration = duration,
+		Spread = spread,
+	})
+
+	return collectedCount
+end
+
 function XpService.Start()
+	DebugLog.Info("Xp", "XpService demarre", {
+		LootFolder = getRuntimeLootFolder(),
+		Tiers = CombatConfig.XpGemTierNames,
+		MergeRadius = CombatConfig.XpMergeRadius,
+	})
+
 	for tier = 1, #CombatConfig.XpGemTierNames do
 		xpGemTemplatesByTier[tier] = findGemTemplate(tier)
 	end

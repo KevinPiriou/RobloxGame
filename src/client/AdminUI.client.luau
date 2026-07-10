@@ -2,9 +2,11 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
 
 if not FeatureFlags.AdminToolsEnabled then
+	DebugLog.Info("UI", "UI admin desactivee par FeatureFlags")
 	return
 end
 
@@ -127,6 +129,9 @@ local function fireAdminAction(button, remote, busyText)
 	button.Text = busyText
 	statusLabel.Text = "Demande envoyee"
 	statusLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
+	DebugLog.Info("UI", "Action admin envoyee", {
+		Action = button.Name,
+	})
 	remote:FireServer()
 end
 
@@ -144,6 +149,7 @@ end)
 
 adminMessageRemote.OnClientEvent:Connect(function(payload)
 	resetActiveButton()
+	DebugLog.Info("UI", "Retour action admin recu", payload)
 	statusLabel.Text = payload.Message or "Action terminee"
 
 	if payload.Success then
@@ -155,3 +161,8 @@ end)
 
 player:GetAttributeChangedSignal("CanUseAdminTools"):Connect(updateVisibility)
 updateVisibility()
+
+DebugLog.Info("UI", "UI admin initialisee", {
+	Player = player.Name,
+	Visible = screenGui.Enabled,
+})

@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local Perks = require(Shared:WaitForChild("Perks"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
@@ -232,7 +233,7 @@ local function createChoiceOption(definition, rarityId, optionIndex)
 	}
 end
 
-local function createChoice(player, level)
+local function createChoice(player, level, title)
 	local availableDefinitions = table.clone(Perks.Definitions)
 	local choices = {}
 	local choicesByOptionId = {}
@@ -257,6 +258,7 @@ local function createChoice(player, level)
 	return {
 		ChoiceId = tostring(player.UserId) .. "_" .. tostring(profile.NextChoiceId),
 		Level = level,
+		Title = title,
 		Choices = choices,
 		ChoicesByOptionId = choicesByOptionId,
 	}
@@ -273,21 +275,37 @@ local function showNextChoice(player)
 		return
 	end
 
-	local nextLevel = table.remove(profile.PendingLevels, 1)
+	local nextRequest = table.remove(profile.PendingLevels, 1)
 
-	if nextLevel == nil then
+	if nextRequest == nil then
 		CombatStateService.Resume(getPauseReason(player))
 		hideChoicesRemote:FireClient(player)
 		return
 	end
 
-	local choice = createChoice(player, nextLevel)
+	local nextLevel = nextRequest
+	local title = nil
+
+	if typeof(nextRequest) == "table" then
+		nextLevel = nextRequest.Level
+		title = nextRequest.Title
+	end
+
+	local choice = createChoice(player, nextLevel, title)
 	profile.ActiveChoice = choice
 
 	CombatStateService.Pause(getPauseReason(player))
+	DebugLog.Info("Perks", "Choix de perk affiche", {
+		Player = player.Name,
+		Level = choice.Level,
+		Title = choice.Title,
+		ChoiceId = choice.ChoiceId,
+		Choices = #choice.Choices,
+	})
 	showChoicesRemote:FireClient(player, {
 		ChoiceId = choice.ChoiceId,
 		Level = choice.Level,
+		Title = choice.Title,
 		Choices = choice.Choices,
 	})
 end
@@ -302,6 +320,13 @@ local function applyChoice(player, option)
 
 	addStats(profile.Stats, option.Stats)
 	profile.StacksByPerkId[option.PerkId] = (profile.StacksByPerkId[option.PerkId] or 0) + 1
+	DebugLog.Info("Perks", "Perk applique", {
+		Player = player.Name,
+		PerkId = option.PerkId,
+		Name = option.Name,
+		Rarity = option.Rarity,
+		Stacks = profile.StacksByPerkId[option.PerkId],
+	})
 
 	if option.Stats.Shield ~= nil then
 		profile.CurrentShield += option.Stats.Shield
@@ -322,8 +347,20 @@ local function onChoiceSelected(player, choiceId, optionId)
 	local option = activeChoice.ChoicesByOptionId[tostring(optionId)]
 
 	if option == nil then
+		DebugLog.Warn("Perks", "Choix perk refuse, option inconnue", {
+			Player = player.Name,
+			ChoiceId = choiceId,
+			OptionId = optionId,
+		})
 		return
 	end
+
+	DebugLog.Info("Perks", "Choix perk selectionne", {
+		Player = player.Name,
+		ChoiceId = choiceId,
+		OptionId = optionId,
+		PerkId = option.PerkId,
+	})
 
 	applyChoice(player, option)
 	profile.ActiveChoice = nil
@@ -339,6 +376,9 @@ local function onChoiceSelected(player, choiceId, optionId)
 end
 
 function PerkService.SetupPlayer(player)
+	DebugLog.Info("Perks", "Setup joueur perks", {
+		Player = player.Name,
+	})
 	getOrCreateProfile(player)
 
 	if characterConnectionsByUserId[player.UserId] ~= nil then
@@ -381,6 +421,26 @@ function PerkService.QueueLevelUp(player, level)
 	local profile = getOrCreateProfile(player)
 
 	table.insert(profile.PendingLevels, level)
+	DebugLog.Info("Perks", "Level-up ajoute a la file perks", {
+		Player = player.Name,
+		Level = level,
+		PendingCount = #profile.PendingLevels,
+	})
+	showNextChoice(player)
+end
+
+function PerkService.QueueBonusChoice(player, title)
+	local profile = getOrCreateProfile(player)
+
+	table.insert(profile.PendingLevels, {
+		Level = title or "Bonus",
+		Title = title or "Choix de perk",
+	})
+	DebugLog.Info("Perks", "Choix bonus ajoute a la file perks", {
+		Player = player.Name,
+		Title = title,
+		PendingCount = #profile.PendingLevels,
+	})
 	showNextChoice(player)
 end
 
@@ -531,10 +591,12 @@ end
 
 function PerkService.Start()
 	if isStarted then
+		DebugLog.Info("Perks", "Start ignore, service deja demarre")
 		return
 	end
 
 	isStarted = true
+	DebugLog.Info("Perks", "PerkService demarre")
 	selectChoiceRemote.OnServerEvent:Connect(onChoiceSelected)
 
 	RunService.Heartbeat:Connect(function(deltaTime)

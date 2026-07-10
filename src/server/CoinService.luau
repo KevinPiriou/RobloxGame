@@ -1,15 +1,16 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
+local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 
 local CoinService = {}
 
@@ -38,30 +39,8 @@ end
 local updateCoinsRemote = getOrCreateRemote("Coin_UpdateCount")
 local collectCoinRemote = getOrCreateRemote("Coin_PlayCollect")
 
-local function getOrCreateFolder(parent, folderName)
-	local folder = parent:FindFirstChild(folderName)
-
-	if folder == nil then
-		folder = Instance.new("Folder")
-		folder.Name = folderName
-		folder.Parent = parent
-	end
-
-	assert(folder:IsA("Folder"), folderName .. " doit etre un Folder.")
-
-	return folder
-end
-
 local function getRuntimeLootFolder()
-	local runtimeFolder = Workspace:FindFirstChild(CombatConfig.RuntimeFolderName)
-
-	if runtimeFolder == nil then
-		runtimeFolder = Instance.new("Folder")
-		runtimeFolder.Name = CombatConfig.RuntimeFolderName
-		runtimeFolder.Parent = Workspace
-	end
-
-	return getOrCreateFolder(runtimeFolder, CombatConfig.LootFolderName)
+	return TemplateService.GetCombatLootFolder()
 end
 
 local function sanitizeCoinCount(value)
@@ -194,30 +173,13 @@ local function createFallbackCoinTemplate(templateStorage)
 	part.CanQuery = false
 	part.Parent = templateStorage
 
-	warn("Template Coin introuvable. Une piece simple de secours a ete creee.")
+	DebugLog.Warn("Coin", "Template Coin introuvable, fallback cree")
 
 	return part
 end
 
 local function findCoinTemplate()
-	local templateStorage = getOrCreateFolder(ServerStorage, TEMPLATE_FOLDER_NAME)
-	local storedTemplate = templateStorage:FindFirstChild("Coin")
-
-	if storedTemplate ~= nil then
-		return storedTemplate
-	end
-
-	for _, root in ipairs({ ServerStorage, ReplicatedStorage, Workspace }) do
-		local candidate = root:FindFirstChild("Coin", true)
-
-		if candidate ~= nil and not candidate:IsDescendantOf(templateStorage) then
-			local clone = candidate:Clone()
-			clone.Parent = templateStorage
-			return clone
-		end
-	end
-
-	return createFallbackCoinTemplate(templateStorage)
+	return TemplateService.GetTemplate(TEMPLATE_FOLDER_NAME, "Coin", createFallbackCoinTemplate)
 end
 
 local function prepareCoin(coin)
@@ -274,25 +236,60 @@ local function awardCoin(player)
 	profile.Coins += PerkService.GetGoldAmount(player, GameConfig.CoinsPerPickup)
 	sendCoinCount(player)
 	saveProfile(player, true)
+	DebugLog.ThrottledInfo("Coin", "coin_award_" .. player.UserId, 0.5, "Coin attribue", {
+		Player = player.Name,
+		Coins = profile.Coins,
+	})
 end
 
-local function collectCoin(player, coin, coinState)
-	if coinState.Collected then
+local function finishCoinCollection(player, coin, coinState, attractDuration)
+	if player.Parent ~= Players or coin.Parent == nil then
+		if coin.Parent ~= nil then
+			coinState.Collected = false
+		end
 		return
 	end
 
-	coinState.Collected = true
-	collectCoinRemote:FireAllClients(coin, player.UserId, GameConfig.CoinAttractDuration)
+	collectCoinRemote:FireAllClients(coin, player.UserId, attractDuration)
+	DebugLog.ThrottledInfo("Coin", "coin_collect_" .. player.UserId, 0.5, "Coin collecte", {
+		Player = player.Name,
+		Coin = coin,
+	})
 
 	task.spawn(function()
 		awardCoin(player)
 	end)
 
-	task.delay(GameConfig.CoinAttractDuration + 0.1, function()
+	task.delay(attractDuration + 0.1, function()
 		if coin.Parent ~= nil then
 			coin:Destroy()
 		end
 	end)
+end
+
+local function collectCoin(player, coin, coinState, attractDuration)
+	if coinState.Collected then
+		return false
+	end
+
+	coinState.Collected = true
+	finishCoinCollection(player, coin, coinState, attractDuration or GameConfig.CoinAttractDuration)
+
+	return true
+end
+
+local function scheduleCoinCollection(player, coin, coinState, attractDuration, delaySeconds)
+	if coinState.Collected then
+		return false
+	end
+
+	coinState.Collected = true
+
+	task.delay(delaySeconds, function()
+		finishCoinCollection(player, coin, coinState, attractDuration)
+	end)
+
+	return true
 end
 
 local function scanCoinProximity()
@@ -328,6 +325,9 @@ local function scanCoinProximity()
 end
 
 function CoinService.SetupPlayer(player)
+	DebugLog.Info("Coin", "Setup joueur coins", {
+		Player = player.Name,
+	})
 	getOrCreateProfile(player)
 	loadProfile(player)
 end
@@ -352,11 +352,22 @@ function CoinService.TrySpendCoins(player, amount)
 	local profile = waitForProfileLoaded(player)
 
 	if profile.Coins < coinAmount then
+		DebugLog.Info("Coin", "Depense coins refusee", {
+			Player = player.Name,
+			Requested = coinAmount,
+			Coins = profile.Coins,
+		})
 		return false, profile.Coins
 	end
 
 	profile.Coins -= coinAmount
 	saveProfile(player, true)
+
+	DebugLog.Info("Coin", "Depense coins validee", {
+		Player = player.Name,
+		Spent = coinAmount,
+		Remaining = profile.Coins,
+	})
 
 	return true, profile.Coins
 end
@@ -379,11 +390,82 @@ function CoinService.SpawnCoin(position)
 	pivotCoin(coin, position)
 	trackCoin(coin)
 
+	DebugLog.ThrottledInfo("Coin", "coin_spawn", 1, "Coin genere", {
+		Coin = coin,
+		Position = position,
+	})
+
 	return coin
+end
+
+function CoinService.CollectAllForPlayer(player, attractDuration, spreadDuration)
+	local playerRoot = getPlayerRoot(player)
+
+	if playerRoot == nil then
+		return 0
+	end
+
+	local candidates = {}
+
+	for coin, coinState in pairs(trackedCoins) do
+		if coin.Parent == nil then
+			trackedCoins[coin] = nil
+			continue
+		end
+
+		if coinState.Collected then
+			continue
+		end
+
+		local coinRoot = findCoinRoot(coin)
+
+		if coinRoot ~= nil then
+			table.insert(candidates, {
+				Coin = coin,
+				State = coinState,
+				Distance = (playerRoot.Position - coinRoot.Position).Magnitude,
+			})
+		end
+	end
+
+	table.sort(candidates, function(left, right)
+		return left.Distance < right.Distance
+	end)
+
+	local collectedCount = 0
+	local duration = attractDuration or GameConfig.CoinAttractDuration
+	local spread = spreadDuration or 0
+	local delayStep = 0
+
+	if #candidates > 1 then
+		delayStep = spread / (#candidates - 1)
+	end
+
+	for index, candidate in ipairs(candidates) do
+		local delaySeconds = math.min(spread, (index - 1) * delayStep)
+
+		if scheduleCoinCollection(player, candidate.Coin, candidate.State, duration, delaySeconds) then
+			collectedCount += 1
+		end
+	end
+
+	DebugLog.Info("Coin", "Magnetisme global coins demande", {
+		Player = player.Name,
+		CollectedCount = collectedCount,
+		Duration = duration,
+		Spread = spread,
+	})
+
+	return collectedCount
 end
 
 function CoinService.Start()
 	coinTemplate = findCoinTemplate()
+	DebugLog.Info("Coin", "CoinService demarre", {
+		Template = coinTemplate,
+		LootFolder = getRuntimeLootFolder(),
+		CollectDistance = GameConfig.CoinCollectDistance,
+	})
 	scanExistingCoins()
 
 	Workspace.DescendantAdded:Connect(function(descendant)
