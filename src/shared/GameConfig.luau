@@ -12,4 +12,18 @@ return {
 	CoinAttractDuration = 0.35,
 	CoinRotationSpeed = 120,
 	CoinsPerPickup = 1,
+	CoinTierNames = {
+		"Coin",
+		"Coin2",
+		"Coin3",
+	},
+	CoinTierValues = {
+		1,
+		3,
+		9,
+	},
+	CoinMergeCount = 3,
+	CoinMergeRadius = 16,
+	CoinMergeScanInterval = 0.3,
+	CoinMergeMaxGroupsPerScan = 60,
 }

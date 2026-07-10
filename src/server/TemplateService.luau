@@ -6,6 +6,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ChestConfig = require(Shared:WaitForChild("ChestConfig"))
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local JarConfig = require(Shared:WaitForChild("JarConfig"))
 local PortalConfig = require(Shared:WaitForChild("PortalConfig"))
 local ShrineConfig = require(Shared:WaitForChild("ShrineConfig"))
@@ -224,7 +225,10 @@ function TemplateService.Start()
 	migrateOptionalTemplate(CombatConfig.TemplateFolderName, CombatConfig.MonsterTemplateName)
 	migrateOptionalTemplate(CombatConfig.TemplateFolderName, "Monster3")
 	migrateOptionalTemplate(CombatConfig.TemplateFolderName, CombatConfig.FireballTemplateName)
-	migrateOptionalTemplate("CollectibleTemplates", "Coin")
+
+	for _, tierName in ipairs(GameConfig.CoinTierNames or { "Coin" }) do
+		migrateOptionalTemplate("CollectibleTemplates", tierName)
+	end
 
 	for _, tierName in ipairs(CombatConfig.XpGemTierNames) do
 		migrateOptionalTemplate("CollectibleTemplates", tierName)
