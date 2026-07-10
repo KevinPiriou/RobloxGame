@@ -1,3 +1,4 @@
+local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -234,6 +235,34 @@ local function spawnCoinDrops(origin, ignoredInstance)
 	return count
 end
 
+local function playBreakSound(position)
+	if typeof(position) ~= "Vector3" or JarConfig.BreakSoundId == nil or JarConfig.BreakSoundId == "" then
+		return
+	end
+
+	local soundPart = Instance.new("Part")
+	soundPart.Name = "JarBreakSoundPoint"
+	soundPart.Size = Vector3.new(0.2, 0.2, 0.2)
+	soundPart.CFrame = CFrame.new(position)
+	soundPart.Transparency = 1
+	soundPart.Anchored = true
+	soundPart.CanCollide = false
+	soundPart.CanTouch = false
+	soundPart.CanQuery = false
+	soundPart.Parent = Workspace
+
+	local sound = Instance.new("Sound")
+	sound.Name = "JarBreakSound"
+	sound.SoundId = JarConfig.BreakSoundId
+	sound.Volume = JarConfig.BreakSoundVolume
+	sound.RollOffMode = Enum.RollOffMode.InverseTapered
+	sound.RollOffMaxDistance = JarConfig.BreakSoundMaxDistance
+	sound.Parent = soundPart
+	sound:Play()
+
+	Debris:AddItem(soundPart, JarConfig.BreakSoundLifetime)
+end
+
 local function breakJar(player, jar, prompt)
 	local jarState = trackedJars[jar]
 	local canBreak, reason = canBreakJar(player, jar, jarState)
@@ -247,6 +276,9 @@ local function breakJar(player, jar, prompt)
 		return
 	end
 
+	local jarPosition = getJarPosition(jar)
+	playBreakSound(jarPosition)
+
 	jarState.Broken = true
 	jar:SetAttribute("JarBroken", true)
 
@@ -254,7 +286,15 @@ local function breakJar(player, jar, prompt)
 		prompt.Enabled = false
 	end
 
-	local jarPosition = getJarPosition(jar)
+	if (JarConfig.BreakResolveDelay or 0) > 0 then
+		task.wait(JarConfig.BreakResolveDelay)
+	end
+
+	if jar.Parent == nil then
+		trackedJars[jar] = nil
+		return
+	end
+
 	local lootType = chooseLootType()
 	local xpCount = 0
 	local coinCount = 0

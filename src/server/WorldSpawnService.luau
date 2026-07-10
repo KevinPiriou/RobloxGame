@@ -16,6 +16,7 @@ local DEFAULT_RUNTIME_FOLDER_NAMES = {
 	"ShrinesRuntime",
 	"ChestsRuntime",
 	"JarsRuntime",
+	"TotemsRuntime",
 }
 
 local function appendIfPresent(list, instance)

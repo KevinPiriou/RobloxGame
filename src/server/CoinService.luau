@@ -15,11 +15,14 @@ local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local CoinService = {}
 
 local TEMPLATE_FOLDER_NAME = "CollectibleTemplates"
+local COIN_TIER_NAMES = GameConfig.CoinTierNames or { "Coin" }
+local COIN_TIER_VALUES = GameConfig.CoinTierValues or { GameConfig.CoinsPerPickup }
 
 local profilesByUserId = {}
 local trackedCoins = {}
-local coinTemplate = nil
+local coinTemplatesByTier = {}
 local elapsedSinceScan = 0
+local elapsedSinceMerge = 0
 local heartbeatConnection = nil
 
 local function getOrCreateRemote(remoteName)
@@ -41,6 +44,24 @@ local collectCoinRemote = getOrCreateRemote("Coin_PlayCollect")
 
 local function getRuntimeLootFolder()
 	return TemplateService.GetCombatLootFolder()
+end
+
+local function getTierName(tier)
+	return COIN_TIER_NAMES[tier] or COIN_TIER_NAMES[1] or "Coin"
+end
+
+local function getTierValue(tier)
+	return COIN_TIER_VALUES[tier] or COIN_TIER_VALUES[1] or GameConfig.CoinsPerPickup
+end
+
+local function getCoinTierByName(name)
+	for tier, tierName in ipairs(COIN_TIER_NAMES) do
+		if name == tierName then
+			return tier
+		end
+	end
+
+	return nil
 end
 
 local function sanitizeCoinCount(value)
@@ -127,14 +148,20 @@ local function findCoinRoot(coin)
 		return coin.PrimaryPart
 	end
 
-	return coin:FindFirstChildWhichIsA("BasePart", true)
+	local firstPart = coin:FindFirstChildWhichIsA("BasePart", true)
+
+	if firstPart ~= nil then
+		coin.PrimaryPart = firstPart
+	end
+
+	return firstPart
 end
 
-local function hasCoinModelAncestor(instance)
+local function hasCoinModelAncestor(instance, coinName)
 	local current = instance.Parent
 
 	while current ~= nil do
-		if current:IsA("Model") and current.Name == "Coin" then
+		if current:IsA("Model") and current.Name == coinName then
 			return true
 		end
 
@@ -145,7 +172,9 @@ local function hasCoinModelAncestor(instance)
 end
 
 local function isCollectableCoin(instance)
-	if instance.Name ~= "Coin" then
+	local tier = getCoinTierByName(instance.Name)
+
+	if tier == nil then
 		return false
 	end
 
@@ -154,18 +183,22 @@ local function isCollectableCoin(instance)
 	end
 
 	if instance:IsA("BasePart") then
-		return not hasCoinModelAncestor(instance)
+		return not hasCoinModelAncestor(instance, instance.Name)
 	end
 
 	return false
 end
 
-local function createFallbackCoinTemplate(templateStorage)
+local function createFallbackCoinTemplate(templateStorage, tier)
 	local part = Instance.new("Part")
-	part.Name = "Coin"
+	part.Name = getTierName(tier)
 	part.Shape = Enum.PartType.Cylinder
-	part.Size = Vector3.new(0.3, 1.4, 1.4)
-	part.Color = Color3.fromRGB(255, 205, 70)
+	part.Size = Vector3.new(0.3, 1.4, 1.4) * (1 + ((tier - 1) * 0.25))
+	part.Color = ({
+		Color3.fromRGB(255, 205, 70),
+		Color3.fromRGB(255, 235, 110),
+		Color3.fromRGB(255, 175, 55),
+	})[tier] or Color3.fromRGB(255, 205, 70)
 	part.Material = Enum.Material.Metal
 	part.Anchored = true
 	part.CanCollide = false
@@ -173,13 +206,20 @@ local function createFallbackCoinTemplate(templateStorage)
 	part.CanQuery = false
 	part.Parent = templateStorage
 
-	DebugLog.Warn("Coin", "Template Coin introuvable, fallback cree")
+	DebugLog.Warn("Coin", "Template coin introuvable, fallback cree", {
+		Template = getTierName(tier),
+		Tier = tier,
+	})
 
 	return part
 end
 
-local function findCoinTemplate()
-	return TemplateService.GetTemplate(TEMPLATE_FOLDER_NAME, "Coin", createFallbackCoinTemplate)
+local function findCoinTemplate(tier)
+	local tierName = getTierName(tier)
+
+	return TemplateService.GetTemplate(TEMPLATE_FOLDER_NAME, tierName, function(templateStorage)
+		return createFallbackCoinTemplate(templateStorage, tier)
+	end)
 end
 
 local function prepareCoin(coin)
@@ -209,8 +249,12 @@ local function trackCoin(instance)
 		return
 	end
 
+	local tier = getCoinTierByName(instance.Name) or 1
+
 	trackedCoins[instance] = {
 		Collected = false,
+		Tier = tier,
+		CoinValue = getTierValue(tier),
 	}
 end
 
@@ -230,15 +274,17 @@ local function getPlayerRoot(player)
 	return character:FindFirstChild("HumanoidRootPart")
 end
 
-local function awardCoin(player)
+local function awardCoin(player, coinValue)
 	local profile = waitForProfileLoaded(player)
+	local finalCoinValue = PerkService.GetGoldAmount(player, coinValue or GameConfig.CoinsPerPickup)
 
-	profile.Coins += PerkService.GetGoldAmount(player, GameConfig.CoinsPerPickup)
+	profile.Coins += finalCoinValue
 	sendCoinCount(player)
 	saveProfile(player, true)
 	DebugLog.ThrottledInfo("Coin", "coin_award_" .. player.UserId, 0.5, "Coin attribue", {
 		Player = player.Name,
 		Coins = profile.Coins,
+		Value = finalCoinValue,
 	})
 end
 
@@ -254,10 +300,12 @@ local function finishCoinCollection(player, coin, coinState, attractDuration)
 	DebugLog.ThrottledInfo("Coin", "coin_collect_" .. player.UserId, 0.5, "Coin collecte", {
 		Player = player.Name,
 		Coin = coin,
+		Tier = coinState.Tier,
+		CoinValue = coinState.CoinValue,
 	})
 
 	task.spawn(function()
-		awardCoin(player)
+		awardCoin(player, coinState.CoinValue or GameConfig.CoinsPerPickup)
 	end)
 
 	task.delay(attractDuration + 0.1, function()
@@ -324,6 +372,139 @@ local function scanCoinProximity()
 	end
 end
 
+local function getMergeGridKey(cellX, cellZ)
+	return tostring(cellX) .. ":" .. tostring(cellZ)
+end
+
+local function getCoinPosition(coin)
+	local root = findCoinRoot(coin)
+
+	if root == nil then
+		return nil
+	end
+
+	return root.Position
+end
+
+local function buildMergeGrid(tier)
+	local grid = {}
+	local cellSize = GameConfig.CoinMergeRadius
+
+	for coin, coinState in pairs(trackedCoins) do
+		if coin.Parent == nil then
+			trackedCoins[coin] = nil
+			continue
+		end
+
+		if not coinState.Collected and coinState.Tier == tier then
+			local position = getCoinPosition(coin)
+
+			if position ~= nil then
+				local cellX = math.floor(position.X / cellSize)
+				local cellZ = math.floor(position.Z / cellSize)
+				local key = getMergeGridKey(cellX, cellZ)
+
+				if grid[key] == nil then
+					grid[key] = {}
+				end
+
+				table.insert(grid[key], {
+					Coin = coin,
+					State = coinState,
+					Position = position,
+					CellX = cellX,
+					CellZ = cellZ,
+				})
+			end
+		end
+	end
+
+	return grid
+end
+
+local function findMergeGroup(seedEntry, grid, usedCoins)
+	local group = {}
+	local radius = GameConfig.CoinMergeRadius
+
+	for offsetX = -1, 1 do
+		for offsetZ = -1, 1 do
+			local key = getMergeGridKey(seedEntry.CellX + offsetX, seedEntry.CellZ + offsetZ)
+			local cell = grid[key]
+
+			if cell ~= nil then
+				for _, entry in ipairs(cell) do
+					if not usedCoins[entry.Coin] and not entry.State.Collected then
+						local distance = (entry.Position - seedEntry.Position).Magnitude
+
+						if distance <= radius then
+							table.insert(group, entry)
+
+							if #group >= GameConfig.CoinMergeCount then
+								return group
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+
+	return group
+end
+
+local function mergeGroup(group, nextTier)
+	local center = Vector3.zero
+
+	for _, entry in ipairs(group) do
+		center += entry.Position
+		entry.State.Collected = true
+		trackedCoins[entry.Coin] = nil
+
+		if entry.Coin.Parent ~= nil then
+			entry.Coin:Destroy()
+		end
+	end
+
+	center /= #group
+	DebugLog.ThrottledInfo("Coin", "coin_merge", 1, "Fusion de coins", {
+		Count = #group,
+		NextTier = nextTier,
+		Position = center,
+	})
+	CoinService.SpawnCoin(center, nextTier)
+end
+
+local function mergeNearbyCoins()
+	local maxTier = #COIN_TIER_NAMES
+	local mergedGroups = 0
+
+	for tier = 1, maxTier - 1 do
+		local grid = buildMergeGrid(tier)
+		local usedCoins = {}
+
+		for _, cell in pairs(grid) do
+			for _, entry in ipairs(cell) do
+				if mergedGroups >= GameConfig.CoinMergeMaxGroupsPerScan then
+					return
+				end
+
+				if not usedCoins[entry.Coin] and not entry.State.Collected then
+					local group = findMergeGroup(entry, grid, usedCoins)
+
+					if #group >= GameConfig.CoinMergeCount then
+						for _, groupEntry in ipairs(group) do
+							usedCoins[groupEntry.Coin] = true
+						end
+
+						mergeGroup(group, tier + 1)
+						mergedGroups += 1
+					end
+				end
+			end
+		end
+	end
+end
+
 function CoinService.SetupPlayer(player)
 	DebugLog.Info("Coin", "Setup joueur coins", {
 		Player = player.Name,
@@ -377,13 +558,15 @@ function CoinService.RemovePlayer(player)
 	profilesByUserId[player.UserId] = nil
 end
 
-function CoinService.SpawnCoin(position)
-	if coinTemplate == nil then
-		coinTemplate = findCoinTemplate()
+function CoinService.SpawnCoin(position, tier)
+	local coinTier = math.clamp(tier or 1, 1, #COIN_TIER_NAMES)
+
+	if coinTemplatesByTier[coinTier] == nil then
+		coinTemplatesByTier[coinTier] = findCoinTemplate(coinTier)
 	end
 
-	local coin = coinTemplate:Clone()
-	coin.Name = "Coin"
+	local coin = coinTemplatesByTier[coinTier]:Clone()
+	coin.Name = getTierName(coinTier)
 	coin.Parent = getRuntimeLootFolder()
 
 	prepareCoin(coin)
@@ -392,6 +575,8 @@ function CoinService.SpawnCoin(position)
 
 	DebugLog.ThrottledInfo("Coin", "coin_spawn", 1, "Coin genere", {
 		Coin = coin,
+		Tier = coinTier,
+		CoinValue = getTierValue(coinTier),
 		Position = position,
 	})
 
@@ -460,11 +645,15 @@ function CoinService.CollectAllForPlayer(player, attractDuration, spreadDuration
 end
 
 function CoinService.Start()
-	coinTemplate = findCoinTemplate()
+	for tier = 1, #COIN_TIER_NAMES do
+		coinTemplatesByTier[tier] = findCoinTemplate(tier)
+	end
+
 	DebugLog.Info("Coin", "CoinService demarre", {
-		Template = coinTemplate,
+		Tiers = COIN_TIER_NAMES,
 		LootFolder = getRuntimeLootFolder(),
 		CollectDistance = GameConfig.CoinCollectDistance,
+		MergeRadius = GameConfig.CoinMergeRadius,
 	})
 	scanExistingCoins()
 
@@ -484,13 +673,17 @@ function CoinService.Start()
 		end
 
 		elapsedSinceScan += deltaTime
+		elapsedSinceMerge += deltaTime
 
-		if elapsedSinceScan < GameConfig.CoinScanInterval then
-			return
+		if elapsedSinceScan >= GameConfig.CoinScanInterval then
+			elapsedSinceScan = 0
+			scanCoinProximity()
 		end
 
-		elapsedSinceScan = 0
-		scanCoinProximity()
+		if elapsedSinceMerge >= GameConfig.CoinMergeScanInterval then
+			elapsedSinceMerge = 0
+			mergeNearbyCoins()
+		end
 	end)
 end
 

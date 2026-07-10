@@ -10,6 +10,7 @@ local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local JarConfig = require(Shared:WaitForChild("JarConfig"))
 local PortalConfig = require(Shared:WaitForChild("PortalConfig"))
 local ShrineConfig = require(Shared:WaitForChild("ShrineConfig"))
+local TotemConfig = require(Shared:WaitForChild("TotemConfig"))
 
 local TemplateService = {}
 
@@ -21,6 +22,7 @@ local SERVER_TEMPLATE_FOLDERS = {
 	JarConfig.TemplateFolderName,
 	"MapTemplates",
 	ChestConfig.TemplateFolderName,
+	TotemConfig.TemplateFolderName,
 }
 
 local function getOrCreateFolder(parent, folderName)
@@ -65,6 +67,7 @@ local function isWorkspaceRuntimeInstance(instance)
 		or isInsideFolderName(instance, PortalConfig.RuntimeFolderName)
 		or isInsideFolderName(instance, ChestConfig.RuntimeFolderName)
 		or isInsideFolderName(instance, JarConfig.RuntimeFolderName)
+		or isInsideFolderName(instance, TotemConfig.RuntimeFolderName)
 		or isInsideFolderName(instance, "MapRuntime")
 end
 
@@ -122,6 +125,10 @@ end
 
 function TemplateService.GetJarsRuntimeFolder()
 	return TemplateService.GetWorkspaceRuntimeFolder(JarConfig.RuntimeFolderName)
+end
+
+function TemplateService.GetTotemsRuntimeFolder()
+	return TemplateService.GetWorkspaceRuntimeFolder(TotemConfig.RuntimeFolderName)
 end
 
 function TemplateService.GetMapRuntimeFolder()
@@ -220,9 +227,11 @@ function TemplateService.Start()
 	TemplateService.GetShrinesRuntimeFolder()
 	TemplateService.GetChestsRuntimeFolder()
 	TemplateService.GetJarsRuntimeFolder()
+	TemplateService.GetTotemsRuntimeFolder()
 	TemplateService.GetMapRuntimeFolder()
 
 	migrateOptionalTemplate(CombatConfig.TemplateFolderName, CombatConfig.MonsterTemplateName)
+	migrateOptionalTemplate(CombatConfig.TemplateFolderName, CombatConfig.EliteMonsterTemplateName)
 	migrateOptionalTemplate(CombatConfig.TemplateFolderName, "Monster3")
 	migrateOptionalTemplate(CombatConfig.TemplateFolderName, CombatConfig.FireballTemplateName)
 
@@ -239,7 +248,9 @@ function TemplateService.Start()
 	migrateOptionalTemplate(ShrineConfig.TemplateFolderName, ShrineConfig.MagnetShrineTemplateName)
 	migrateOptionalTemplate(PortalConfig.TemplateFolderName, PortalConfig.PortalTemplateName)
 	migrateOptionalTemplate(ChestConfig.TemplateFolderName, ChestConfig.ChestName)
+	migrateOptionalTemplate(ChestConfig.TemplateFolderName, ChestConfig.OpenChestName)
 	migrateOptionalTemplate(JarConfig.TemplateFolderName, JarConfig.JarName)
+	migrateOptionalTemplate(TotemConfig.TemplateFolderName, TotemConfig.DifficultTotemName)
 
 	DebugLog.Info("Templates", "Arborescence templates/runtime prete", {
 		CombatRuntime = TemplateService.GetCombatRuntimeFolder(),
@@ -247,6 +258,7 @@ function TemplateService.Start()
 		PortalsRuntime = TemplateService.GetPortalsRuntimeFolder(),
 		ShrinesRuntime = TemplateService.GetShrinesRuntimeFolder(),
 		JarsRuntime = TemplateService.GetJarsRuntimeFolder(),
+		TotemsRuntime = TemplateService.GetTotemsRuntimeFolder(),
 		MapRuntime = TemplateService.GetMapRuntimeFolder(),
 	})
 end

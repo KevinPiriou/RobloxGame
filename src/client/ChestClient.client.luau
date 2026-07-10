@@ -24,6 +24,9 @@ local pendingChest = nil
 local activeOpeningId = nil
 local isSlotPlaying = false
 local currentOpenCost = ChestConfig.BaseOpenCost
+-- Les coffres normaux utilisent un ProximityPrompt serveur, comme les jarres.
+-- Ce bloc client reste disponible comme fallback, mais il ne dessine plus de label.
+local CLIENT_CHEST_PROMPTS_ENABLED = false
 
 local function getChestContainer(instance)
 	local current = instance
@@ -156,6 +159,10 @@ local function updatePromptLabel(chestState)
 end
 
 local function trackChest(instance)
+	if not CLIENT_CHEST_PROMPTS_ENABLED then
+		return
+	end
+
 	local chest = resolveChest(instance)
 
 	if chest == nil then
@@ -406,7 +413,11 @@ local function playSlotAnimation(payload)
 	buttonRow.Visible = false
 	setDecisionButtonsEnabled(false)
 	slotTitle.Text = "Coffre ouvert"
-	slotSubtitle.Text = ("Ouverture : %d coins"):format(payload.Cost or currentOpenCost)
+	if payload.IsRewardChest then
+		slotSubtitle.Text = "Recompense elite"
+	else
+		slotSubtitle.Text = ("Ouverture : %d coins"):format(payload.Cost or currentOpenCost)
+	end
 
 	while os.clock() - startedAt < duration do
 		local elapsed = os.clock() - startedAt
@@ -490,6 +501,10 @@ Workspace.DescendantRemoving:Connect(function(descendant)
 end)
 
 RunService.RenderStepped:Connect(function()
+	if not CLIENT_CHEST_PROMPTS_ENABLED then
+		return
+	end
+
 	local closestChest = getClosestPromptChest()
 
 	if closestChest == currentPromptChest then
@@ -508,6 +523,10 @@ RunService.RenderStepped:Connect(function()
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if not CLIENT_CHEST_PROMPTS_ENABLED then
+		return
+	end
+
 	if gameProcessed or input.KeyCode ~= Enum.KeyCode.E then
 		return
 	end

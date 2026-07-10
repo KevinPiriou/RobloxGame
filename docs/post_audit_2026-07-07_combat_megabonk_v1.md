@@ -1749,3 +1749,225 @@ Les icones vie et shield restaient trop petites dans le bloc bas alors que l'esp
 ### Rollback conceptuel
 
 - Revenir a l'etat precedent revient a remettre les icones a `20x20`, les textes a leurs tailles precedentes, et a restaurer `addGradient(fill, fillColor, fillDarkColor, 0)` dans `createBar`.
+
+## 2026-07-10 18:00:33 +02:00 - Completion tiers Coin2 Coin3
+
+### Contexte
+
+Une coupure est arrivee apres l'ajout partiel des tiers coins dans `GameConfig` et `TemplateService`, puis le commit `0.0.6` a ete cree. La reprise devait completer le chantier sans revenir sur ce commit : les templates `Coin2` et `Coin3` doivent se comporter comme les tiers de gemmes XP.
+
+### Diagnostic
+
+- Juste : `GameConfig` portait deja les noms, valeurs et seuils de fusion des coins.
+- Juste : `TemplateService` migrait deja les templates `Coin`, `Coin2` et `Coin3` vers `ServerStorage/CollectibleTemplates`.
+- Juste : il manquait la logique runtime : tracking serveur des tiers, valeur par tier, fusion serveur et reconnaissance client.
+- Simplification : les drops existants continuent a appeler `SpawnCoin(position)` et produisent donc du tier 1 par defaut.
+
+### Changements
+
+- `src/server/CoinService.luau` remplace le template unique par `coinTemplatesByTier`.
+- `src/server/CoinService.luau` reconnait `Coin`, `Coin2` et `Coin3` via `GameConfig.CoinTierNames`.
+- `src/server/CoinService.luau` attribue les valeurs `1`, `3` et `9` via `GameConfig.CoinTierValues`.
+- `src/server/CoinService.luau` ajoute la fusion serveur de coins par groupe proche, avec les memes principes que les gemmes XP.
+- `src/server/CoinService.luau` conserve `SpawnCoin(position)` en tier 1 et ajoute `SpawnCoin(position, tier)` pour les usages futurs.
+- `src/client/CoinClient.client.luau` anime, cull et aspire maintenant tous les tiers de coins.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les warnings CRLF habituels.
+- Juste : aucune reference de conflit `<<<<<<<`, `=======`, `>>>>>>>` n'est presente dans `src` ou `docs`.
+
+### Angles morts
+
+- Angle mort : le comportement visuel de fusion de coins doit etre valide en Play Test avec beaucoup de drops au sol.
+- Angle mort : les valeurs `1/3/9` sont coherentes avec les gems mais restent a equilibrer selon la vitesse de gain d'or souhaitee.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a repasser `CoinService` sur un template unique `Coin`, a retirer la fusion des coins, et a limiter `CoinClient` au nom `Coin`.
+
+## 2026-07-10 18:26:05 +02:00 - Activation EliteChallengeShrine
+
+### Contexte
+
+Le modele `Monster1_Elite` a ete ajoute pour donner une vraie action a `EliteChallengeShrine`. L'autel etait deja genere et chargeable avec `E`, mais son effet restait un placeholder.
+
+### Diagnostic
+
+- Juste : l'effet manquant devait rester serveur, car le spawn, les PV et les degats des ennemis ne doivent pas dependre du client.
+- Juste : `MonsterService` savait deja porter un attribut `IsElite`, ce qui permet d'ajouter l'elite sans creer un second moteur de combat.
+- Simplification : le monstre elite reutilise la vitesse et le mouvement de `Monster1`; seuls les PV et les degats sont multiplies.
+
+### Changements
+
+- `src/shared/CombatConfig.luau` ajoute `EliteMonsterTemplateName`, le nombre de spawn elite, le rayon de pack, et les multiplicateurs PV/degats.
+- `src/shared/ShrineConfig.luau` ajoute le son de fin dedie EliteChallenge `rbxassetid://9043352093`.
+- `src/server/TemplateService.luau` migre `Monster1_Elite` vers `ServerStorage/CombatTemplates` si le template est encore range ailleurs.
+- `src/server/MonsterService.luau` ajoute `SpawnElitePack`, qui fait apparaitre un pack regroupe de 5 `Monster1_Elite` autour de la shrine activee.
+- `src/server/MonsterService.luau` applique 2x PV et 2x degats aux elites, sans changer la vitesse de deplacement ni les stats de `Monster1`.
+- `src/server/ShrineService.luau` remplace le placeholder EliteChallenge par l'appel serveur au pack elite et utilise un son de completion propre au type de shrine.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+- Juste : l'ancien log placeholder `EliteChallengeShrine activee placeholder` n'existe plus.
+- Juste : le template elite n'a pas de fallback silencieux ; s'il manque, un warning explicite est logue.
+
+### Angles morts
+
+- Angle mort : le positionnement exact du pack elite doit etre valide en Play Test autour d'une shrine activee, surtout si la shrine est proche d'un bord ou d'une pente.
+- Angle mort : l'equilibrage 2x PV / 2x degats est volontairement brut pour V1 et devra etre ajuste apres ressenti en run.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a retirer `SpawnElitePack`, a remettre l'effet EliteChallenge en placeholder, et a supprimer la config `EliteMonster*`.
+
+## 2026-07-10 18:46:07 +02:00 - Reward ChestOpen et loot elite
+
+### Contexte
+
+Le premier test de `EliteChallengeShrine` est valide, mais les elites apparaissaient trop pres du joueur qui venait de charger l'autel. Le reward de fin de pack devait aussi devenir plus clair : a la mort du dernier elite du groupe, un coffre ouvert `ChestOpen` doit apparaitre et lancer le systeme de reward au contact.
+
+### Diagnostic
+
+- Juste : le centre du pack elite doit etre decale du joueur, pas seulement les monstres individuellement, sinon le joueur peut etre immediatement entoure apres l'interaction.
+- Juste : `ChestOpen` doit rester un template distinct de `Chest`, car les coffres classiques ont un cout et une interaction `E`.
+- Simplification : le coffre reward reutilise l'UI slot existante et les boutons Valider/Passer, sans creer une deuxieme interface.
+
+### Changements
+
+- `src/shared/CombatConfig.luau` ajoute `EliteMonsterPlayerSafetyDistance` et `EliteMonsterLootMultiplier`.
+- `src/server/MonsterService.luau` decale le centre du pack elite si le joueur est trop proche.
+- `src/server/MonsterService.luau` suit les packs elites via un `ElitePackId`.
+- `src/server/MonsterService.luau` double les drops XP et coins des elites.
+- `src/server/MonsterService.luau` demande un `ChestOpen` a la mort du dernier elite du pack tue par un joueur.
+- `src/shared/ChestConfig.luau` ajoute `OpenChestName = "ChestOpen"`.
+- `src/server/TemplateService.luau` migre `ChestOpen` vers `ServerStorage/ChestTemplates`.
+- `src/server/ChestService.luau` ajoute `SpawnRewardChestAtPosition`, avec ouverture gratuite au contact et pause pendant le choix.
+- `src/client/ChestClient.client.luau` affiche `Recompense elite` pour un coffre reward au lieu d'un cout a 0 coin.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les warnings CRLF habituels.
+- Juste : aucune reference de conflit en debut de ligne n'est presente dans `src` ou `docs`.
+
+### Angles morts
+
+- Angle mort : le contact de `ChestOpen` doit etre valide en Play Test avec le modele final, car certains meshes importes peuvent avoir des parties sans collision/touch selon leur configuration.
+- Angle mort : la distance de securite `24` studs est un premier reglage ; elle peut etre trop courte si le pack elite a une grande taille visuelle.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a retirer le suivi `ElitePackId`, le spawn `ChestOpen`, le mode reward de `ChestService`, et a remettre le pack elite centre sur la shrine.
+
+## 2026-07-10 19:05:50 +02:00 - DifficultTotem et difficulte additive
+
+### Contexte
+
+Un nouveau template `DifficultTotem` a ete ajoute au projet. Il doit etre genere comme les autres objets de run et permettre au joueur d'augmenter volontairement la difficulte de la run.
+
+### Diagnostic
+
+- Juste : le totem ne doit pas etre code dans `ShrineService`, car il ne propose pas de perk et ne suit pas la logique de charge des shrines.
+- Juste : l'effet de difficulte doit rester serveur, car il impacte le spawn et la pression ennemie.
+- Simplification : la V1 applique la difficulte sur deux leviers deja existants, le nombre maximal d'ennemis vivants et l'intervalle de spawn.
+
+### Changements
+
+- `src/shared/TotemConfig.luau` ajoute la configuration `DifficultTotem`, son dossier template, son runtime, ses distances et son bonus de difficulte `5%`.
+- `src/server/TotemService.luau` genere 5 `DifficultTotem` repartis sur la surface jouable.
+- `src/server/TotemService.luau` ajoute un `ProximityPrompt` serveur et desactive chaque totem apres activation.
+- `src/server/MonsterService.luau` ajoute une difficulte additive globale de run.
+- `src/server/MonsterService.luau` expose `AddDifficultyPercent`, puis applique le multiplicateur au max d'ennemis vivants et a l'intervalle de spawn.
+- `src/server/TemplateService.luau` cree/migre `ServerStorage/TotemTemplates` et `Workspace/TotemsRuntime`.
+- `src/server/WorldSpawnService.luau` exclut `TotemsRuntime` des raycasts de placement.
+- `src/server/GameManager.server.luau` demarre `TotemService` apres `MonsterService`.
+- `src/shared/DebugConfig.luau` active la categorie console `Totem`.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les warnings CRLF habituels.
+- Juste : aucune reference de conflit en debut de ligne n'est presente dans `src` ou `docs`.
+
+### Angles morts
+
+- Angle mort : le ressenti de +5% par totem doit etre valide en Play Test, car `math.ceil` rend le max alive visible rapidement sur les petites valeurs.
+- Angle mort : le placement final depend de la taille du modele `DifficultTotem`; si le modele est tres large, `SpawnWorldMinObjectDistance` devra etre augmente.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a retirer `TotemService`, `TotemConfig`, le runtime `TotemsRuntime`, et l'appel `AddDifficultyPercent` dans le combat.
+
+## 2026-07-10 19:24:38 +02:00 - Messages HUD evenementiels
+
+### Contexte
+
+Les activations de run commencent a avoir un poids gameplay : `DifficultTotem` augmente la difficulte et `EliteChallengeShrine` declenche un danger immediat. Le joueur doit recevoir un signal lisible sous le timer, sans melanger la presentation HUD avec les services gameplay.
+
+### Diagnostic
+
+- Juste : les messages doivent etre un systeme HUD dedie, car les evenements vont se multiplier.
+- Juste : les styles doivent etre configures par type d'evenement, avec couleur, police, duree et message par defaut.
+- Simplification : les services serveur n'envoient qu'un `StyleId` et un message optionnel ; le client garde la responsabilite du rendu.
+- Budget de complexite : complexite ajoutee, mais isolee dans `HudMessageService`, `HudMessageConfig` et une zone unique de `CombatUI`.
+
+### Changements
+
+- `src/shared/HudMessageConfig.luau` ajoute la configuration des styles `Default`, `DifficultyTotem` et `EliteChallenge`.
+- `src/server/HudMessageService.luau` cree le remote `Hud_ShowEventMessage` et expose `Show` / `Broadcast`.
+- `src/server/TotemService.luau` affiche `LA DIFFICULTE AUGMENTE DE 5%` apres activation d'un `DifficultTotem`.
+- `src/server/ShrineService.luau` affiche un message orange lors du declenchement effectif d'un pack elite.
+- `src/client/CombatUI.client.luau` affiche les messages sous le timer, avec animation d'apparition/disparition et adaptation responsive.
+- `src/shared/DebugConfig.luau` active la categorie console `HudMessage`.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les warnings CRLF habituels.
+- Juste : aucune reference de conflit en debut de ligne n'est presente dans `src` ou `docs`.
+
+### Angles morts
+
+- Angle mort : la lisibilite exacte sous le timer doit etre validee en Play Test sur plusieurs resolutions, surtout si plusieurs evenements s'enchainent vite.
+- Angle mort : le service remplace le message precedent par le nouveau ; si des evenements critiques doivent etre conserves plus tard, il faudra une file de messages.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a retirer `HudMessageService`, `HudMessageConfig`, le bind client `Hud_ShowEventMessage`, et les appels depuis `TotemService` et `ShrineService`.
+
+## 2026-07-10 19:37:46 +02:00 - Interaction coffre normal serveur
+
+### Contexte
+
+Les coffres generes payants ne montraient plus de message d'interaction, alors que les jarres restaient lisibles. Le coffre reward `ChestOpen` ne doit pas afficher de libelle : il s'ouvre au contact.
+
+### Diagnostic
+
+- Juste : les coffres normaux doivent suivre le meme principe robuste que les jarres avec un `ProximityPrompt` serveur.
+- Juste : `ChestOpen` doit rester exclu du prompt, car son comportement est un coffre reward gratuit au contact.
+- Simplification : le client conserve l'UI de slot et de choix, mais ne dessine plus de BillboardGui d'interaction pour les coffres.
+
+### Changements
+
+- `src/shared/ChestConfig.luau` ajoute `PromptName`, `PromptText` et `PromptObjectText`.
+- `src/server/ChestService.luau` ajoute un `ProximityPrompt` aux coffres normaux `Chest` uniquement.
+- `src/server/ChestService.luau` declenche l'ouverture serveur depuis le prompt, avec les validations existantes de distance, pause et cout.
+- `src/client/ChestClient.client.luau` desactive le label custom cote client pour eviter un doublon avec le prompt natif.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les warnings CRLF habituels.
+- Juste : aucune reference de conflit en debut de ligne n'est presente dans `src` ou `docs`.
+
+### Angles morts
+
+- Angle mort : le prompt natif n'affiche pas le cout dynamique dans cette V1. Le cout reste applique serveur et l'UI d'echec indique les coins manquants.
+- Angle mort : si plusieurs joueurs partagent un jour la meme run, un texte de prompt avec cout par joueur devra etre traite differemment.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a retirer le `ProximityPrompt` de `ChestService` et a reactiver `CLIENT_CHEST_PROMPTS_ENABLED` dans `ChestClient`.

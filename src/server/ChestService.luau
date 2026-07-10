@@ -1,3 +1,5 @@
+local Debris = game:GetService("Debris")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -18,7 +20,9 @@ local trackedChests = {}
 local isStarted = false
 local runtimeFolder = nil
 local chestTemplate = nil
+local openChestTemplate = nil
 local spawnedChestCount = 0
+local rewardChestTouchConnections = {}
 
 local function getOrCreateRemote(remoteName)
 	local remote = ReplicatedStorage:FindFirstChild(remoteName)
@@ -40,6 +44,8 @@ local openFailedRemote = getOrCreateRemote("Chest_OpenFailed")
 local choiceRequestRemote = getOrCreateRemote("Chest_ChoiceRequest")
 local choiceResultRemote = getOrCreateRemote("Chest_ChoiceResult")
 local priceUpdateRemote = getOrCreateRemote("Chest_PriceUpdate")
+
+local onOpenRequested = nil
 
 local function createFallbackChestTemplate(templateStorage)
 	local model = Instance.new("Model")
@@ -173,6 +179,68 @@ local function getChestPosition(chest)
 	return root.Position
 end
 
+local function playOpenSound(position)
+	if typeof(position) ~= "Vector3" or ChestConfig.OpenSoundId == nil or ChestConfig.OpenSoundId == "" then
+		return
+	end
+
+	local soundPart = Instance.new("Part")
+	soundPart.Name = "ChestOpenSoundPoint"
+	soundPart.Size = Vector3.new(0.2, 0.2, 0.2)
+	soundPart.CFrame = CFrame.new(position)
+	soundPart.Transparency = 1
+	soundPart.Anchored = true
+	soundPart.CanCollide = false
+	soundPart.CanTouch = false
+	soundPart.CanQuery = false
+	soundPart.Parent = Workspace
+
+	local sound = Instance.new("Sound")
+	sound.Name = "ChestOpenSound"
+	sound.SoundId = ChestConfig.OpenSoundId
+	sound.Volume = ChestConfig.OpenSoundVolume
+	sound.RollOffMode = Enum.RollOffMode.InverseTapered
+	sound.RollOffMaxDistance = ChestConfig.OpenSoundMaxDistance
+	sound.Parent = soundPart
+	sound:Play()
+
+	Debris:AddItem(soundPart, ChestConfig.OpenSoundLifetime)
+end
+
+local function setupPrompt(chest)
+	local root = findChestRoot(chest)
+
+	if root == nil then
+		return nil
+	end
+
+	local prompt = root:FindFirstChild(ChestConfig.PromptName)
+
+	if prompt == nil then
+		prompt = Instance.new("ProximityPrompt")
+		prompt.Name = ChestConfig.PromptName
+		prompt.Parent = root
+	end
+
+	assert(prompt:IsA("ProximityPrompt"), ChestConfig.PromptName .. " doit etre un ProximityPrompt.")
+
+	prompt.ActionText = ChestConfig.PromptText
+	prompt.ObjectText = ChestConfig.PromptObjectText
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = ChestConfig.PromptDistance
+	prompt.RequiresLineOfSight = false
+	prompt.Enabled = chest:GetAttribute("ChestOpened") ~= true and chest:GetAttribute("ChestOpening") ~= true
+
+	prompt.Triggered:Connect(function(player)
+		if onOpenRequested ~= nil then
+			onOpenRequested(player, chest)
+		end
+	end)
+
+	return prompt
+end
+
 local function trackChest(instance)
 	local chest = resolveChest(instance)
 
@@ -180,9 +248,9 @@ local function trackChest(instance)
 		return
 	end
 
-	trackedChests[chest] = {
-		Opened = chest:GetAttribute("ChestOpened") == true,
-	}
+	if trackedChests[chest] ~= nil then
+		return
+	end
 
 	if chest:GetAttribute("ChestOpened") == nil then
 		chest:SetAttribute("ChestOpened", false)
@@ -190,6 +258,19 @@ local function trackChest(instance)
 
 	if chest:GetAttribute("ChestOpening") == nil then
 		chest:SetAttribute("ChestOpening", false)
+	end
+
+	local prompt = setupPrompt(chest)
+
+	trackedChests[chest] = {
+		Opened = chest:GetAttribute("ChestOpened") == true,
+		Prompt = prompt,
+	}
+
+	if prompt == nil then
+		DebugLog.Warn("Chest", "Chest sans BasePart, interaction impossible", {
+			Chest = chest,
+		})
 	end
 end
 
@@ -415,10 +496,28 @@ local function applyReward(player, reward)
 	})
 end
 
+local function disconnectRewardChestTouches(chest)
+	local connections = rewardChestTouchConnections[chest]
+
+	if connections == nil then
+		return
+	end
+
+	for _, connection in ipairs(connections) do
+		connection:Disconnect()
+	end
+
+	rewardChestTouchConnections[chest] = nil
+end
+
 local function destroyChest(chest)
-	if chest ~= nil and chest.Parent ~= nil then
+	if chest ~= nil then
 		trackedChests[chest] = nil
-		chest:Destroy()
+		disconnectRewardChestTouches(chest)
+
+		if chest.Parent ~= nil then
+			chest:Destroy()
+		end
 	end
 end
 
@@ -476,7 +575,7 @@ local function canOpenChest(player, chest, chestState)
 	return distance <= ChestConfig.OpenDistance
 end
 
-local function onOpenRequested(player, chest)
+onOpenRequested = function(player, chest)
 	local profile = getOrCreateProfile(player)
 
 	if profile.ActiveOpening ~= nil then
@@ -513,6 +612,12 @@ local function onOpenRequested(player, chest)
 	chestState.Opened = true
 	chest:SetAttribute("ChestOpening", true)
 	chest:SetAttribute("ChestOpened", true)
+
+	if chestState.Prompt ~= nil then
+		chestState.Prompt.Enabled = false
+	end
+
+	playOpenSound(getChestPosition(chest))
 
 	local reward = pickReward()
 
@@ -561,6 +666,175 @@ local function onChoiceRequested(player, openingId, action)
 	end
 end
 
+local function getOrLoadOpenChestTemplate()
+	if openChestTemplate ~= nil then
+		return openChestTemplate
+	end
+
+	openChestTemplate = TemplateService.GetTemplate(ChestConfig.TemplateFolderName, ChestConfig.OpenChestName)
+
+	if openChestTemplate == nil then
+		DebugLog.Warn("Chest", "Template ChestOpen introuvable", {
+			Template = ChestConfig.OpenChestName,
+			Folder = ChestConfig.TemplateFolderName,
+		})
+	end
+
+	return openChestTemplate
+end
+
+local function getRewardChestSurfacePosition(position)
+	local surfacePosition = WorldSpawnService.FindSurfacePositionAtXZ(position.X, position.Z, {
+		Center = position,
+		RaycastHeight = ChestConfig.SpawnRaycastHeight,
+		RaycastDepth = ChestConfig.SpawnRaycastDepth,
+		RejectedSurfaceNameContains = ChestConfig.RejectedSurfaceNameContains,
+	})
+
+	return surfacePosition or position
+end
+
+local function startRewardChestOpening(player, chest)
+	local profile = getOrCreateProfile(player)
+
+	if CombatStateService.IsPaused() or profile.ActiveOpening ~= nil then
+		return
+	end
+
+	if chest == nil or chest.Parent == nil or chest:GetAttribute("ChestOpened") == true then
+		return
+	end
+
+	local playerRoot = getPlayerRoot(player)
+	local chestPosition = getChestPosition(chest)
+
+	if playerRoot == nil or chestPosition == nil then
+		return
+	end
+
+	if (playerRoot.Position - chestPosition).Magnitude > ChestConfig.OpenDistance then
+		return
+	end
+
+	chest:SetAttribute("ChestOpening", true)
+	chest:SetAttribute("ChestOpened", true)
+
+	local reward = pickReward()
+
+	profile.NextOpeningId += 1
+	profile.ActiveOpening = {
+		OpeningId = tostring(player.UserId) .. "_" .. tostring(profile.NextOpeningId),
+		Chest = chest,
+		Reward = reward,
+		IsRewardChest = true,
+	}
+
+	CombatStateService.Pause(getPauseReason(player))
+
+	DebugLog.Info("Chest", "Coffre reward elite ouvert", {
+		Player = player.Name,
+		Chest = chest,
+		Reward = reward.Name,
+	})
+
+	openResultRemote:FireClient(player, {
+		OpeningId = profile.ActiveOpening.OpeningId,
+		Chest = chest,
+		Reward = reward,
+		SpinItems = createSpinItems(reward),
+		Duration = ChestConfig.SlotDuration,
+		Cost = 0,
+		NextOpenCost = profile.NextOpenCost,
+		IsRewardChest = true,
+		Source = "EliteChallenge",
+	})
+end
+
+local function connectRewardChestTouch(chest)
+	local connections = {}
+	local function onTouched(hit)
+		local character = hit:FindFirstAncestorOfClass("Model")
+
+		if character == nil then
+			return
+		end
+
+		local player = Players:GetPlayerFromCharacter(character)
+
+		if player ~= nil then
+			startRewardChestOpening(player, chest)
+		end
+	end
+
+	if chest:IsA("BasePart") then
+		chest.CanTouch = true
+		table.insert(connections, chest.Touched:Connect(onTouched))
+	end
+
+	for _, descendant in ipairs(chest:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.CanTouch = true
+			table.insert(connections, descendant.Touched:Connect(onTouched))
+		end
+	end
+
+	rewardChestTouchConnections[chest] = connections
+end
+
+function ChestService.SpawnRewardChestAtPosition(position)
+	if position == nil then
+		return nil
+	end
+
+	if runtimeFolder == nil then
+		runtimeFolder = TemplateService.GetChestsRuntimeFolder()
+	end
+
+	local template = getOrLoadOpenChestTemplate()
+
+	if template == nil then
+		return nil
+	end
+
+	local surfacePosition = getRewardChestSurfacePosition(position)
+	local chest = template:Clone()
+
+	chest.Name = ChestConfig.OpenChestName
+	chest.Parent = runtimeFolder
+	chest:SetAttribute("RewardChest", true)
+	chest:SetAttribute("ChestOpened", false)
+	chest:SetAttribute("ChestOpening", false)
+	prepareChestInstance(chest)
+
+	local root = findChestRoot(chest)
+
+	if root == nil then
+		DebugLog.Warn("Chest", "ChestOpen sans BasePart, spawn annule", {
+			Chest = chest,
+		})
+		chest:Destroy()
+		return nil
+	end
+
+	local pivotPosition = WorldSpawnService.GetSurfacePivotPosition(
+		chest,
+		surfacePosition,
+		ChestConfig.SpawnSurfaceOffset
+	)
+
+	pivotInstance(chest, WorldSpawnService.GetPivotCFrameAtPosition(chest, pivotPosition, rng:NextNumber(0, math.pi * 2)))
+	connectRewardChestTouch(chest)
+	playOpenSound(pivotPosition)
+
+	DebugLog.Info("Chest", "ChestOpen reward genere", {
+		Chest = chest,
+		SurfacePosition = surfacePosition,
+		PivotPosition = pivotPosition,
+	})
+
+	return chest
+end
+
 function ChestService.SetupPlayer(player)
 	DebugLog.Info("Chest", "Setup joueur coffre", {
 		Player = player.Name,
@@ -592,11 +866,13 @@ function ChestService.Start()
 		ChestConfig.ChestName,
 		createFallbackChestTemplate
 	)
+	openChestTemplate = TemplateService.GetTemplate(ChestConfig.TemplateFolderName, ChestConfig.OpenChestName)
 	scanExistingChests()
 	spawnInitialChests()
 	DebugLog.Info("Chest", "ChestService demarre", {
 		RuntimeFolder = runtimeFolder,
 		Template = chestTemplate,
+		OpenTemplate = openChestTemplate,
 		TrackedChests = "scan et generation termines",
 		SpawnedChestCount = spawnedChestCount,
 		BaseOpenCost = ChestConfig.BaseOpenCost,

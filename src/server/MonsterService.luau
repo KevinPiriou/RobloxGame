@@ -8,6 +8,7 @@ local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
+local ChestService = require(script.Parent:WaitForChild("ChestService"))
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
@@ -20,6 +21,7 @@ local rng = Random.new()
 local runtimeFolder = nil
 local monsterFolder = nil
 local monsterTemplate = nil
+local eliteMonsterTemplate = nil
 local heartbeatConnection = nil
 local elapsedStatsUpdate = 0
 local waveStartedAt = CombatStateService.GetTime()
@@ -29,6 +31,9 @@ local lastSpawnAtByUserId = {}
 local groundedSinceByUserId = {}
 local characterConnectionsByUserId = {}
 local healthConnectionsByUserId = {}
+local elitePacksById = {}
+local nextElitePackId = 0
+local difficultyPercent = 0
 
 local function getOrCreateRemote(remoteName)
 	local remote = ReplicatedStorage:FindFirstChild(remoteName)
@@ -51,9 +56,9 @@ local function setupFolders()
 	monsterFolder = TemplateService.GetCombatMonsterFolder()
 end
 
-local function createFallbackMonsterTemplate(templateStorage)
+local function createFallbackMonsterTemplate(templateStorage, templateName)
 	local part = Instance.new("Part")
-	part.Name = CombatConfig.MonsterTemplateName
+	part.Name = templateName or CombatConfig.MonsterTemplateName
 	part.Size = Vector3.new(3, 4, 3)
 	part.Color = Color3.fromRGB(190, 55, 55)
 	part.Material = Enum.Material.SmoothPlastic
@@ -62,14 +67,22 @@ local function createFallbackMonsterTemplate(templateStorage)
 	part.Parent = templateStorage
 
 	DebugLog.Warn("Combat", "Template monstre introuvable, fallback cree", {
-		Template = CombatConfig.MonsterTemplateName,
+		Template = part.Name,
 	})
 
 	return part
 end
 
-local function findTemplate(templateName)
-	return TemplateService.GetTemplate(CombatConfig.TemplateFolderName, templateName, createFallbackMonsterTemplate)
+local function findTemplate(templateName, shouldCreateFallback)
+	local fallbackFactory = nil
+
+	if shouldCreateFallback then
+		fallbackFactory = function(templateStorage)
+			return createFallbackMonsterTemplate(templateStorage, templateName)
+		end
+	end
+
+	return TemplateService.GetTemplate(CombatConfig.TemplateFolderName, templateName, fallbackFactory)
 end
 
 local function findRoot(instance)
@@ -210,9 +223,10 @@ local function pivotInstance(instance, cframe)
 	end
 end
 
-local function prepareMonsterInstance(monster)
+local function prepareMonsterInstance(monster, maxHealth)
 	local humanoid = findHumanoid(monster)
 	local root = findRoot(monster)
+	local resolvedMaxHealth = maxHealth or CombatConfig.MonsterHealth
 
 	for _, descendant in ipairs(monster:GetDescendants()) do
 		if descendant:IsA("BasePart") then
@@ -235,8 +249,8 @@ local function prepareMonsterInstance(monster)
 	end
 
 	if humanoid ~= nil then
-		humanoid.MaxHealth = CombatConfig.MonsterHealth
-		humanoid.Health = CombatConfig.MonsterHealth
+		humanoid.MaxHealth = resolvedMaxHealth
+		humanoid.Health = resolvedMaxHealth
 		humanoid.WalkSpeed = CombatConfig.MonsterWalkSpeed
 		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	end
@@ -383,6 +397,10 @@ local function isInCalmDifficultyWindow()
 	return getRunElapsed() < calmDuration
 end
 
+local function getDifficultyMultiplier()
+	return math.max(1, 1 + difficultyPercent)
+end
+
 local function getCurrentWaveNumber()
 	local elapsed = getRunElapsed()
 
@@ -409,6 +427,8 @@ local function getCurrentWaveMaxAlive()
 		finalMaxAlive = math.min(finalMaxAlive, CombatConfig.DifficultyCalmMaxAlive or finalMaxAlive)
 	end
 
+	finalMaxAlive = math.ceil(finalMaxAlive * getDifficultyMultiplier())
+
 	return math.min(CombatConfig.MonsterMaxAlive, finalMaxAlive)
 end
 
@@ -430,15 +450,23 @@ local function getCurrentWaveSpawnBatch()
 end
 
 local function getCurrentSpawnInterval()
+	local spawnInterval = CombatConfig.MonsterSpawnInterval
+
 	if isInCalmDifficultyWindow() then
-		return CombatConfig.MonsterSpawnInterval
+		return math.max(
+			CombatConfig.MonsterSpawnIntervalMin or CombatConfig.MonsterSpawnInterval,
+			spawnInterval / getDifficultyMultiplier()
+		)
 	end
 
 	local waveNumber = getCurrentWaveNumber()
 	local intervalReduction = (waveNumber - 1) * (CombatConfig.MonsterSpawnIntervalDecreasePerWave or 0)
-	local spawnInterval = CombatConfig.MonsterSpawnInterval - intervalReduction
+	spawnInterval = CombatConfig.MonsterSpawnInterval - intervalReduction
 
-	return math.max(CombatConfig.MonsterSpawnIntervalMin or CombatConfig.MonsterSpawnInterval, spawnInterval)
+	return math.max(
+		CombatConfig.MonsterSpawnIntervalMin or CombatConfig.MonsterSpawnInterval,
+		spawnInterval / getDifficultyMultiplier()
+	)
 end
 
 local function getPlayerStatsPayload(player)
@@ -463,6 +491,7 @@ local function getPlayerStatsPayload(player)
 		Wave = waveNumber,
 		Kills = killsByUserId[player.UserId] or 0,
 		WeaponName = CombatConfig.FireballTemplateName,
+		DifficultyPercent = math.floor((difficultyPercent * 100) + 0.5),
 	}
 end
 
@@ -479,6 +508,49 @@ local function sendStatsToAll()
 end
 
 local getLootScatterOffset
+
+local function getMonsterLootMultiplier(monsterState)
+	if monsterState.IsElite then
+		return math.max(1, math.floor(CombatConfig.EliteMonsterLootMultiplier or 2))
+	end
+
+	return 1
+end
+
+local function updateElitePackAfterRemoval(monsterState, killer, deathPosition)
+	local elitePackId = monsterState.ElitePackId
+
+	if not monsterState.IsElite or elitePackId == nil then
+		return
+	end
+
+	local packState = elitePacksById[elitePackId]
+
+	if packState == nil then
+		return
+	end
+
+	packState.AliveCount = math.max(0, (packState.AliveCount or 0) - 1)
+
+	if killer ~= nil and killer.Parent == Players then
+		packState.KilledCount = (packState.KilledCount or 0) + 1
+	end
+
+	if packState.AliveCount <= 0 then
+		elitePacksById[elitePackId] = nil
+
+		if killer ~= nil and killer.Parent == Players and deathPosition ~= nil and not packState.RewardSpawned then
+			packState.RewardSpawned = true
+			ChestService.SpawnRewardChestAtPosition(deathPosition)
+			DebugLog.Info("Combat", "Pack elite termine, ChestOpen demande", {
+				Player = killer.Name,
+				PackId = elitePackId,
+				KilledCount = packState.KilledCount,
+				DeathPosition = deathPosition,
+			})
+		end
+	end
+end
 
 local function removeMonster(monsterState, killer)
 	if monsterState.IsDead then
@@ -498,12 +570,16 @@ local function removeMonster(monsterState, killer)
 		killsByUserId[killer.UserId] = (killsByUserId[killer.UserId] or 0) + 1
 
 		if deathPosition ~= nil then
-			for _ = 1, CombatConfig.XpGemsPerMonster do
+			local lootMultiplier = getMonsterLootMultiplier(monsterState)
+			local xpDropCount = math.max(1, (CombatConfig.XpGemsPerMonster or 1) * lootMultiplier)
+
+			for _ = 1, xpDropCount do
 				XpService.SpawnXpGem(deathPosition + getLootScatterOffset())
 			end
 
 			if rng:NextNumber() <= PerkService.GetCoinDropChance(killer, CombatConfig.CoinDropChance) then
 				local coinDropCount = rng:NextInteger(CombatConfig.CoinDropsMin, CombatConfig.CoinDropsMax)
+					* lootMultiplier
 
 				for _ = 1, coinDropCount do
 					CoinService.SpawnCoin(deathPosition + getLootScatterOffset())
@@ -511,6 +587,8 @@ local function removeMonster(monsterState, killer)
 			end
 		end
 	end
+
+	updateElitePackAfterRemoval(monsterState, killer, deathPosition)
 
 	if monsterState.Instance.Parent ~= nil then
 		monsterState.Instance:Destroy()
@@ -610,6 +688,94 @@ local function getSurfacePivotPosition(monster, surfacePosition)
 	)
 end
 
+local function spawnMonsterAtSurface(surfacePosition, options)
+	options = options or {}
+
+	local template = options.Template or monsterTemplate
+	local templateName = options.TemplateName or CombatConfig.MonsterTemplateName
+	local healthMultiplier = options.HealthMultiplier or 1
+	local damageMultiplier = options.DamageMultiplier or 1
+	local maxHealth = math.max(1, math.floor((CombatConfig.MonsterHealth * healthMultiplier) + 0.5))
+	local attackDamage = math.max(0, CombatConfig.MonsterAttackDamage * damageMultiplier)
+	local isElite = options.IsElite == true
+	local elitePackId = options.ElitePackId
+
+	if template == nil or surfacePosition == nil then
+		DebugLog.Warn("Combat", "Spawn monstre impossible", {
+			TemplateName = templateName,
+			HasTemplate = template ~= nil,
+			SurfacePosition = surfacePosition,
+			IsElite = isElite,
+		})
+		return false
+	end
+
+	local monster = template:Clone()
+
+	monster.Name = templateName
+	monster:SetAttribute("RuntimeMonster", true)
+	monster:SetAttribute("IsElite", isElite)
+	monster:SetAttribute("MonsterMaxHealth", maxHealth)
+	monster:SetAttribute("MonsterHealth", maxHealth)
+	monster:SetAttribute("MonsterAttackDamage", attackDamage)
+	if elitePackId ~= nil then
+		monster:SetAttribute("ElitePackId", elitePackId)
+	end
+	monster.Parent = monsterFolder
+
+	local humanoid, root = prepareMonsterInstance(monster, maxHealth)
+
+	if root == nil then
+		DebugLog.Warn("Combat", "Monstre sans BasePart, spawn annule", {
+			Monster = monster,
+			TemplateName = templateName,
+			IsElite = isElite,
+		})
+		monster:Destroy()
+		return false
+	end
+
+	local pivotRotation = WorldSpawnService.GetPivotRotation(monster)
+	local spawnPivotPosition = getSurfacePivotPosition(monster, surfacePosition)
+
+	pivotInstance(monster, WorldSpawnService.GetPivotCFrameAtPosition(monster, spawnPivotPosition))
+
+	local monsterState = {
+		Instance = monster,
+		Humanoid = humanoid,
+		Root = root,
+		BasePosition = spawnPivotPosition,
+		PivotRotation = pivotRotation,
+		Health = maxHealth,
+		AttackDamage = attackDamage,
+		IsElite = isElite,
+		ElitePackId = elitePackId,
+		AnimationTrack = playMonsterAnimation(monster),
+		AnimationTime = rng:NextNumber(0, 10),
+		LastMoveToAt = 0,
+		LastDamageByUserId = {},
+		OriginalPartColors = captureOriginalPartColors(monster),
+		DamageFlashId = 0,
+		IsDead = false,
+	}
+
+	monstersByInstance[monster] = monsterState
+
+	monster.AncestryChanged:Connect(function(_, parent)
+		if parent == nil then
+			monstersByInstance[monster] = nil
+		end
+	end)
+
+	if humanoid ~= nil then
+		humanoid.Died:Connect(function()
+			removeMonster(monsterState, monsterState.PendingKiller)
+		end)
+	end
+
+	return true, monster, spawnPivotPosition, monsterState
+end
+
 local function spawnMonsterNearPlayer(player)
 	if monsterTemplate == nil or not isPlayerAlive(player) then
 		DebugLog.ThrottledWarn("Combat", "mob_spawn_blocked_" .. player.UserId, 2, "Spawn mob bloque", {
@@ -633,55 +799,14 @@ local function spawnMonsterNearPlayer(player)
 		return false
 	end
 
-	local monster = monsterTemplate:Clone()
+	local didSpawn, _, spawnPivotPosition = spawnMonsterAtSurface(spawnSurfacePosition, {
+		Template = monsterTemplate,
+		TemplateName = CombatConfig.MonsterTemplateName,
+		Player = player,
+	})
 
-	monster.Name = CombatConfig.MonsterTemplateName
-	monster:SetAttribute("RuntimeMonster", true)
-	monster.Parent = monsterFolder
-
-	local humanoid, root = prepareMonsterInstance(monster)
-
-	if root == nil then
-		DebugLog.Warn("Combat", "Monstre sans BasePart, spawn annule", {
-			Monster = monster,
-		})
-		monster:Destroy()
+	if not didSpawn then
 		return false
-	end
-
-	local pivotRotation = WorldSpawnService.GetPivotRotation(monster)
-	local spawnPivotPosition = getSurfacePivotPosition(monster, spawnSurfacePosition)
-
-	pivotInstance(monster, WorldSpawnService.GetPivotCFrameAtPosition(monster, spawnPivotPosition))
-
-	local monsterState = {
-		Instance = monster,
-		Humanoid = humanoid,
-		Root = root,
-		BasePosition = spawnPivotPosition,
-		PivotRotation = pivotRotation,
-		Health = CombatConfig.MonsterHealth,
-		AnimationTrack = playMonsterAnimation(monster),
-		AnimationTime = rng:NextNumber(0, 10),
-		LastMoveToAt = 0,
-		LastDamageByUserId = {},
-		OriginalPartColors = captureOriginalPartColors(monster),
-		DamageFlashId = 0,
-		IsDead = false,
-	}
-
-	monstersByInstance[monster] = monsterState
-
-	monster.AncestryChanged:Connect(function(_, parent)
-		if parent == nil then
-			monstersByInstance[monster] = nil
-		end
-	end)
-
-	if humanoid ~= nil then
-		humanoid.Died:Connect(function()
-			removeMonster(monsterState, monsterState.PendingKiller)
-		end)
 	end
 
 	DebugLog.ThrottledInfo("Combat", "mob_spawn_success", 1.5, "Monstre genere", {
@@ -869,7 +994,8 @@ local function updateMonsterDamage(monsterState, now)
 				if now - lastDamageAt >= CombatConfig.MonsterAttackCooldown then
 					monsterState.LastDamageByUserId[player.UserId] = now
 
-					local finalDamage = PerkService.CalculateIncomingDamage(player, CombatConfig.MonsterAttackDamage)
+					local attackDamage = monsterState.AttackDamage or CombatConfig.MonsterAttackDamage
+					local finalDamage = PerkService.CalculateIncomingDamage(player, attackDamage)
 
 					if finalDamage > 0 then
 						getCharacterHumanoid(player):TakeDamage(finalDamage)
@@ -1009,6 +1135,188 @@ function MonsterService.RemovePlayer(player)
 	end
 end
 
+local function getElitePackSurfacePosition(originPosition, index, count)
+	local packRadius = CombatConfig.EliteMonsterPackRadius or 7
+	local attempts = math.max(1, CombatConfig.MonsterSpawnSurfaceAttempts or 1)
+	local countRatio = (index - 1) / math.max(1, count)
+	local baseAngle = (countRatio * math.pi * 2) + rng:NextNumber(-0.35, 0.35)
+
+	for attempt = 1, attempts do
+		local angle = baseAngle
+		local distance = rng:NextNumber(packRadius * 0.35, packRadius)
+
+		if attempt > 1 then
+			angle = rng:NextNumber(0, math.pi * 2)
+			distance = rng:NextNumber(0, packRadius)
+		end
+
+		local offset = Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
+		local samplePosition = originPosition + offset
+		local surfacePosition = WorldSpawnService.FindSurfacePositionAtXZ(samplePosition.X, samplePosition.Z, {
+			Center = originPosition,
+			RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
+			RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
+			ExcludeInstances = { monsterFolder },
+			RejectedSurfaceNameContains = {
+				"MurInvisible",
+			},
+		})
+
+		if surfacePosition ~= nil then
+			return surfacePosition
+		end
+	end
+
+	return WorldSpawnService.FindSurfacePositionAtXZ(originPosition.X, originPosition.Z, {
+		Center = originPosition,
+		RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
+		RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
+		ExcludeInstances = { monsterFolder },
+		RejectedSurfaceNameContains = {
+			"MurInvisible",
+		},
+	})
+end
+
+local function getElitePackCenterPosition(originPosition, player)
+	local playerRoot = nil
+
+	if player ~= nil then
+		playerRoot = getCharacterRoot(player)
+	end
+
+	if playerRoot == nil then
+		return originPosition
+	end
+
+	local safetyDistance = CombatConfig.EliteMonsterPlayerSafetyDistance or 24
+	local playerPosition = playerRoot.Position
+	local offset = originPosition - playerPosition
+	local horizontalOffset = Vector3.new(offset.X, 0, offset.Z)
+
+	if horizontalOffset.Magnitude >= safetyDistance then
+		return originPosition
+	end
+
+	local direction = nil
+
+	if horizontalOffset.Magnitude > 0.1 then
+		direction = horizontalOffset.Unit
+	else
+		local angle = rng:NextNumber(0, math.pi * 2)
+		direction = Vector3.new(math.cos(angle), 0, math.sin(angle))
+	end
+
+	local candidatePosition = playerPosition + (direction * safetyDistance)
+	local surfacePosition = WorldSpawnService.FindSurfacePositionAtXZ(candidatePosition.X, candidatePosition.Z, {
+		Center = originPosition,
+		RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
+		RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
+		ExcludeInstances = { monsterFolder },
+		RejectedSurfaceNameContains = {
+			"MurInvisible",
+		},
+	})
+
+	return surfacePosition or Vector3.new(candidatePosition.X, originPosition.Y, candidatePosition.Z)
+end
+
+function MonsterService.SpawnElitePack(originPosition, player, requestedCount)
+	local requested = math.clamp(
+		math.floor(requestedCount or CombatConfig.EliteMonsterSpawnCount or 5),
+		0,
+		CombatConfig.MonsterMaxAlive
+	)
+	local playerName = nil
+
+	if player ~= nil then
+		playerName = player.Name
+	end
+
+	if monsterFolder == nil then
+		setupFolders()
+	end
+
+	if eliteMonsterTemplate == nil then
+		eliteMonsterTemplate = findTemplate(CombatConfig.EliteMonsterTemplateName, false)
+	end
+
+	if originPosition == nil then
+		DebugLog.Warn("Combat", "Spawn pack elite annule, position absente", {
+			Player = playerName,
+			Requested = requested,
+		})
+		return 0, requested
+	end
+
+	if eliteMonsterTemplate == nil then
+		DebugLog.Warn("Combat", "Spawn pack elite annule, template absent", {
+			Player = playerName,
+			TemplateName = CombatConfig.EliteMonsterTemplateName,
+			Requested = requested,
+		})
+		return 0, requested
+	end
+
+	local aliveMonsterCount = getAliveMonsterCount()
+	local maxToSpawn = math.max(0, math.min(requested, CombatConfig.MonsterMaxAlive - aliveMonsterCount))
+	local spawnedCount = 0
+	local packCenterPosition = getElitePackCenterPosition(originPosition, player)
+	nextElitePackId += 1
+
+	local elitePackId = nextElitePackId
+	local packState = {
+		AliveCount = 0,
+		KilledCount = 0,
+		Origin = originPosition,
+		Center = packCenterPosition,
+		RewardSpawned = false,
+	}
+
+	for index = 1, maxToSpawn do
+		local surfacePosition = getElitePackSurfacePosition(packCenterPosition, index, maxToSpawn)
+
+		if spawnMonsterAtSurface(surfacePosition, {
+			Template = eliteMonsterTemplate,
+			TemplateName = CombatConfig.EliteMonsterTemplateName,
+			Player = player,
+			IsElite = true,
+			ElitePackId = elitePackId,
+			HealthMultiplier = CombatConfig.EliteMonsterHealthMultiplier,
+			DamageMultiplier = CombatConfig.EliteMonsterDamageMultiplier,
+		}) then
+			spawnedCount += 1
+			packState.AliveCount = spawnedCount
+		end
+	end
+
+	if spawnedCount > 0 then
+		elitePacksById[elitePackId] = packState
+	else
+		elitePackId = nil
+	end
+
+	if spawnedCount > 0 then
+		sendStatsToAll()
+	end
+
+	DebugLog.Info("Combat", "Pack elite genere", {
+		Player = playerName,
+		Origin = originPosition,
+		Center = packCenterPosition,
+		PackId = elitePackId,
+		Spawned = spawnedCount,
+		Requested = requested,
+		MaxToSpawn = maxToSpawn,
+		Alive = getAliveMonsterCount(),
+		Template = CombatConfig.EliteMonsterTemplateName,
+		HealthMultiplier = CombatConfig.EliteMonsterHealthMultiplier,
+		DamageMultiplier = CombatConfig.EliteMonsterDamageMultiplier,
+	})
+
+	return spawnedCount, requested
+end
+
 function MonsterService.DebugSpawnMonstersNearPlayer(player, requestedCount)
 	DebugLog.Info("Combat", "Debug spawn monstres demande", {
 		Player = player.Name,
@@ -1065,6 +1373,32 @@ function MonsterService.DebugKillAllMonsters()
 	end
 
 	return killedCount
+end
+
+function MonsterService.AddDifficultyPercent(percent, player, source)
+	local amount = math.max(0, percent or 0)
+	local playerName = nil
+
+	if amount <= 0 then
+		return difficultyPercent
+	end
+
+	if player ~= nil then
+		playerName = player.Name
+	end
+
+	difficultyPercent += amount
+	sendStatsToAll()
+
+	DebugLog.Info("Combat", "Difficulte combat augmentee", {
+		Player = playerName,
+		Source = source,
+		AddedPercent = math.floor((amount * 100) + 0.5),
+		TotalPercent = math.floor((difficultyPercent * 100) + 0.5),
+		Multiplier = getDifficultyMultiplier(),
+	})
+
+	return difficultyPercent
 end
 
 function MonsterService.GetClosestMonster(position, maxDistance, ignoredMonsters)
@@ -1129,6 +1463,7 @@ function MonsterService.DamageMonster(monster, damage, attacker)
 		local previousHealth = monsterState.Humanoid.Health
 
 		monsterState.Humanoid:TakeDamage(damage)
+		monsterState.Instance:SetAttribute("MonsterHealth", math.max(0, monsterState.Humanoid.Health))
 
 		local damageDealt = math.max(0, previousHealth - monsterState.Humanoid.Health)
 
@@ -1155,13 +1490,15 @@ end
 
 function MonsterService.Start()
 	setupFolders()
-	monsterTemplate = findTemplate(CombatConfig.MonsterTemplateName)
+	monsterTemplate = findTemplate(CombatConfig.MonsterTemplateName, true)
+	eliteMonsterTemplate = findTemplate(CombatConfig.EliteMonsterTemplateName, false)
 	waveStartedAt = CombatStateService.GetTime()
 
 	DebugLog.Info("Combat", "MonsterService demarre", {
 		RuntimeFolder = runtimeFolder,
 		MonsterFolder = monsterFolder,
 		Template = monsterTemplate,
+		EliteTemplate = eliteMonsterTemplate,
 		MaxAlive = CombatConfig.MonsterMaxAlive,
 		CalmDuration = CombatConfig.DifficultyCalmDuration,
 		CalmMaxAlive = CombatConfig.DifficultyCalmMaxAlive,

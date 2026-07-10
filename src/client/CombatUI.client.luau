@@ -10,6 +10,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local HudMessageConfig = require(Shared:WaitForChild("HudMessageConfig"))
 
 local function setNativeHealthGuiEnabled(isEnabled)
 	task.spawn(function()
@@ -81,12 +82,17 @@ local UI_FONTS = {
 local RUN_TIMER_SECONDS = 12 * 60
 local BAR_TWEEN = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local QUICK_TWEEN = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local EVENT_IN_TWEEN = TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local EVENT_OUT_TWEEN = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 
 local togglePauseRemote = nil
 local isPauseButtonBlocked = false
 local viewportConnection = nil
 local timerRemaining = RUN_TIMER_SECONDS
 local damageFlashTween = nil
+local eventMessageTweenIn = nil
+local eventMessageTweenOut = nil
+local eventMessageId = 0
 local hasReceivedStatsSnapshot = false
 
 local state = {
@@ -389,6 +395,61 @@ timerLabel.Size = UDim2.fromOffset(82, 20)
 timerLabel.TextXAlignment = Enum.TextXAlignment.Center
 addTextSizeConstraint(timerLabel, 11, 15)
 
+local eventMessageFrame = Instance.new("Frame")
+eventMessageFrame.Name = "EventMessageFrame"
+eventMessageFrame.AnchorPoint = Vector2.new(0.5, 0)
+eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 82)
+eventMessageFrame.Size = UDim2.fromOffset(620, 56)
+eventMessageFrame.BackgroundTransparency = 1
+eventMessageFrame.BorderSizePixel = 0
+eventMessageFrame.Visible = false
+eventMessageFrame.ZIndex = 120
+eventMessageFrame.Parent = screenGui
+
+local eventMessageScale = Instance.new("UIScale")
+eventMessageScale.Parent = eventMessageFrame
+
+local eventMessageBackground = Instance.new("Frame")
+eventMessageBackground.Name = "Background"
+eventMessageBackground.Size = UDim2.fromScale(1, 1)
+eventMessageBackground.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
+eventMessageBackground.BackgroundTransparency = 1
+eventMessageBackground.BorderSizePixel = 0
+eventMessageBackground.ZIndex = 120
+eventMessageBackground.Parent = eventMessageFrame
+addCorner(eventMessageBackground, 14)
+local eventMessageStroke = addStroke(eventMessageBackground, COLORS.Text, 1, 2)
+
+local eventMessageAccent = Instance.new("Frame")
+eventMessageAccent.Name = "Accent"
+eventMessageAccent.Position = UDim2.fromOffset(12, 9)
+eventMessageAccent.Size = UDim2.new(0, 5, 1, -18)
+eventMessageAccent.BackgroundColor3 = COLORS.Text
+eventMessageAccent.BackgroundTransparency = 1
+eventMessageAccent.BorderSizePixel = 0
+eventMessageAccent.ZIndex = 121
+eventMessageAccent.Parent = eventMessageBackground
+addCorner(eventMessageAccent, 4)
+
+local eventMessageLabel = createLabel(
+	eventMessageBackground,
+	"Label",
+	HudMessageConfig.Styles[HudMessageConfig.DefaultStyleId].Message,
+	UI_FONTS.Heavy,
+	28,
+	COLORS.Text
+)
+eventMessageLabel.Position = UDim2.fromOffset(28, 0)
+eventMessageLabel.Size = UDim2.new(1, -44, 1, 0)
+eventMessageLabel.TextXAlignment = Enum.TextXAlignment.Center
+eventMessageLabel.TextYAlignment = Enum.TextYAlignment.Center
+eventMessageLabel.TextScaled = true
+eventMessageLabel.TextWrapped = true
+eventMessageLabel.TextTransparency = 1
+eventMessageLabel.TextStrokeTransparency = 1
+eventMessageLabel.ZIndex = 122
+local eventMessageTextConstraint = addTextSizeConstraint(eventMessageLabel, 16, 34)
+
 local xpPanel = Instance.new("Frame")
 xpPanel.Name = "XpPanel"
 xpPanel.AnchorPoint = Vector2.new(0.5, 1)
@@ -483,24 +544,36 @@ local function updateResponsiveLayout()
 	if viewportSize.X < 560 then
 		topCluster.Position = UDim2.new(0.5, 0, 0, 8)
 		topScale.Scale = 0.68
+		eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 60)
+		eventMessageFrame.Size = UDim2.new(0.9, 0, 0, 50)
+		eventMessageScale.Scale = 0.84
 		xpPanel.Position = UDim2.new(0.5, 0, 1, -8)
 		xpPanel.Size = UDim2.new(0.88, 0, 0, 72)
 		xpScale.Scale = 0.8
 	elseif viewportSize.X < 760 then
 		topCluster.Position = UDim2.new(0.5, 0, 0, 8)
 		topScale.Scale = 0.78
+		eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 66)
+		eventMessageFrame.Size = UDim2.new(0.84, 0, 0, 52)
+		eventMessageScale.Scale = 0.9
 		xpPanel.Position = UDim2.new(0.5, 0, 1, -8)
 		xpPanel.Size = UDim2.new(0.82, 0, 0, 72)
 		xpScale.Scale = 0.86
 	elseif viewportSize.X < 1250 then
 		topCluster.Position = UDim2.new(0.5, 0, 0, 10)
 		topScale.Scale = 0.9
+		eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 76)
+		eventMessageFrame.Size = UDim2.new(0.58, 0, 0, 54)
+		eventMessageScale.Scale = 0.96
 		xpPanel.Position = UDim2.new(0.5, 0, 1, -12)
 		xpPanel.Size = UDim2.new(0.62, 0, 0, 72)
 		xpScale.Scale = 0.92
 	else
 		topCluster.Position = UDim2.new(0.5, 0, 0, 12)
 		topScale.Scale = 1
+		eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 82)
+		eventMessageFrame.Size = UDim2.fromOffset(620, 56)
+		eventMessageScale.Scale = 1
 		xpPanel.Position = UDim2.new(0.5, 0, 1, -16)
 		xpPanel.Size = UDim2.new(0.52, 0, 0, 72)
 		xpScale.Scale = 1
@@ -560,6 +633,96 @@ local function refreshPause()
 			Transparency = if state.IsUserPaused then 0.1 else 0.38,
 		}):Play()
 	end
+end
+
+local function showEventMessage(payload)
+	payload = payload or {}
+
+	local styleId = payload.StyleId or HudMessageConfig.DefaultStyleId
+	local style = HudMessageConfig.Styles[styleId] or HudMessageConfig.Styles[HudMessageConfig.DefaultStyleId]
+
+	if style == nil then
+		return
+	end
+
+	eventMessageId += 1
+	local currentId = eventMessageId
+	local targetBackgroundTransparency = style.BackgroundTransparency or 0.18
+	local targetStrokeTransparency = style.StrokeTransparency or 0.35
+	local targetTextStrokeTransparency = style.TextStrokeTransparency or 0.28
+	local duration = payload.Duration or style.Duration or HudMessageConfig.DefaultDuration
+
+	if eventMessageTweenIn ~= nil then
+		eventMessageTweenIn:Cancel()
+		eventMessageTweenIn = nil
+	end
+
+	if eventMessageTweenOut ~= nil then
+		eventMessageTweenOut:Cancel()
+		eventMessageTweenOut = nil
+	end
+
+	eventMessageFrame.Visible = true
+	eventMessageBackground.BackgroundColor3 = style.BackgroundColor or Color3.fromRGB(10, 12, 18)
+	eventMessageBackground.BackgroundTransparency = 1
+	eventMessageStroke.Color = style.StrokeColor or COLORS.Text
+	eventMessageStroke.Transparency = 1
+	eventMessageAccent.BackgroundColor3 = style.AccentColor or COLORS.Text
+	eventMessageAccent.BackgroundTransparency = 1
+	eventMessageLabel.Font = style.Font or UI_FONTS.Heavy
+	eventMessageLabel.Text = tostring(payload.Message or style.Message or "Evenement")
+	eventMessageLabel.TextColor3 = style.TextColor or COLORS.Text
+	eventMessageLabel.TextStrokeColor3 = style.StrokeColor or COLORS.Shadow
+	eventMessageLabel.TextTransparency = 1
+	eventMessageLabel.TextStrokeTransparency = 1
+	eventMessageTextConstraint.MaxTextSize = style.TextSize or 32
+	eventMessageTextConstraint.MinTextSize = math.min(18, style.TextSize or 32)
+
+	eventMessageTweenIn = TweenService:Create(eventMessageBackground, EVENT_IN_TWEEN, {
+		BackgroundTransparency = targetBackgroundTransparency,
+	})
+	eventMessageTweenIn:Play()
+	TweenService:Create(eventMessageStroke, EVENT_IN_TWEEN, {
+		Transparency = targetStrokeTransparency,
+	}):Play()
+	TweenService:Create(eventMessageAccent, EVENT_IN_TWEEN, {
+		BackgroundTransparency = 0,
+	}):Play()
+	TweenService:Create(eventMessageLabel, EVENT_IN_TWEEN, {
+		TextTransparency = 0,
+		TextStrokeTransparency = targetTextStrokeTransparency,
+	}):Play()
+
+	task.delay(duration, function()
+		if currentId ~= eventMessageId then
+			return
+		end
+
+		eventMessageTweenOut = TweenService:Create(eventMessageBackground, EVENT_OUT_TWEEN, {
+			BackgroundTransparency = 1,
+		})
+		eventMessageTweenOut:Play()
+		TweenService:Create(eventMessageStroke, EVENT_OUT_TWEEN, {
+			Transparency = 1,
+		}):Play()
+		TweenService:Create(eventMessageAccent, EVENT_OUT_TWEEN, {
+			BackgroundTransparency = 1,
+		}):Play()
+		TweenService:Create(eventMessageLabel, EVENT_OUT_TWEEN, {
+			TextTransparency = 1,
+			TextStrokeTransparency = 1,
+		}):Play()
+
+		task.delay(EVENT_OUT_TWEEN.Time, function()
+			if currentId == eventMessageId then
+				eventMessageFrame.Visible = false
+			end
+		end)
+	end)
+end
+
+local function onHudMessagePayload(payload)
+	showEventMessage(payload)
 end
 
 local function onStatsPayload(payload)
@@ -666,6 +829,7 @@ bindRemote("Xp_UpdateCount", onXpPayload)
 bindRemote("Coin_UpdateCount", onCoinsPayload)
 bindRemote("Perk_UpdateStats", onPerksPayload)
 bindRemote("Combat_PauseState", onPausePayload)
+bindRemote(HudMessageConfig.RemoteName, onHudMessagePayload)
 
 task.spawn(function()
 	togglePauseRemote = waitForRemote("Combat_TogglePause")

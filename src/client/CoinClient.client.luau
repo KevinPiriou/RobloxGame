@@ -16,6 +16,16 @@ local animatedCollectibles = {}
 local hiddenCollectibles = {}
 local elapsedSinceCull = 0
 
+local function isCoinName(name)
+	for _, coinName in ipairs(GameConfig.CoinTierNames or { "Coin" }) do
+		if name == coinName then
+			return true
+		end
+	end
+
+	return false
+end
+
 local function isXpGemName(name)
 	for _, gemName in ipairs(CombatConfig.XpGemTierNames) do
 		if name == gemName then
@@ -57,7 +67,7 @@ local function hasCollectibleModelAncestor(instance, collectibleName)
 end
 
 local function isCollectible(instance)
-	if instance.Name ~= "Coin" and not isXpGemName(instance.Name) then
+	if not isCoinName(instance.Name) and not isXpGemName(instance.Name) then
 		return false
 	end
 

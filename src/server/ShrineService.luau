@@ -9,6 +9,8 @@ local ShrineConfig = require(Shared:WaitForChild("ShrineConfig"))
 
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
+local HudMessageService = require(script.Parent:WaitForChild("HudMessageService"))
+local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
@@ -44,6 +46,7 @@ local SHRINE_DEFINITIONS = {
 		PromptObjectText = ShrineConfig.EliteChallengePromptObjectText,
 		ChargeDuration = ShrineConfig.ChargeDuration * 0.5,
 		ChargeDistance = ShrineConfig.ChargeDistance,
+		CompleteSoundId = ShrineConfig.EliteChallengeCompleteSoundId,
 		SpawnMinRadius = 36,
 		SpawnMaxRadius = ShrineConfig.SpawnWorldMaxRadius,
 		SpawnMinDistance = 32,
@@ -411,12 +414,15 @@ local function createShrineSound(parent, name, soundId, volume, maxDistance, isL
 	return sound
 end
 
-local function setupShrineSounds(promptPart)
+local function setupShrineSounds(promptPart, definition)
+	local chargeSoundId = definition.ChargeSoundId or ShrineConfig.ChargeSoundId
+	local completeSoundId = definition.CompleteSoundId or ShrineConfig.CompleteSoundId
+
 	return {
 		Charge = createShrineSound(
 			promptPart,
 			"ShrineChargeSound",
-			ShrineConfig.ChargeSoundId,
+			chargeSoundId,
 			ShrineConfig.ChargeSoundVolume,
 			ShrineConfig.ChargeSoundMaxDistance,
 			true
@@ -424,7 +430,7 @@ local function setupShrineSounds(promptPart)
 		Complete = createShrineSound(
 			promptPart,
 			"ShrineCompleteSound",
-			ShrineConfig.CompleteSoundId,
+			completeSoundId,
 			ShrineConfig.CompleteSoundVolume,
 			ShrineConfig.CompleteSoundMaxDistance,
 			false
@@ -622,20 +628,31 @@ local function activateMagnetShrine(player)
 	})
 end
 
-local function activateEliteChallengeShrine(player)
-	DebugLog.Info("Shrine", "EliteChallengeShrine activee placeholder", {
+local function activateEliteChallengeShrine(player, shrine)
+	local shrinePosition = getShrinePosition(shrine)
+	local spawnedCount, requestedCount = MonsterService.SpawnElitePack(shrinePosition, player)
+
+	if spawnedCount > 0 then
+		HudMessageService.Show(player, "EliteChallenge", {
+			Message = ("CHALLENGE ELITE : %d ENNEMIS APPROCHENT"):format(spawnedCount),
+		})
+	end
+
+	DebugLog.Info("Shrine", "EliteChallengeShrine activee", {
 		Player = player.Name,
-		Reason = "Ennemis elites non implementes",
+		Shrine = shrine,
+		Spawned = spawnedCount,
+		Requested = requestedCount,
 	})
 end
 
-local function activateShrineEffect(player, definition)
+local function activateShrineEffect(player, definition, shrine)
 	if definition.TypeId == "Perk" then
 		PerkService.QueueBonusChoice(player, ShrineConfig.PerkChoiceTitle)
 	elseif definition.TypeId == "Magnet" then
 		activateMagnetShrine(player)
 	elseif definition.TypeId == "EliteChallenge" then
-		activateEliteChallengeShrine(player)
+		activateEliteChallengeShrine(player, shrine)
 	end
 end
 
@@ -656,7 +673,7 @@ local function activateShrineFromPlayer(shrine, prompt, player)
 	stopChargeSound(shrineState)
 	playCompleteSound(shrineState)
 	setShrineInactive(shrine, prompt)
-	activateShrineEffect(player, shrineState.Definition)
+	activateShrineEffect(player, shrineState.Definition, shrine)
 	DebugLog.Info("Shrine", "Shrine validee", {
 		Player = player.Name,
 		Shrine = shrine,
@@ -848,7 +865,7 @@ local function prepareShrineInstance(shrine, definition)
 
 	local marker = setupActivationMarker(shrine)
 
-	return prompt, marker, setupShrineSounds(promptPart)
+	return prompt, marker, setupShrineSounds(promptPart, definition)
 end
 
 local function pivotInstance(instance, cframe)
