@@ -21,10 +21,10 @@ end
 
 local COLORS = {
 	Overlay = Color3.fromRGB(4, 7, 12),
-	Panel = Color3.fromRGB(13, 18, 28),
-	PanelTop = Color3.fromRGB(28, 39, 56),
-	Card = Color3.fromRGB(18, 25, 37),
-	CardHover = Color3.fromRGB(28, 38, 54),
+	Panel = Color3.fromRGB(17, 27, 39),
+	PanelTop = Color3.fromRGB(37, 51, 70),
+	Card = Color3.fromRGB(20, 34, 48),
+	CardHover = Color3.fromRGB(32, 48, 66),
 	Text = Color3.fromRGB(245, 248, 255),
 	Muted = Color3.fromRGB(181, 194, 211),
 	Preview = Color3.fromRGB(221, 230, 241),
@@ -94,7 +94,7 @@ local overlay = Instance.new("Frame")
 overlay.Name = "Overlay"
 overlay.Size = UDim2.fromScale(1, 1)
 overlay.BackgroundColor3 = COLORS.Overlay
-overlay.BackgroundTransparency = 0.26
+overlay.BackgroundTransparency = 0.42
 overlay.BorderSizePixel = 0
 overlay.Parent = screenGui
 
@@ -104,13 +104,13 @@ panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.Position = UDim2.new(0.59, 0, 0.5, 0)
 panel.Size = UDim2.new(0.66, 0, 0, 446)
 panel.BackgroundColor3 = COLORS.Panel
-panel.BackgroundTransparency = 0.04
+panel.BackgroundTransparency = 0.2
 panel.BorderSizePixel = 0
 panel.ClipsDescendants = false
 panel.Parent = overlay
 addCorner(panel, 10)
-addStroke(panel, Color3.fromRGB(12, 17, 27), 0.02, 5)
-addStroke(panel, COLORS.Purple, 0.42, 1)
+addStroke(panel, Color3.fromRGB(7, 12, 19), 0.16, 4)
+addStroke(panel, COLORS.Purple, 0.3, 1)
 
 local panelGradient = Instance.new("UIGradient")
 panelGradient.Rotation = 90
@@ -119,6 +119,10 @@ panelGradient.Color = ColorSequence.new({
 	ColorSequenceKeypoint.new(0.19, COLORS.PanelTop),
 	ColorSequenceKeypoint.new(0.42, COLORS.Panel),
 	ColorSequenceKeypoint.new(1, Color3.fromRGB(8, 11, 18)),
+})
+panelGradient.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0.08),
+	NumberSequenceKeypoint.new(1, 0.32),
 })
 panelGradient.Parent = panel
 
@@ -219,7 +223,7 @@ local function createOptionButton(index)
 	button.Name = "Option" .. tostring(index)
 	button.Size = UDim2.new(0.333, -7, 1, 0)
 	button.BackgroundColor3 = COLORS.Card
-	button.BackgroundTransparency = 0.02
+	button.BackgroundTransparency = 0.2
 	button.BorderSizePixel = 0
 	button.AutoButtonColor = false
 	button.Font = Enum.Font.GothamBold
@@ -269,7 +273,7 @@ local function createOptionButton(index)
 	iconFrame.Position = UDim2.new(0.5, 0, 0, 42)
 	iconFrame.Size = UDim2.fromOffset(88, 88)
 	iconFrame.BackgroundColor3 = Color3.fromRGB(6, 10, 16)
-	iconFrame.BackgroundTransparency = 0.08
+	iconFrame.BackgroundTransparency = 0.16
 	iconFrame.BorderSizePixel = 0
 	iconFrame.ClipsDescendants = true
 	iconFrame.Parent = button
@@ -345,7 +349,7 @@ local function createOptionButton(index)
 	footer.Position = UDim2.new(0, 12, 1, -12)
 	footer.Size = UDim2.new(1, -24, 0, 32)
 	footer.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	footer.BackgroundTransparency = 0.84
+	footer.BackgroundTransparency = 0.72
 	footer.BorderSizePixel = 0
 	footer.Parent = button
 	addCorner(footer, 6)
@@ -451,7 +455,7 @@ local function setButtonsEnabled(isEnabled)
 			}):Play()
 		else
 			TweenService:Create(entry.Button, TWEEN_FAST, {
-				BackgroundTransparency = 0.02,
+				BackgroundTransparency = 0.2,
 			}):Play()
 		end
 	end

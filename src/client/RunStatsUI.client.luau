@@ -15,8 +15,8 @@ if existingGui ~= nil then
 end
 
 local COLORS = {
-	Panel = Color3.fromRGB(10, 14, 22),
-	Header = Color3.fromRGB(29, 39, 57),
+	Panel = Color3.fromRGB(17, 27, 39),
+	Header = Color3.fromRGB(37, 51, 70),
 	Section = Color3.fromRGB(94, 224, 164),
 	Text = Color3.fromRGB(236, 242, 250),
 	Muted = Color3.fromRGB(171, 186, 204),
@@ -116,19 +116,33 @@ panel.AnchorPoint = Vector2.new(0, 0.5)
 panel.Position = UDim2.new(0, 18, 0.5, 0)
 panel.Size = UDim2.new(0, 230, 0.78, 0)
 panel.BackgroundColor3 = COLORS.Panel
-panel.BackgroundTransparency = 0.04
+panel.BackgroundTransparency = 0.2
 panel.BorderSizePixel = 0
 panel.ClipsDescendants = true
 panel.Parent = screenGui
 addCorner(panel, 8)
-addStroke(panel, Color3.fromRGB(5, 9, 16), 0.05, 4)
-addStroke(panel, COLORS.Cyan, 0.15, 1.5)
+addStroke(panel, Color3.fromRGB(7, 12, 19), 0.16, 4)
+addStroke(panel, COLORS.Cyan, 0.3, 1.5)
+
+local panelGradient = Instance.new("UIGradient")
+panelGradient.Name = "GlassGradient"
+panelGradient.Rotation = 90
+panelGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, COLORS.Header),
+	ColorSequenceKeypoint.new(0.36, COLORS.Panel),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 17, 26)),
+})
+panelGradient.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0.1),
+	NumberSequenceKeypoint.new(1, 0.36),
+})
+panelGradient.Parent = panel
 
 local header = Instance.new("Frame")
 header.Name = "Header"
 header.Size = UDim2.new(1, 0, 0, 34)
 header.BackgroundColor3 = COLORS.Header
-header.BackgroundTransparency = 0.02
+header.BackgroundTransparency = 0.32
 header.BorderSizePixel = 0
 header.Parent = panel
 
@@ -137,6 +151,7 @@ headerAccent.Name = "HeaderAccent"
 headerAccent.Position = UDim2.fromOffset(0, 31)
 headerAccent.Size = UDim2.new(1, 0, 0, 3)
 headerAccent.BackgroundColor3 = COLORS.Cyan
+headerAccent.BackgroundTransparency = 0.12
 headerAccent.BorderSizePixel = 0
 headerAccent.Parent = header
 
@@ -217,12 +232,13 @@ local function createRow(id, text)
 	local row = Instance.new("Frame")
 	row.Name = id
 	row.Size = UDim2.new(1, 0, 0, 20)
-	row.BackgroundColor3 = Color3.fromRGB(24, 34, 48)
-	row.BackgroundTransparency = 0.22
+	row.BackgroundColor3 = Color3.fromRGB(20, 34, 48)
+	row.BackgroundTransparency = 0.38
 	row.BorderSizePixel = 0
 	row.LayoutOrder = rowOrder
 	row.Parent = content
 	addCorner(row, 3)
+	addStroke(row, currentSectionColor, 0.8, 1)
 
 	local marker = Instance.new("Frame")
 	marker.Name = "Marker"

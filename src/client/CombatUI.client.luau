@@ -205,11 +205,12 @@ local function createBar(parent, name, fillColor, _fillDarkColor)
 	local track = Instance.new("Frame")
 	track.Name = name .. "Track"
 	track.BackgroundColor3 = COLORS.Track
-	track.BackgroundTransparency = 0.18
+	track.BackgroundTransparency = 0.12
 	track.BorderSizePixel = 0
 	track.ClipsDescendants = true
 	track.Parent = parent
 	addCorner(track, 7)
+	addStroke(track, COLORS.GlassStroke, 0.76, 1)
 
 	local fill = Instance.new("Frame")
 	fill.Name = name .. "Fill"
@@ -237,6 +238,24 @@ local function addGlassBackground(parent, name, position, size, radius)
 	addGradient(glass, COLORS.Glass, COLORS.GlassTint, 90)
 
 	return glass
+end
+
+local function addRunGlassSurface(parent, name, position, size, radius, accent)
+	local surface = Instance.new("Frame")
+	surface.Name = name
+	surface.Position = position
+	surface.Size = size
+	surface.BackgroundColor3 = Color3.fromRGB(17, 27, 39)
+	surface.BackgroundTransparency = 0.24
+	surface.BorderSizePixel = 0
+	surface.ZIndex = 0
+	surface.Parent = parent
+	addCorner(surface, radius)
+	addStroke(surface, Color3.fromRGB(7, 12, 19), 0.16, 3)
+	addStroke(surface, accent, 0.56, 1)
+	addGradient(surface, Color3.fromRGB(47, 64, 86), Color3.fromRGB(12, 20, 31), 90)
+
+	return surface
 end
 
 local function setBarProgress(fill, progress)
@@ -335,23 +354,24 @@ local topStatTextSize = 22
 local topFrame = Instance.new("Frame")
 topFrame.Name = "TopMetalFrame"
 topFrame.Size = UDim2.new(1, 0, 0, 52)
-topFrame.BackgroundColor3 = Color3.fromRGB(9, 13, 22)
-topFrame.BackgroundTransparency = 0.06
+topFrame.BackgroundColor3 = Color3.fromRGB(37, 51, 70)
+topFrame.BackgroundTransparency = 0.26
 topFrame.BorderSizePixel = 0
 topFrame.Parent = topCluster
 addCorner(topFrame, 12)
-addStroke(topFrame, Color3.fromRGB(57, 194, 255), 0.18, 2)
+addStroke(topFrame, COLORS.GlassTint, 0.36, 2)
+addGradient(topFrame, Color3.fromRGB(61, 81, 108), Color3.fromRGB(17, 27, 39), 90)
 
 local topInner = Instance.new("Frame")
 topInner.Name = "TopInner"
 topInner.Position = UDim2.fromOffset(4, 4)
 topInner.Size = UDim2.new(1, -8, 1, -8)
-topInner.BackgroundColor3 = Color3.fromRGB(20, 26, 39)
-topInner.BackgroundTransparency = 0.18
+topInner.BackgroundColor3 = Color3.fromRGB(17, 27, 39)
+topInner.BackgroundTransparency = 0.38
 topInner.BorderSizePixel = 0
 topInner.Parent = topFrame
 addCorner(topInner, 9)
-addStroke(topInner, Color3.fromRGB(195, 220, 255), 0.76, 1)
+addStroke(topInner, COLORS.GlassStroke, 0.66, 1)
 
 local killsSlot = Instance.new("Frame")
 killsSlot.Name = "KillsSlot"
@@ -396,8 +416,8 @@ pauseButton.Name = "PauseButton"
 pauseButton.AnchorPoint = Vector2.new(1, 0)
 pauseButton.Position = UDim2.new(1, -10, 0, 5)
 pauseButton.Size = UDim2.fromOffset(topPauseSize, topPauseSize)
-pauseButton.BackgroundColor3 = Color3.fromRGB(35, 29, 67)
-pauseButton.BackgroundTransparency = 0.05
+pauseButton.BackgroundColor3 = Color3.fromRGB(37, 51, 70)
+pauseButton.BackgroundTransparency = 0.24
 pauseButton.BorderSizePixel = 0
 pauseButton.Font = UI_FONTS.Heavy
 pauseButton.Text = "||"
@@ -407,7 +427,7 @@ pauseButton.TextStrokeTransparency = 0.45
 pauseButton.AutoButtonColor = true
 pauseButton.Parent = topCluster
 addCorner(pauseButton, 8)
-addStroke(pauseButton, Color3.fromRGB(208, 160, 255), 0.2, 1)
+addStroke(pauseButton, Color3.fromRGB(208, 160, 255), 0.34, 1)
 addTextSizeConstraint(pauseButton, 15, 22)
 
 local timerSlot = Instance.new("Frame")
@@ -488,89 +508,160 @@ local xpPanel = Instance.new("Frame")
 xpPanel.Name = "XpPanel"
 xpPanel.AnchorPoint = Vector2.new(0.5, 1)
 xpPanel.Position = UDim2.new(0.5, 0, 1, -16)
-xpPanel.Size = UDim2.new(0.52, 0, 0, 72)
+xpPanel.Size = UDim2.new(0.52, 0, 0, 80)
 xpPanel.BackgroundTransparency = 1
 xpPanel.BorderSizePixel = 0
 xpPanel.Parent = screenGui
 
 local xpSize = Instance.new("UISizeConstraint")
-xpSize.MinSize = Vector2.new(390, 72)
-xpSize.MaxSize = Vector2.new(760, 72)
+xpSize.MinSize = Vector2.new(390, 80)
+xpSize.MaxSize = Vector2.new(760, 80)
 xpSize.Parent = xpPanel
 
 local xpScale = Instance.new("UIScale")
 xpScale.Parent = xpPanel
 
-addGlassBackground(xpPanel, "BarsGlassBackground", UDim2.fromOffset(-14, -8), UDim2.new(1, 28, 1, 16), 13)
+addRunGlassSurface(
+	xpPanel,
+	"BarsGlassBackground",
+	UDim2.fromOffset(-14, -8),
+	UDim2.new(1, 28, 1, 16),
+	13,
+	Color3.fromRGB(232, 241, 252)
+)
 
 local hpGroup = Instance.new("Frame")
 hpGroup.Name = "HpGroup"
 hpGroup.Position = UDim2.fromOffset(0, 0)
-hpGroup.Size = UDim2.new(0.45, 0, 0, 32)
+hpGroup.Size = UDim2.new(0.45, 0, 0, 36)
 hpGroup.BackgroundTransparency = 1
 hpGroup.Parent = xpPanel
+addRunGlassSurface(
+	hpGroup,
+	"HpGlassSurface",
+	UDim2.fromOffset(-7, -5),
+	UDim2.new(1, 14, 1, 10),
+	8,
+	COLORS.Health
+)
 
 local hpIcon = createIcon(hpGroup, "HealthIcon", ICON_IMAGES.Health, "+", COLORS.Health)
-hpIcon.Position = UDim2.fromOffset(-3, -7)
-hpIcon.Size = UDim2.fromOffset(28, 28)
+hpIcon.Position = UDim2.fromOffset(-3, -8)
+hpIcon.Size = UDim2.fromOffset(32, 32)
 
 local hpText = createLabel(hpGroup, "HpText", "100 / 100", UI_FONTS.Heavy, 14, COLORS.Health)
-hpText.Position = UDim2.fromOffset(31, -1)
-hpText.Size = UDim2.new(1, -31, 0, 18)
+hpText.Position = UDim2.fromOffset(36, -1)
+hpText.Size = UDim2.new(1, -36, 0, 20)
 hpText.TextScaled = true
 addTextSizeConstraint(hpText, 11, 15)
 
 local hpTrack, hpFill = createBar(hpGroup, "Health", COLORS.Health, COLORS.HealthDark)
-hpTrack.Position = UDim2.fromOffset(0, 19)
-hpTrack.Size = UDim2.new(1, 0, 0, 13)
+hpTrack.Position = UDim2.fromOffset(0, 22)
+hpTrack.Size = UDim2.new(1, 0, 0, 14)
 
 local shieldGroup = Instance.new("Frame")
 shieldGroup.Name = "ShieldGroup"
 shieldGroup.AnchorPoint = Vector2.new(1, 0)
 shieldGroup.Position = UDim2.new(1, 0, 0, 0)
-shieldGroup.Size = UDim2.new(0.45, 0, 0, 32)
+shieldGroup.Size = UDim2.new(0.45, 0, 0, 36)
 shieldGroup.BackgroundTransparency = 1
 shieldGroup.Parent = xpPanel
+addRunGlassSurface(
+	shieldGroup,
+	"ShieldGlassSurface",
+	UDim2.fromOffset(-7, -5),
+	UDim2.new(1, 14, 1, 10),
+	8,
+	COLORS.Shield
+)
 
 local shieldHeader = Instance.new("Frame")
 shieldHeader.Name = "ShieldHeader"
-shieldHeader.AnchorPoint = Vector2.new(1, 0)
-shieldHeader.Position = UDim2.new(1, 0, 0, 0)
-shieldHeader.Size = UDim2.fromOffset(136, 18)
+shieldHeader.AnchorPoint = Vector2.new(0, 0)
+shieldHeader.Position = UDim2.fromOffset(0, 0)
+shieldHeader.Size = UDim2.new(1, 0, 0, 20)
 shieldHeader.BackgroundTransparency = 1
 shieldHeader.BorderSizePixel = 0
 shieldHeader.Parent = shieldGroup
 
 local shieldIcon = createIcon(shieldHeader, "ShieldIcon", ICON_IMAGES.Shield, "S", COLORS.Shield)
-shieldIcon.Position = UDim2.fromOffset(-3, -7)
-shieldIcon.Size = UDim2.fromOffset(28, 28)
+shieldIcon.Position = UDim2.fromOffset(-3, -8)
+shieldIcon.Size = UDim2.fromOffset(32, 32)
 
 local shieldText = createLabel(shieldHeader, "ShieldText", "0 / 0", UI_FONTS.Heavy, 14, COLORS.Shield)
-shieldText.Position = UDim2.fromOffset(31, -1)
-shieldText.Size = UDim2.new(1, -31, 0, 18)
+shieldText.Position = UDim2.fromOffset(36, -1)
+shieldText.Size = UDim2.new(1, -36, 0, 20)
 shieldText.TextScaled = true
 shieldText.TextXAlignment = Enum.TextXAlignment.Right
 addTextSizeConstraint(shieldText, 11, 15)
 
 local shieldTrack, shieldFill = createBar(shieldGroup, "Shield", COLORS.Shield, COLORS.ShieldDark)
-shieldTrack.Position = UDim2.fromOffset(0, 19)
-shieldTrack.Size = UDim2.new(1, 0, 0, 13)
+shieldTrack.Position = UDim2.fromOffset(0, 22)
+shieldTrack.Size = UDim2.new(1, 0, 0, 14)
+
+addRunGlassSurface(
+	xpPanel,
+	"XpGlassSurface",
+	UDim2.fromOffset(-7, 39),
+	UDim2.new(1, 14, 0, 47),
+	8,
+	COLORS.Xp
+)
 
 local levelValue = createLabel(xpPanel, "LevelValue", "LVL 1", UI_FONTS.Heavy, 16, COLORS.Xp)
-levelValue.Position = UDim2.fromOffset(0, 37)
+levelValue.Position = UDim2.fromOffset(0, 43)
 levelValue.Size = UDim2.fromOffset(72, 18)
 addTextSizeConstraint(levelValue, 12, 16)
 
 local xpText = createLabel(xpPanel, "XpText", "XP 0 / 6", UI_FONTS.Heavy, 16, COLORS.Xp)
 xpText.AnchorPoint = Vector2.new(1, 0)
-xpText.Position = UDim2.new(1, 0, 0, 37)
+xpText.Position = UDim2.new(1, 0, 0, 43)
 xpText.Size = UDim2.new(1, -78, 0, 18)
 xpText.TextXAlignment = Enum.TextXAlignment.Right
 addTextSizeConstraint(xpText, 12, 16)
 
 local xpTrack, xpFill = createBar(xpPanel, "Xp", COLORS.Xp, COLORS.XpDark)
-xpTrack.Position = UDim2.fromOffset(0, 58)
+xpTrack.Position = UDim2.fromOffset(0, 64)
 xpTrack.Size = UDim2.new(1, 0, 0, 14)
+
+local centerGemOuter = Instance.new("Frame")
+centerGemOuter.Name = "CenterGemOuter"
+centerGemOuter.AnchorPoint = Vector2.new(0.5, 0.5)
+centerGemOuter.Position = UDim2.new(0.5, 0, 0, 18)
+centerGemOuter.Size = UDim2.fromOffset(30, 30)
+centerGemOuter.BackgroundColor3 = Color3.fromRGB(230, 242, 255)
+centerGemOuter.BorderSizePixel = 0
+centerGemOuter.Rotation = 45
+centerGemOuter.ZIndex = 5
+centerGemOuter.Parent = xpPanel
+addCorner(centerGemOuter, 5)
+addStroke(centerGemOuter, Color3.fromRGB(7, 12, 19), 0.1, 2)
+
+local centerGemGradient = Instance.new("UIGradient")
+centerGemGradient.Name = "MetalGradient"
+centerGemGradient.Rotation = 45
+centerGemGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(76, 224, 255)),
+	ColorSequenceKeypoint.new(0.28, Color3.fromRGB(240, 248, 255)),
+	ColorSequenceKeypoint.new(0.58, Color3.fromRGB(190, 104, 255)),
+	ColorSequenceKeypoint.new(0.8, Color3.fromRGB(244, 250, 255)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(84, 207, 255)),
+})
+centerGemGradient.Parent = centerGemOuter
+
+local centerGem = Instance.new("Frame")
+centerGem.Name = "CenterGem"
+centerGem.AnchorPoint = Vector2.new(0.5, 0.5)
+centerGem.Position = UDim2.fromScale(0.5, 0.5)
+centerGem.Size = UDim2.fromOffset(18, 18)
+centerGem.BackgroundColor3 = Color3.fromRGB(15, 24, 37)
+centerGem.BackgroundTransparency = 0.08
+centerGem.BorderSizePixel = 0
+centerGem.Rotation = 45
+centerGem.ZIndex = 6
+centerGem.Parent = centerGemOuter
+addCorner(centerGem, 3)
+addStroke(centerGem, Color3.fromRGB(238, 246, 255), 0.42, 1)
 
 local function updateResponsiveLayout()
 	local viewportSize = getViewportSize()
@@ -582,7 +673,7 @@ local function updateResponsiveLayout()
 		eventMessageFrame.Size = UDim2.new(0.9, 0, 0, 50)
 		eventMessageScale.Scale = 0.84
 		xpPanel.Position = UDim2.new(0.5, 0, 1, -8)
-		xpPanel.Size = UDim2.new(0.88, 0, 0, 72)
+		xpPanel.Size = UDim2.new(0.88, 0, 0, 80)
 		xpScale.Scale = 0.8
 	elseif viewportSize.X < 760 then
 		topCluster.Position = UDim2.new(0.5, 0, 0, 8)
@@ -591,7 +682,7 @@ local function updateResponsiveLayout()
 		eventMessageFrame.Size = UDim2.new(0.84, 0, 0, 52)
 		eventMessageScale.Scale = 0.9
 		xpPanel.Position = UDim2.new(0.5, 0, 1, -8)
-		xpPanel.Size = UDim2.new(0.82, 0, 0, 72)
+		xpPanel.Size = UDim2.new(0.82, 0, 0, 80)
 		xpScale.Scale = 0.86
 	elseif viewportSize.X < 1250 then
 		topCluster.Position = UDim2.new(0.5, 0, 0, 10)
@@ -600,7 +691,7 @@ local function updateResponsiveLayout()
 		eventMessageFrame.Size = UDim2.new(0.58, 0, 0, 54)
 		eventMessageScale.Scale = 0.96
 		xpPanel.Position = UDim2.new(0.5, 0, 1, -12)
-		xpPanel.Size = UDim2.new(0.62, 0, 0, 72)
+		xpPanel.Size = UDim2.new(0.62, 0, 0, 80)
 		xpScale.Scale = 0.92
 	else
 		topCluster.Position = UDim2.new(0.5, 0, 0, 12)
@@ -609,7 +700,7 @@ local function updateResponsiveLayout()
 		eventMessageFrame.Size = UDim2.fromOffset(620, 56)
 		eventMessageScale.Scale = 1
 		xpPanel.Position = UDim2.new(0.5, 0, 1, -16)
-		xpPanel.Size = UDim2.new(0.52, 0, 0, 72)
+		xpPanel.Size = UDim2.new(0.52, 0, 0, 80)
 		xpScale.Scale = 1
 	end
 end

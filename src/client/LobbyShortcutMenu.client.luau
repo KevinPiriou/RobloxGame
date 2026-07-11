@@ -38,7 +38,7 @@ local BUTTONS: {ButtonData} = {
 
 	{
 		Id = "Quests",
-		Label = "QUÊTES",
+		Label = "QUETES",
 		PanelName = "QuestsPanel",
 
 		Image = "rbxassetid://103279732475381",
@@ -49,7 +49,7 @@ local BUTTONS: {ButtonData} = {
 
 	{
 		Id = "Unlocks",
-		Label = "DÉBLOCAGES",
+		Label = "DEBLOCAGES",
 		PanelName = "UnlocksPanel",
 
 		Image = "rbxassetid://116965784565243",
@@ -120,6 +120,10 @@ screenGui.Parent = playerGui
 local menuSelectedEvent = Instance.new("BindableEvent")
 menuSelectedEvent.Name = "MenuSelected"
 menuSelectedEvent.Parent = screenGui
+
+local closeRequestedEvent = Instance.new("BindableEvent")
+closeRequestedEvent.Name = "CloseRequested"
+closeRequestedEvent.Parent = screenGui
 
 local container = Instance.new("Frame")
 container.Name = "ShortcutContainer"
@@ -237,11 +241,6 @@ local function updatePanels(
 	local menus = getMenusGui()
 
 	if not menus then
-		warn(
-			"[LobbyShortcutMenu] Aucun ScreenGui nommé "
-				.. "'Menus' trouvé dans PlayerGui."
-		)
-
 		return
 	end
 
@@ -250,13 +249,6 @@ local function updatePanels(
 
 		if panel then
 			panel.Visible = targetId == data.Id
-		else
-			warn(
-				string.format(
-					"[LobbyShortcutMenu] Panel introuvable : %s",
-					data.PanelName
-				)
-			)
 		end
 	end
 end
@@ -737,6 +729,11 @@ UserInputService.InputBegan:Connect(function(
 		return
 	end
 
+	if input.KeyCode == Enum.KeyCode.Escape and selectedId ~= nil then
+		selectMenu(selectedId)
+		return
+	end
+
 	local menuId = keyBindings[input.KeyCode]
 
 	if menuId then
@@ -764,7 +761,7 @@ local function updateResponsiveScale()
 
 	responsiveScale.Scale = math.clamp(
 		math.min(widthRatio, heightRatio),
-		0.90,
+		0.48,
 		1.08
 	)
 end
@@ -821,6 +818,12 @@ end
 
 player:GetAttributeChangedSignal("IsRunActive"):Connect(function()
 	setRunActive(player:GetAttribute("IsRunActive") == true)
+end)
+
+closeRequestedEvent.Event:Connect(function()
+	if selectedId ~= nil then
+		selectMenu(selectedId)
+	end
 end)
 
 task.spawn(bindRunStateRemote)

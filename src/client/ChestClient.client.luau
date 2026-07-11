@@ -28,6 +28,31 @@ local currentOpenCost = ChestConfig.BaseOpenCost
 -- Ce bloc client reste disponible comme fallback, mais il ne dessine plus de label.
 local CLIENT_CHEST_PROMPTS_ENABLED = false
 
+local CHEST_UI_COLORS = {
+	Panel = Color3.fromRGB(17, 27, 39),
+	PanelTop = Color3.fromRGB(37, 51, 70),
+	Text = Color3.fromRGB(245, 248, 255),
+	Muted = Color3.fromRGB(191, 202, 218),
+	Accent = Color3.fromRGB(180, 91, 255),
+	AccentLight = Color3.fromRGB(224, 171, 255),
+}
+
+local function addCorner(instance, radius)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, radius)
+	corner.Parent = instance
+	return corner
+end
+
+local function addStroke(instance, color, transparency, thickness)
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = color
+	stroke.Transparency = transparency
+	stroke.Thickness = thickness
+	stroke.Parent = instance
+	return stroke
+end
+
 local function getChestContainer(instance)
 	local current = instance
 
@@ -255,8 +280,8 @@ slotPanel.Name = "Panel"
 slotPanel.AnchorPoint = Vector2.new(0.5, 0.5)
 slotPanel.Position = UDim2.fromScale(0.5, 0.38)
 slotPanel.Size = UDim2.new(0.34, 0, 0, 174)
-slotPanel.BackgroundColor3 = Color3.fromRGB(18, 21, 28)
-slotPanel.BackgroundTransparency = 0.08
+slotPanel.BackgroundColor3 = CHEST_UI_COLORS.Panel
+slotPanel.BackgroundTransparency = 0.18
 slotPanel.BorderSizePixel = 0
 slotPanel.Parent = slotGui
 
@@ -266,14 +291,27 @@ slotSizeConstraint.MaxSize = Vector2.new(480, 174)
 slotSizeConstraint.Parent = slotPanel
 
 local slotCorner = Instance.new("UICorner")
-slotCorner.CornerRadius = UDim.new(0, 8)
+slotCorner.CornerRadius = UDim.new(0, 10)
 slotCorner.Parent = slotPanel
 
 local slotStroke = Instance.new("UIStroke")
-slotStroke.Color = Color3.fromRGB(255, 255, 255)
-slotStroke.Transparency = 0.78
-slotStroke.Thickness = 1
+slotStroke.Color = CHEST_UI_COLORS.Accent
+slotStroke.Transparency = 0.3
+slotStroke.Thickness = 1.5
 slotStroke.Parent = slotPanel
+addStroke(slotPanel, Color3.fromRGB(7, 12, 19), 0.16, 4)
+
+local slotGradient = Instance.new("UIGradient")
+slotGradient.Rotation = 90
+slotGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, CHEST_UI_COLORS.PanelTop),
+	ColorSequenceKeypoint.new(1, CHEST_UI_COLORS.Panel),
+})
+slotGradient.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0.12),
+	NumberSequenceKeypoint.new(1, 0.34),
+})
+slotGradient.Parent = slotPanel
 
 local slotPadding = Instance.new("UIPadding")
 slotPadding.PaddingTop = UDim.new(0, 12)
@@ -286,24 +324,26 @@ local slotTitle = Instance.new("TextLabel")
 slotTitle.Name = "Title"
 slotTitle.Size = UDim2.new(1, 0, 0, 18)
 slotTitle.BackgroundTransparency = 1
-slotTitle.Font = Enum.Font.GothamBold
+slotTitle.Font = Enum.Font.GothamBlack
 slotTitle.Text = "Coffre"
-slotTitle.TextColor3 = Color3.fromRGB(245, 248, 255)
-slotTitle.TextSize = 14
-slotTitle.TextXAlignment = Enum.TextXAlignment.Left
+slotTitle.TextColor3 = CHEST_UI_COLORS.Text
+slotTitle.TextSize = 16
+slotTitle.TextXAlignment = Enum.TextXAlignment.Center
 slotTitle.Parent = slotPanel
 
 local reelFrame = Instance.new("Frame")
 reelFrame.Name = "Reel"
 reelFrame.Position = UDim2.new(0, 0, 0, 30)
 reelFrame.Size = UDim2.new(1, 0, 0, 42)
-reelFrame.BackgroundColor3 = Color3.fromRGB(42, 48, 60)
+reelFrame.BackgroundColor3 = CHEST_UI_COLORS.PanelTop
+reelFrame.BackgroundTransparency = 0.22
 reelFrame.BorderSizePixel = 0
 reelFrame.Parent = slotPanel
 
 local reelCorner = Instance.new("UICorner")
 reelCorner.CornerRadius = UDim.new(0, 6)
 reelCorner.Parent = reelFrame
+addStroke(reelFrame, CHEST_UI_COLORS.Accent, 0.46, 1)
 
 local reelLabel = Instance.new("TextLabel")
 reelLabel.Name = "RewardName"
@@ -311,7 +351,7 @@ reelLabel.Size = UDim2.fromScale(1, 1)
 reelLabel.BackgroundTransparency = 1
 reelLabel.Font = Enum.Font.GothamBold
 reelLabel.Text = "..."
-reelLabel.TextColor3 = Color3.fromRGB(255, 230, 120)
+reelLabel.TextColor3 = CHEST_UI_COLORS.AccentLight
 reelLabel.TextSize = 18
 reelLabel.TextWrapped = true
 reelLabel.Parent = reelFrame
@@ -323,9 +363,9 @@ slotSubtitle.Size = UDim2.new(1, 0, 0, 20)
 slotSubtitle.BackgroundTransparency = 1
 slotSubtitle.Font = Enum.Font.GothamMedium
 slotSubtitle.Text = "Ouverture..."
-slotSubtitle.TextColor3 = Color3.fromRGB(210, 218, 230)
+slotSubtitle.TextColor3 = CHEST_UI_COLORS.Muted
 slotSubtitle.TextSize = 12
-slotSubtitle.TextXAlignment = Enum.TextXAlignment.Left
+slotSubtitle.TextXAlignment = Enum.TextXAlignment.Center
 slotSubtitle.Parent = slotPanel
 
 local buttonRow = Instance.new("Frame")
@@ -340,7 +380,8 @@ local skipButton = Instance.new("TextButton")
 skipButton.Name = "SkipButton"
 skipButton.Position = UDim2.new(0, 0, 0, 0)
 skipButton.Size = UDim2.new(0.5, -5, 1, 0)
-skipButton.BackgroundColor3 = Color3.fromRGB(48, 54, 66)
+skipButton.BackgroundColor3 = CHEST_UI_COLORS.PanelTop
+skipButton.BackgroundTransparency = 0.2
 skipButton.BorderSizePixel = 0
 skipButton.Font = Enum.Font.GothamBold
 skipButton.Text = "Passer"
@@ -351,12 +392,14 @@ skipButton.Parent = buttonRow
 local skipCorner = Instance.new("UICorner")
 skipCorner.CornerRadius = UDim.new(0, 6)
 skipCorner.Parent = skipButton
+addStroke(skipButton, Color3.fromRGB(238, 245, 255), 0.58, 1)
 
 local acceptButton = Instance.new("TextButton")
 acceptButton.Name = "AcceptButton"
 acceptButton.Position = UDim2.new(0.5, 5, 0, 0)
 acceptButton.Size = UDim2.new(0.5, -5, 1, 0)
-acceptButton.BackgroundColor3 = Color3.fromRGB(86, 64, 150)
+acceptButton.BackgroundColor3 = CHEST_UI_COLORS.Accent
+acceptButton.BackgroundTransparency = 0.22
 acceptButton.BorderSizePixel = 0
 acceptButton.Font = Enum.Font.GothamBold
 acceptButton.Text = "Valider"
@@ -367,6 +410,7 @@ acceptButton.Parent = buttonRow
 local acceptCorner = Instance.new("UICorner")
 acceptCorner.CornerRadius = UDim.new(0, 6)
 acceptCorner.Parent = acceptButton
+addStroke(acceptButton, CHEST_UI_COLORS.AccentLight, 0.32, 1)
 
 local function setDecisionButtonsEnabled(isEnabled)
 	skipButton.Active = isEnabled
