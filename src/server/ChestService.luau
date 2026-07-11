@@ -843,6 +843,19 @@ function ChestService.SetupPlayer(player)
 	sendPrice(player)
 end
 
+function ChestService.ResetRun(player)
+	local profile = getOrCreateProfile(player)
+
+	if profile.ActiveOpening ~= nil then
+		finishOpening(player, false)
+	end
+
+	CombatStateService.Resume(getPauseReason(player))
+	profile.NextOpenCost = ChestConfig.BaseOpenCost
+	profile.NextOpeningId = 0
+	sendPrice(player)
+end
+
 function ChestService.RemovePlayer(player)
 	local profile = profilesByUserId[player.UserId]
 

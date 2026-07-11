@@ -8,7 +8,8 @@ return {
 	ProjectileFolderName = "Projectiles",
 	LootFolderName = "Loot",
 
-	MonsterSimulationHz = 15,
+	-- Zero utilise le Heartbeat directement pour que le visuel reste aligne aux hitboxes serveur.
+	MonsterSimulationHz = 0,
 	ProjectileSimulationHz = 30,
 	MonsterSpatialCellSize = 8,
 	MonsterPoolPrewarm = 0,
@@ -91,6 +92,9 @@ return {
 	CollectibleCullInterval = 0.2,
 	CollectibleCullViewportMargin = 120,
 	CollectibleCullMaxDistance = 360,
+	CollectibleIdleAnimationHz = 30,
+	CollectibleMaxConcurrentAttractAnimations = 72,
+	ClientFrameSpikeLogThreshold = 0.12,
 	LevelBaseXp = 6,
 	LevelXpIncrease = 6,
 	LootScatterRadius = 3,

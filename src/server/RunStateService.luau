@@ -53,6 +53,7 @@ local function sendState(player)
 	end
 
 	local state = getState(player)
+	player:SetAttribute("IsRunActive", state.IsActive == true)
 
 	stateRemote:FireClient(player, {
 		IsRunActive = state.IsActive == true,

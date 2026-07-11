@@ -14,7 +14,10 @@ local collectXpRemote = ReplicatedStorage:WaitForChild("Xp_PlayCollect")
 
 local animatedCollectibles = {}
 local hiddenCollectibles = {}
+local activeCollectAnimations = {}
 local elapsedSinceCull = 0
+local elapsedSinceIdleAnimation = 0
+local activeCollectAnimationCount = 0
 
 local function isCoinName(name)
 	for _, coinName in ipairs(GameConfig.CoinTierNames or { "Coin" }) do
@@ -202,6 +205,11 @@ end)
 Workspace.DescendantRemoving:Connect(function(descendant)
 	animatedCollectibles[descendant] = nil
 	hiddenCollectibles[descendant] = nil
+
+	if activeCollectAnimations[descendant] ~= nil then
+		activeCollectAnimations[descendant] = nil
+		activeCollectAnimationCount = math.max(0, activeCollectAnimationCount - 1)
+	end
 end)
 
 local function updateCollectibleCulling()
@@ -220,14 +228,7 @@ local function updateCollectibleCulling()
 	end
 end
 
-RunService.RenderStepped:Connect(function(deltaTime)
-	elapsedSinceCull += deltaTime
-
-	if elapsedSinceCull >= CombatConfig.CollectibleCullInterval then
-		elapsedSinceCull = 0
-		updateCollectibleCulling()
-	end
-
+local function updateIdleCollectibleAnimation(deltaTime)
 	for coin in pairs(animatedCollectibles) do
 		if coin.Parent == nil then
 			animatedCollectibles[coin] = nil
@@ -249,10 +250,81 @@ RunService.RenderStepped:Connect(function(deltaTime)
 			end
 
 			local rotation = CFrame.Angles(0, math.rad(rotationSpeed) * deltaTime, 0)
-
 			setCoinCFrame(coin, currentCFrame * rotation)
 		end
 	end
+end
+
+local function updateCollectAnimations()
+	for coin, animationState in pairs(activeCollectAnimations) do
+		if coin.Parent == nil then
+			activeCollectAnimations[coin] = nil
+			activeCollectAnimationCount = math.max(0, activeCollectAnimationCount - 1)
+			continue
+		end
+
+		local alpha = math.clamp((os.clock() - animationState.StartedAt) / animationState.Duration, 0, 1)
+		local targetPosition = getPlayerTargetPosition(animationState.CollectorUserId)
+
+		if targetPosition == nil then
+			targetPosition = animationState.StartCFrame.Position + Vector3.new(0, 3, 0)
+		end
+
+		local easedAlpha = 1 - ((1 - alpha) * (1 - alpha))
+		local currentPosition = animationState.StartCFrame.Position:Lerp(targetPosition, easedAlpha)
+		local spin = CFrame.Angles(0, math.rad(720) * alpha, 0)
+
+		setCoinCFrame(coin, CFrame.new(currentPosition) * spin)
+
+		if animationState.LastTransparency == nil or alpha - animationState.LastTransparency >= 0.04 or alpha >= 1 then
+			setCoinTransparency(coin, alpha)
+			animationState.LastTransparency = alpha
+		end
+
+		if alpha >= 1 then
+			if animationState.CollectorUserId == player.UserId then
+				-- Petite confirmation locale: l'UI serveur mettra le compteur a jour juste apres.
+				setCoinTransparency(coin, 1)
+			end
+
+			activeCollectAnimations[coin] = nil
+			activeCollectAnimationCount = math.max(0, activeCollectAnimationCount - 1)
+		end
+	end
+end
+
+RunService.RenderStepped:Connect(function(deltaTime)
+	if deltaTime >= (CombatConfig.ClientFrameSpikeLogThreshold or 0.12) then
+		DebugLog.ThrottledWarn("Perf", "client_frame_spike", 2, "Pic de frame client detecte", {
+			AttractAnimations = activeCollectAnimationCount,
+			DeltaMilliseconds = math.floor((deltaTime * 1000) + 0.5),
+		})
+	end
+
+	elapsedSinceCull += deltaTime
+	elapsedSinceIdleAnimation += deltaTime
+
+	if elapsedSinceCull >= CombatConfig.CollectibleCullInterval then
+		elapsedSinceCull = 0
+		updateCollectibleCulling()
+	end
+
+	local idleAnimationHz = math.max(1, CombatConfig.CollectibleIdleAnimationHz or 30)
+	local idleAnimationStep = 1 / idleAnimationHz
+
+	if elapsedSinceIdleAnimation >= idleAnimationStep then
+		local animationDeltaTime = math.min(elapsedSinceIdleAnimation, idleAnimationStep * 2)
+		elapsedSinceIdleAnimation = 0
+		updateIdleCollectibleAnimation(animationDeltaTime)
+	end
+
+	updateCollectAnimations()
+
+	DebugLog.ThrottledInfo("Perf", "collectible_visual", CombatConfig.PerfLogInterval or 5, "Perf collectibles client", {
+		IdleHz = idleAnimationHz,
+		AttractAnimations = activeCollectAnimationCount,
+		AttractCap = CombatConfig.CollectibleMaxConcurrentAttractAnimations,
+	})
 end)
 
 local function playCollectAnimation(coin, collectorUserId, duration)
@@ -275,36 +347,23 @@ local function playCollectAnimation(coin, collectorUserId, duration)
 		return
 	end
 
-	local startedAt = os.clock()
+	if activeCollectAnimations[coin] ~= nil then
+		return
+	end
 
-	task.spawn(function()
-		while coin.Parent ~= nil do
-			local alpha = math.clamp((os.clock() - startedAt) / duration, 0, 1)
-			local targetPosition = getPlayerTargetPosition(collectorUserId)
+	if activeCollectAnimationCount >= (CombatConfig.CollectibleMaxConcurrentAttractAnimations or 72) then
+		setCoinTransparency(coin, 1)
+		return
+	end
 
-			if targetPosition == nil then
-				targetPosition = startCFrame.Position + Vector3.new(0, 3, 0)
-			end
-
-			local easedAlpha = 1 - ((1 - alpha) * (1 - alpha))
-			local currentPosition = startCFrame.Position:Lerp(targetPosition, easedAlpha)
-			local spin = CFrame.Angles(0, math.rad(720) * alpha, 0)
-
-			setCoinCFrame(coin, CFrame.new(currentPosition) * spin)
-			setCoinTransparency(coin, alpha)
-
-			if alpha >= 1 then
-				break
-			end
-
-			RunService.RenderStepped:Wait()
-		end
-
-		if collectorUserId == player.UserId then
-			-- Petite confirmation locale: l'UI serveur mettra le compteur a jour juste apres.
-			setCoinTransparency(coin, 1)
-		end
-	end)
+	activeCollectAnimations[coin] = {
+		CollectorUserId = collectorUserId,
+		Duration = math.max(0.01, duration),
+		LastTransparency = nil,
+		StartCFrame = startCFrame,
+		StartedAt = os.clock(),
+	}
+	activeCollectAnimationCount += 1
 end
 
 collectCoinRemote.OnClientEvent:Connect(playCollectAnimation)

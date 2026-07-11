@@ -115,6 +115,8 @@ local state = {
 	HasBlockingPause = false,
 }
 
+state.IsRunActive = player:GetAttribute("IsRunActive") == true
+
 local function addCorner(instance, radius)
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, radius)
@@ -316,7 +318,7 @@ local topCluster = Instance.new("Frame")
 topCluster.Name = "TopCluster"
 topCluster.AnchorPoint = Vector2.new(0.5, 0)
 topCluster.Position = UDim2.new(0.5, 0, 0, 12)
-topCluster.Size = UDim2.fromOffset(640, 70)
+topCluster.Size = UDim2.fromOffset(500, 58)
 topCluster.BackgroundTransparency = 1
 topCluster.BorderSizePixel = 0
 topCluster.Parent = screenGui
@@ -324,59 +326,78 @@ topCluster.Parent = screenGui
 local topScale = Instance.new("UIScale")
 topScale.Parent = topCluster
 
-local topPauseSize = 44
-local topStatSlotWidth = 138
-local topStatValueOffset = 52
-local topStatIconSize = math.floor(topPauseSize * 1.1)
-local topStatTextSize = math.floor(topPauseSize * 0.72)
+local topPauseSize = 42
+local topStatSlotWidth = 104
+local topStatValueOffset = 43
+local topStatIconSize = 31
+local topStatTextSize = 22
 
-addGlassBackground(topCluster, "TopStatsGlassBackground", UDim2.fromOffset(-8, -1), UDim2.fromOffset(302, 45), 13)
+local topFrame = Instance.new("Frame")
+topFrame.Name = "TopMetalFrame"
+topFrame.Size = UDim2.new(1, 0, 0, 52)
+topFrame.BackgroundColor3 = Color3.fromRGB(9, 13, 22)
+topFrame.BackgroundTransparency = 0.06
+topFrame.BorderSizePixel = 0
+topFrame.Parent = topCluster
+addCorner(topFrame, 12)
+addStroke(topFrame, Color3.fromRGB(57, 194, 255), 0.18, 2)
+
+local topInner = Instance.new("Frame")
+topInner.Name = "TopInner"
+topInner.Position = UDim2.fromOffset(4, 4)
+topInner.Size = UDim2.new(1, -8, 1, -8)
+topInner.BackgroundColor3 = Color3.fromRGB(20, 26, 39)
+topInner.BackgroundTransparency = 0.18
+topInner.BorderSizePixel = 0
+topInner.Parent = topFrame
+addCorner(topInner, 9)
+addStroke(topInner, Color3.fromRGB(195, 220, 255), 0.76, 1)
 
 local killsSlot = Instance.new("Frame")
 killsSlot.Name = "KillsSlot"
-killsSlot.Position = UDim2.fromOffset(0, -3)
+killsSlot.Position = UDim2.fromOffset(12, 4)
 killsSlot.Size = UDim2.fromOffset(topStatSlotWidth, 52)
 killsSlot.BackgroundTransparency = 1
 killsSlot.BorderSizePixel = 0
 killsSlot.Parent = topCluster
 
 local killsIcon = createIcon(killsSlot, "KillsIcon", ICON_IMAGES.Kills, "K", COLORS.Kills)
-killsIcon.Position = UDim2.fromOffset(0, 0)
+killsIcon.Position = UDim2.fromOffset(0, 6)
 killsIcon.Size = UDim2.fromOffset(topStatIconSize, topStatIconSize)
 
 local killsValue = createLabel(killsSlot, "KillsValue", "0", UI_FONTS.Heavy, topStatTextSize, COLORS.Kills)
-killsValue.Position = UDim2.fromOffset(topStatValueOffset, 1)
-killsValue.Size = UDim2.fromOffset(topStatSlotWidth - topStatValueOffset, 43)
+killsValue.Position = UDim2.fromOffset(topStatValueOffset, 4)
+killsValue.Size = UDim2.fromOffset(topStatSlotWidth - topStatValueOffset, 35)
 killsValue.TextScaled = true
 killsValue.TextXAlignment = Enum.TextXAlignment.Left
 addTextSizeConstraint(killsValue, 15, topStatTextSize)
 
 local goldSlot = Instance.new("Frame")
 goldSlot.Name = "GoldSlot"
-goldSlot.Position = UDim2.fromOffset(148, -3)
+goldSlot.Position = UDim2.fromOffset(124, 4)
 goldSlot.Size = UDim2.fromOffset(topStatSlotWidth, 52)
 goldSlot.BackgroundTransparency = 1
 goldSlot.BorderSizePixel = 0
 goldSlot.Parent = topCluster
 
 local goldIcon = createIcon(goldSlot, "GoldIcon", ICON_IMAGES.Gold, "G", COLORS.Gold)
-goldIcon.Position = UDim2.fromOffset(0, 0)
+goldIcon.Position = UDim2.fromOffset(0, 6)
 goldIcon.Size = UDim2.fromOffset(topStatIconSize, topStatIconSize)
 
 local goldValue = createLabel(goldSlot, "GoldValue", "0", UI_FONTS.Heavy, topStatTextSize, COLORS.Gold)
-goldValue.Position = UDim2.fromOffset(topStatValueOffset, 1)
-goldValue.Size = UDim2.fromOffset(topStatSlotWidth - topStatValueOffset, 43)
+goldValue.Position = UDim2.fromOffset(topStatValueOffset, 4)
+goldValue.Size = UDim2.fromOffset(topStatSlotWidth - topStatValueOffset, 35)
 goldValue.TextScaled = true
 goldValue.TextXAlignment = Enum.TextXAlignment.Left
 addTextSizeConstraint(goldValue, 15, topStatTextSize)
 
 local pauseButton = Instance.new("TextButton")
 pauseButton.Name = "PauseButton"
-pauseButton.AnchorPoint = Vector2.new(0.5, 0)
-pauseButton.Position = UDim2.new(0.5, 0, 0, 0)
+pauseButton.AnchorPoint = Vector2.new(1, 0)
+pauseButton.Position = UDim2.new(1, -10, 0, 5)
 pauseButton.Size = UDim2.fromOffset(topPauseSize, topPauseSize)
-pauseButton.BackgroundColor3 = Color3.fromRGB(5, 8, 14)
-pauseButton.BackgroundTransparency = 0.18
+pauseButton.BackgroundColor3 = Color3.fromRGB(35, 29, 67)
+pauseButton.BackgroundTransparency = 0.05
 pauseButton.BorderSizePixel = 0
 pauseButton.Font = UI_FONTS.Heavy
 pauseButton.Text = "||"
@@ -385,16 +406,28 @@ pauseButton.TextSize = 22
 pauseButton.TextStrokeTransparency = 0.45
 pauseButton.AutoButtonColor = true
 pauseButton.Parent = topCluster
-addCorner(pauseButton, 10)
-addStroke(pauseButton, COLORS.Green, 0.38, 1)
+addCorner(pauseButton, 8)
+addStroke(pauseButton, Color3.fromRGB(208, 160, 255), 0.2, 1)
 addTextSizeConstraint(pauseButton, 15, 22)
 
-local timerLabel = createLabel(topCluster, "TimerLabel", "12:00", UI_FONTS.Bold, 15, COLORS.Text)
-timerLabel.AnchorPoint = Vector2.new(0.5, 0)
-timerLabel.Position = UDim2.new(0.5, 0, 0, 45)
-timerLabel.Size = UDim2.fromOffset(82, 20)
+local timerSlot = Instance.new("Frame")
+timerSlot.Name = "TimerSlot"
+timerSlot.Position = UDim2.fromOffset(236, 4)
+timerSlot.Size = UDim2.fromOffset(132, 44)
+timerSlot.BackgroundTransparency = 1
+timerSlot.BorderSizePixel = 0
+timerSlot.Parent = topCluster
+
+local timerCaption = createLabel(timerSlot, "Caption", "TEMPS", UI_FONTS.Bold, 9, COLORS.Muted)
+timerCaption.Position = UDim2.fromOffset(0, 4)
+timerCaption.Size = UDim2.new(1, 0, 0, 12)
+timerCaption.TextXAlignment = Enum.TextXAlignment.Center
+
+local timerLabel = createLabel(timerSlot, "TimerLabel", "12:00", UI_FONTS.Heavy, 19, Color3.fromRGB(125, 219, 255))
+timerLabel.Position = UDim2.fromOffset(0, 15)
+timerLabel.Size = UDim2.new(1, 0, 0, 25)
 timerLabel.TextXAlignment = Enum.TextXAlignment.Center
-addTextSizeConstraint(timerLabel, 11, 15)
+addTextSizeConstraint(timerLabel, 13, 19)
 
 local eventMessageFrame = Instance.new("Frame")
 eventMessageFrame.Name = "EventMessageFrame"
@@ -614,6 +647,14 @@ local function refreshTimer()
 	timerLabel.Text = formatTimer(timerRemaining)
 end
 
+local function refreshRunVisibility()
+	topCluster.Visible = state.IsRunActive
+
+	if not state.IsRunActive then
+		eventMessageFrame.Visible = false
+	end
+end
+
 local function isTimerPaused()
 	return not state.IsRunActive or state.IsUserPaused or state.HasBlockingPause
 end
@@ -623,14 +664,14 @@ local function refreshPause()
 	pauseButton.Active = not isPauseButtonBlocked
 	pauseButton.AutoButtonColor = not isPauseButtonBlocked
 	pauseButton.Text = if state.IsUserPaused then ">" else "||"
-	pauseButton.TextColor3 = if isPauseButtonBlocked then COLORS.Muted else COLORS.Green
+	pauseButton.TextColor3 = if isPauseButtonBlocked then COLORS.Muted else Color3.fromRGB(243, 235, 255)
 	pauseButton.TextTransparency = if isPauseButtonBlocked then 0.42 else 0
 
 	local stroke = pauseButton:FindFirstChildWhichIsA("UIStroke")
 
 	if stroke ~= nil then
 		TweenService:Create(stroke, QUICK_TWEEN, {
-			Color = if isPauseButtonBlocked then COLORS.Muted else COLORS.Green,
+			Color = if isPauseButtonBlocked then COLORS.Muted else Color3.fromRGB(208, 160, 255),
 			Transparency = if state.IsUserPaused then 0.1 else 0.38,
 		}):Play()
 	end
@@ -809,6 +850,7 @@ local function onRunStatePayload(payload)
 
 	refreshTimer()
 	refreshPause()
+	refreshRunVisibility()
 end
 
 local function waitForRemote(remoteName)
@@ -849,6 +891,12 @@ bindRemote("Perk_UpdateStats", onPerksPayload)
 bindRemote("Combat_PauseState", onPausePayload)
 bindRemote("Run_StateUpdate", onRunStatePayload)
 bindRemote(HudMessageConfig.RemoteName, onHudMessagePayload)
+
+player:GetAttributeChangedSignal("IsRunActive"):Connect(function()
+	onRunStatePayload({
+		IsRunActive = player:GetAttribute("IsRunActive") == true,
+	})
+end)
 
 task.spawn(function()
 	togglePauseRemote = waitForRemote("Combat_TogglePause")
@@ -897,6 +945,7 @@ refreshCombatStats()
 refreshXp()
 refreshCoins()
 refreshTimer()
+refreshRunVisibility()
 refreshPause()
 updateResponsiveLayout()
 

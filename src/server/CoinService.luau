@@ -25,6 +25,9 @@ local coinTemplatesByTier = {}
 local coinPoolFolder = nil
 local elapsedSinceScan = 0
 local elapsedSinceMerge = 0
+local elapsedSincePerfLog = 0
+local maxScanMilliseconds = 0
+local maxMergeMilliseconds = 0
 local heartbeatConnection = nil
 
 local function getOrCreateRemote(remoteName)
@@ -385,7 +388,7 @@ local function awardCoin(player, coinValue)
 end
 
 local function finishCoinCollection(player, coin, coinState, attractDuration)
-	if player.Parent ~= Players or coin.Parent == nil then
+	if coinState.Cancelled or player.Parent ~= Players or coin.Parent == nil then
 		if coin.Parent ~= nil then
 			coinState.Collected = false
 		end
@@ -739,6 +742,33 @@ function CoinService.CollectAllForPlayer(player, attractDuration, spreadDuration
 	return collectedCount
 end
 
+function CoinService.ClearRunCoins()
+	local coinsToRelease = {}
+
+	for coin, coinState in pairs(trackedCoins) do
+		table.insert(coinsToRelease, {
+			Coin = coin,
+			State = coinState,
+		})
+	end
+
+	for _, entry in ipairs(coinsToRelease) do
+		entry.State.Cancelled = true
+		trackedCoins[entry.Coin] = nil
+
+		if entry.Coin.Parent ~= nil then
+			releaseCoin(entry.Coin, entry.State.Tier)
+		end
+	end
+end
+
+function CoinService.ResetRun(player)
+	local profile = getOrCreateProfile(player)
+
+	profile.Coins = 0
+	sendCoinCount(player)
+end
+
 function CoinService.Start()
 	for tier = 1, #COIN_TIER_NAMES do
 		coinTemplatesByTier[tier] = findCoinTemplate(tier)
@@ -771,21 +801,33 @@ function CoinService.Start()
 
 		elapsedSinceScan += deltaTime
 		elapsedSinceMerge += deltaTime
+		elapsedSincePerfLog += deltaTime
 
 		if elapsedSinceScan >= GameConfig.CoinScanInterval then
 			elapsedSinceScan = 0
+			local startedAt = os.clock()
 			scanCoinProximity()
+			maxScanMilliseconds = math.max(maxScanMilliseconds, (os.clock() - startedAt) * 1000)
 		end
 
 		if elapsedSinceMerge >= GameConfig.CoinMergeScanInterval then
 			elapsedSinceMerge = 0
+			local startedAt = os.clock()
 			mergeNearbyCoins()
+			maxMergeMilliseconds = math.max(maxMergeMilliseconds, (os.clock() - startedAt) * 1000)
 		end
 
-		DebugLog.ThrottledInfo("Perf", "coin_pool", CombatConfig.PerfLogInterval or 5, "Perf coins serveur", {
+		if elapsedSincePerfLog >= (CombatConfig.PerfLogInterval or 5) then
+			DebugLog.Info("Perf", "Perf coins serveur", {
 			Tracked = getTrackedCoinCount(),
 			Pool = getCoinPoolSize(),
+			MaxScanMs = maxScanMilliseconds,
+			MaxMergeMs = maxMergeMilliseconds,
 		})
+			elapsedSincePerfLog = 0
+			maxScanMilliseconds = 0
+			maxMergeMilliseconds = 0
+		end
 	end)
 end
 

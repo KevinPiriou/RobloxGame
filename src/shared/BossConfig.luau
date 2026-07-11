@@ -1,0 +1,45 @@
+return {
+	BossTemplateName = "Boss1",
+	FallbackTemplateName = "Monster1_Elite",
+	DisplayName = "Gardien du portail",
+
+	MaxHealth = 7500,
+	DamageMultiplier = 3,
+	SpeedMultiplier = 1.2,
+	SpawnSafetyDistance = 32,
+	AnnouncementDuration = 3.2,
+	AnnouncementReleaseDelay = 0.25,
+
+	ConeAttackCooldownMin = 4,
+	ConeAttackCooldownMax = 10,
+	ConeAttackRows = 6,
+	ConeAttackStartDistance = 16,
+	ConeAttackRowDistance = 10,
+	ConeAttackBubbleSpacing = 4.5,
+	ConeAttackMaxDistance = 68,
+	ConeAttackTelegraphDuration = 2.2,
+	ConeAttackSequentialRowInterval = 0.3,
+	ConeAttackBubbleRadius = 2.5,
+	ConeAttackHitRadius = 3,
+	ConeAttackDamageMultiplier = 2,
+	ConeAttackGroundRaycastHeight = 80,
+	ConeAttackGroundRaycastDepth = 180,
+	TargetedSeriesMinBubbles = 2,
+	TargetedSeriesMaxBubbles = 5,
+	TargetedSeriesIntervalMin = 0.2,
+	TargetedSeriesIntervalMax = 0.8,
+
+	PortalPromptName = "BossPortalPrompt",
+	PortalPromptText = "Invoquer",
+	PortalPromptObjectText = "Portail du boss",
+	PortalActivationDistance = 10,
+
+	BossRemoteName = "Boss_UpdateState",
+	DecisionRemoteName = "Boss_ChooseOutcome",
+	ResultRemoteName = "Run_ShowSummary",
+	ReturnToLobbyRemoteName = "Run_ReturnToLobby",
+
+	-- Laisser vide tant que le son n'est pas importe dans Roblox.
+	ArrivalSoundId = "",
+	ArrivalSoundVolume = 0.7,
+}

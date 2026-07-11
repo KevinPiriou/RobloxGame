@@ -18,6 +18,23 @@ local cooldownsByUserId = {}
 local teleportingByUserId = {}
 local arrivalConnectionsByUserId = {}
 local neutralizedContainers = {}
+local pendingLobbySummariesByUserId = {}
+
+local function getOrCreateRemote(remoteName)
+	local remote = ReplicatedStorage:FindFirstChild(remoteName)
+
+	if remote == nil then
+		remote = Instance.new("RemoteEvent")
+		remote.Name = remoteName
+		remote.Parent = ReplicatedStorage
+	end
+
+	assert(remote:IsA("RemoteEvent"), remoteName .. " doit etre un RemoteEvent.")
+
+	return remote
+end
+
+local runSummaryRemote = getOrCreateRemote("Run_ShowSummary")
 
 local function getPlayerFromHit(hit)
 	if hit == nil then
@@ -227,6 +244,13 @@ local function copyTeleportData()
 	return data
 end
 
+local function copyLobbyTeleportData(summary)
+	return {
+		runMode = "LobbyReturn",
+		runSummary = summary,
+	}
+end
+
 local function canStartTeleport(player)
 	if not RunTeleportConfig.Enabled then
 		return false, "Disabled"
@@ -322,6 +346,65 @@ function RunTeleportService.StartSoloRun(player, trigger)
 	return true
 end
 
+function RunTeleportService.ReturnToLobby(player, summary)
+	if player == nil or player.Parent == nil then
+		return false
+	end
+
+	if RunService:IsStudio() and RunTeleportConfig.StudioSimulatesLobbyReturn then
+		player:LoadCharacter()
+
+		if summary ~= nil then
+			task.delay(0.7, function()
+				if player.Parent ~= nil then
+					runSummaryRemote:FireClient(player, summary)
+				end
+			end)
+		end
+
+		DebugLog.Warn("RunTeleport", "Retour lobby simule en Studio", {
+			Player = player.Name,
+		})
+		return true
+	end
+
+	local lobbyPlaceId = RunTeleportConfig.LobbyPlaceId or game.PlaceId
+
+	if lobbyPlaceId <= 0 then
+		DebugLog.Warn("RunTeleport", "Retour lobby impossible, PlaceId invalide", {
+			Player = player.Name,
+			PlaceId = lobbyPlaceId,
+		})
+		return false
+	end
+
+	local teleportOptions = Instance.new("TeleportOptions")
+	teleportOptions:SetTeleportData(copyLobbyTeleportData(summary))
+
+	local success, result = pcall(function()
+		return TeleportService:TeleportAsync(lobbyPlaceId, { player }, teleportOptions)
+	end)
+
+	if not success then
+		DebugLog.Warn("RunTeleport", "Retour lobby impossible", {
+			Player = player.Name,
+			PlaceId = lobbyPlaceId,
+			Error = tostring(result),
+		})
+		return false
+	end
+
+	if summary ~= nil then
+		pendingLobbySummariesByUserId[player.UserId] = summary
+	end
+
+	DebugLog.Info("RunTeleport", "Retour lobby demande", {
+		Player = player.Name,
+		PlaceId = lobbyPlaceId,
+	})
+	return true
+end
+
 local function onTriggerTouched(trigger, hit)
 	local player = getPlayerFromHit(hit)
 
@@ -395,7 +478,56 @@ local function getTeleportArrivalName(player)
 	return RunTeleportConfig.ArrivalPartName
 end
 
+local function getLobbyReturnSummary(player)
+	local success, joinData = pcall(function()
+		return player:GetJoinData()
+	end)
+
+	if not success or typeof(joinData) ~= "table" then
+		return nil
+	end
+
+	local teleportData = joinData.TeleportData
+
+	if typeof(teleportData) ~= "table" or teleportData.runMode ~= "LobbyReturn" then
+		return nil
+	end
+
+	if typeof(teleportData.runSummary) ~= "table" then
+		return nil
+	end
+
+	return teleportData.runSummary
+end
+
 function RunTeleportService.SetupPlayer(player)
+	local lobbySummary = getLobbyReturnSummary(player)
+
+	if lobbySummary ~= nil then
+		local function sendLobbySummary()
+			local connection = arrivalConnectionsByUserId[player.UserId]
+
+			if connection ~= nil then
+				connection:Disconnect()
+				arrivalConnectionsByUserId[player.UserId] = nil
+			end
+
+			task.delay(0.7, function()
+				if player.Parent ~= nil then
+					runSummaryRemote:FireClient(player, lobbySummary)
+				end
+			end)
+		end
+
+		if player.Character ~= nil then
+			sendLobbySummary()
+		else
+			arrivalConnectionsByUserId[player.UserId] = player.CharacterAdded:Connect(sendLobbySummary)
+		end
+
+		return
+	end
+
 	local arrivalPartName = getTeleportArrivalName(player)
 
 	if arrivalPartName == nil then
@@ -441,6 +573,7 @@ end
 function RunTeleportService.RemovePlayer(player)
 	teleportingByUserId[player.UserId] = nil
 	cooldownsByUserId[player.UserId] = nil
+	pendingLobbySummariesByUserId[player.UserId] = nil
 
 	local connection = arrivalConnectionsByUserId[player.UserId]
 
@@ -493,12 +626,23 @@ function RunTeleportService.Start()
 
 	TeleportService.TeleportInitFailed:Connect(function(player, teleportResult, errorMessage, placeId)
 		teleportingByUserId[player.UserId] = nil
+		local pendingSummary = pendingLobbySummariesByUserId[player.UserId]
+		pendingLobbySummariesByUserId[player.UserId] = nil
 		DebugLog.Warn("RunTeleport", "Initialisation teleport echouee", {
 			Player = player.Name,
 			Result = tostring(teleportResult),
 			Error = tostring(errorMessage),
 			PlaceId = placeId,
 		})
+
+		if pendingSummary ~= nil then
+			player:LoadCharacter()
+			task.delay(0.7, function()
+				if player.Parent ~= nil then
+					runSummaryRemote:FireClient(player, pendingSummary)
+				end
+			end)
+		end
 	end)
 
 	DebugLog.Info("RunTeleport", "RunTeleportService demarre", {

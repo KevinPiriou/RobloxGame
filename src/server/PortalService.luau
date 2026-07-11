@@ -1,11 +1,13 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local BossConfig = require(Shared:WaitForChild("BossConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local PortalConfig = require(Shared:WaitForChild("PortalConfig"))
 
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
+local BossService = require(script.Parent:WaitForChild("BossService"))
 
 local PortalService = {}
 
@@ -57,6 +59,65 @@ local function preparePortalInstance(portal)
 	end
 
 	portal:SetAttribute("PortalBossRuntime", true)
+	portal:SetAttribute("BossPortalActivated", false)
+end
+
+local function findPortalRoot(portal)
+	if portal:IsA("BasePart") then
+		return portal
+	end
+
+	if portal:IsA("Model") and portal.PrimaryPart ~= nil then
+		return portal.PrimaryPart
+	end
+
+	local root = portal:FindFirstChildWhichIsA("BasePart", true)
+
+	if root ~= nil and portal:IsA("Model") then
+		portal.PrimaryPart = root
+	end
+
+	return root
+end
+
+local function setupPortalPrompt(portal)
+	local root = findPortalRoot(portal)
+
+	if root == nil then
+		DebugLog.Warn("Portal", "Portail sans BasePart, interaction impossible", {
+			Portal = portal,
+		})
+		return
+	end
+
+	local prompt = root:FindFirstChild(BossConfig.PortalPromptName)
+
+	if prompt == nil then
+		prompt = Instance.new("ProximityPrompt")
+		prompt.Name = BossConfig.PortalPromptName
+		prompt.Parent = root
+	end
+
+	assert(prompt:IsA("ProximityPrompt"), BossConfig.PortalPromptName .. " doit etre un ProximityPrompt.")
+	prompt.ActionText = BossConfig.PortalPromptText
+	prompt.ObjectText = BossConfig.PortalPromptObjectText
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = BossConfig.PortalActivationDistance
+	prompt.RequiresLineOfSight = false
+	prompt.Enabled = true
+
+	prompt.Triggered:Connect(function(player)
+		local started = BossService.TryStartBoss(player, portal, function()
+			if prompt.Parent ~= nil then
+				prompt.Enabled = true
+			end
+		end)
+
+		if started then
+			prompt.Enabled = false
+		end
+	end)
 end
 
 local function pivotInstance(instance, cframe)
@@ -82,6 +143,7 @@ local function spawnPortalAtSurface(surfacePosition)
 	)
 
 	pivotInstance(portal, WorldSpawnService.GetPivotCFrameAtPosition(portal, pivotPosition))
+	setupPortalPrompt(portal)
 	spawnedPortalCount += 1
 
 	DebugLog.Info("Portal", "Portail boss genere", {

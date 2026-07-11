@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local Perks = require(Shared:WaitForChild("Perks"))
 
@@ -129,11 +130,51 @@ local function applyMovementStats(player)
 	JumpBonusService.SetExternalJumpMultiplier(player, jumpMultiplier)
 end
 
+local function getDisplayStatsSnapshot(player, profile)
+	local stats = profile.Stats
+	local humanoid = getHumanoid(player)
+	local damageMultiplier = 1 + (stats.DamagePercent or 0)
+	local attackCooldown = math.max(
+		0.08,
+		CombatConfig.FireballCooldown / math.max(0.1, 1 + (stats.AttackSpeedPercent or 0))
+	)
+	local baseDamage = (CombatConfig.FireballDamage + (stats.FlatDamage or 0)) * damageMultiplier
+	local eliteDamage = (CombatConfig.FireballDamage + (stats.FlatDamage or 0) + (stats.EliteFlatDamage or 0))
+		* damageMultiplier
+
+	return {
+		MaxHealth = if humanoid ~= nil then humanoid.MaxHealth else 100,
+		MoveSpeed = if humanoid ~= nil then humanoid.WalkSpeed else 16,
+		JumpMode = if humanoid == nil or humanoid.UseJumpPower then "Power" else "Height",
+		JumpValue = if humanoid ~= nil then (if humanoid.UseJumpPower then humanoid.JumpPower else humanoid.JumpHeight) else 50,
+		CurrentShield = profile.CurrentShield,
+		MaxShield = stats.Shield or 0,
+		HealthRegen = stats.HealthRegen or 0,
+		ArmorPercent = math.clamp(stats.ArmorPercent or 0, 0, 0.8),
+		LifeStealPercent = stats.LifeStealPercent or 0,
+		CritChance = math.clamp(stats.CritChance or 0, 0, 1),
+		CritDamageMultiplier = 1.5 + (stats.CritMultiplierBonus or 0),
+		BaseDamage = baseDamage,
+		EliteDamage = eliteDamage,
+		AttackRate = 1 / attackCooldown,
+		ProjectileCount = math.clamp(1 + math.floor(stats.ProjectileCount or 0), 1, 24),
+		BounceCount = math.max(0, math.floor(stats.BounceCount or 0)),
+		ProjectileSpeed = CombatConfig.FireballSpeed * (1 + (stats.ProjectileSpeedPercent or 0)),
+		ProjectileDuration = CombatConfig.FireballLifetime * (1 + (stats.EffectDurationPercent or 0)),
+		CollectRadius = CombatConfig.XpCollectDistance + (stats.CollectRadius or 0),
+		XpMultiplier = 1 + (stats.XpGainPercent or 0),
+		GoldMultiplier = 1 + (stats.GoldGainPercent or 0),
+		Luck = stats.Luck or 0,
+		EnemyMultiplier = math.max(1, 1 + (stats.EnemyCountPercent or 0)),
+	}
+end
+
 local function sendPerkStats(player)
 	local profile = getOrCreateProfile(player)
 
 	updatePerksRemote:FireClient(player, {
 		Stats = profile.Stats,
+		DisplayStats = getDisplayStatsSnapshot(player, profile),
 		CurrentShield = profile.CurrentShield,
 		MaxShield = profile.Stats.Shield,
 		StacksByPerkId = profile.StacksByPerkId,
@@ -178,6 +219,152 @@ local function addStats(targetStats, addedStats)
 	end
 end
 
+local PREVIEW_RULES = {
+	{ StatName = "MoveSpeedPercent", Label = "Bonus vitesse", Format = "Percent" },
+	{ StatName = "JumpPercent", Label = "Puissance saut", Format = "Percent" },
+	{ StatName = "AttackSpeedPercent", Label = "Vitesse attaque", Format = "AttackRate" },
+	{ StatName = "ProjectileCount", Label = "Projectiles", Format = "ProjectileCount" },
+	{ StatName = "CollectRadius", Label = "Rayon recolte", Format = "CollectRadius" },
+	{ StatName = "DamagePercent", Label = "Degats", Format = "Damage" },
+	{ StatName = "ProjectileSpeedPercent", Label = "Vitesse projectile", Format = "ProjectileSpeed" },
+	{ StatName = "EffectDurationPercent", Label = "Duree projectile", Format = "EffectDuration" },
+	{ StatName = "BounceCount", Label = "Rebonds", Format = "Integer" },
+	{ StatName = "CritChance", Label = "Chance critique", Format = "CritChance" },
+	{ StatName = "CritMultiplierBonus", Label = "Degats critiques", Format = "CritMultiplier" },
+	{ StatName = "LifeStealPercent", Label = "Vol de vie", Format = "Percent" },
+	{ StatName = "HealthRegen", Label = "Regen PV", Format = "Regen" },
+	{ StatName = "Shield", Label = "Bouclier", Format = "Shield" },
+	{ StatName = "XpGainPercent", Label = "Gain XP", Format = "Multiplier" },
+	{ StatName = "GoldGainPercent", Label = "Gain or", Format = "Multiplier" },
+	{ StatName = "Luck", Label = "Chance", Format = "Percent" },
+	{ StatName = "ArmorPercent", Label = "Armure", Format = "Armor" },
+	{ StatName = "EnemyCountPercent", Label = "Plus d'ennemis", Format = "Multiplier" },
+	{ StatName = "FlatDamage", Label = "Degats bruts", Format = "Integer" },
+	{ StatName = "EliteFlatDamage", Label = "Degats elites", Format = "Integer" },
+}
+
+local function formatPreviewDecimal(value, decimals)
+	local text = string.format("%." .. tostring(decimals) .. "f", value)
+
+	return string.gsub(text, "%.", ",")
+end
+
+local function getPreviewValue(rule, stats, currentShield)
+	local value = stats[rule.StatName] or 0
+
+	if rule.Format == "ProjectileCount" then
+		return math.clamp(1 + math.floor(value), 1, 24)
+	end
+
+	if rule.Format == "CollectRadius" then
+		return CombatConfig.XpCollectDistance + value
+	end
+
+	if rule.Format == "AttackRate" then
+		local cooldown = math.max(0.08, CombatConfig.FireballCooldown / math.max(0.1, 1 + value))
+
+		return 1 / cooldown
+	end
+
+	if rule.Format == "Damage" then
+		return (CombatConfig.FireballDamage + (stats.FlatDamage or 0)) * (1 + value)
+	end
+
+	if rule.Format == "ProjectileSpeed" then
+		return CombatConfig.FireballSpeed * (1 + value)
+	end
+
+	if rule.Format == "EffectDuration" then
+		return CombatConfig.FireballLifetime * (1 + value)
+	end
+
+	if rule.Format == "CritChance" then
+		return math.clamp(value, 0, 1)
+	end
+
+	if rule.Format == "CritMultiplier" then
+		return 1.5 + value
+	end
+
+	if rule.Format == "Shield" then
+		return currentShield
+	end
+
+	if rule.Format == "Multiplier" then
+		return 1 + value
+	end
+
+	if rule.Format == "Armor" then
+		return math.clamp(value, 0, 0.8)
+	end
+
+	return value
+end
+
+local function formatPreviewValue(rule, value)
+	if rule.Format == "Percent" or rule.Format == "CritChance" or rule.Format == "Armor" then
+		return tostring(math.floor((value * 100) + 0.5)) .. "%"
+	end
+
+	if rule.Format == "CritMultiplier" then
+		return tostring(math.floor((value * 100) + 0.5)) .. "%"
+	end
+
+	if rule.Format == "Multiplier" then
+		return "x" .. formatPreviewDecimal(value, 2)
+	end
+
+	if rule.Format == "Regen" then
+		return formatPreviewDecimal(value, 1) .. "/s"
+	end
+
+	if rule.Format == "CollectRadius" then
+		return formatPreviewDecimal(value, 1)
+	end
+
+	if rule.Format == "AttackRate" then
+		return formatPreviewDecimal(value, 2) .. "/s"
+	end
+
+	if rule.Format == "Damage" then
+		return formatPreviewDecimal(value, 1)
+	end
+
+	if rule.Format == "ProjectileSpeed" then
+		return tostring(math.floor(value + 0.5))
+	end
+
+	if rule.Format == "EffectDuration" then
+		return formatPreviewDecimal(value, 1) .. "s"
+	end
+
+	return tostring(math.floor(value + 0.5))
+end
+
+local function createChoicePreview(profile, addedStats)
+	local nextStats = table.clone(profile.Stats)
+	addStats(nextStats, addedStats)
+
+	local currentShield = profile.CurrentShield
+	local nextShield = currentShield + (addedStats.Shield or 0)
+	local previewLines = {}
+
+	for _, rule in ipairs(PREVIEW_RULES) do
+		if addedStats[rule.StatName] ~= nil then
+			local currentValue = getPreviewValue(rule, profile.Stats, currentShield)
+			local nextValue = getPreviewValue(rule, nextStats, nextShield)
+
+			table.insert(previewLines, {
+				Label = rule.Label,
+				Current = formatPreviewValue(rule, currentValue),
+				Next = formatPreviewValue(rule, nextValue),
+			})
+		end
+	end
+
+	return previewLines
+end
+
 local function pickRarity(player)
 	local profile = getOrCreateProfile(player)
 	local luck = math.max(0, profile.Stats.Luck or 0)
@@ -217,9 +404,10 @@ local function pickRarity(player)
 	return "Common"
 end
 
-local function createChoiceOption(definition, rarityId, optionIndex)
+local function createChoiceOption(definition, rarityId, optionIndex, profile)
 	local rarity = Perks.Rarities[rarityId]
 	local variant = definition.Variants[rarityId]
+	local currentStacks = profile.StacksByPerkId[definition.Id] or 0
 
 	return {
 		OptionId = tostring(optionIndex),
@@ -230,6 +418,9 @@ local function createChoiceOption(definition, rarityId, optionIndex)
 		RarityName = rarity.DisplayName,
 		RarityColor = rarity.Color,
 		Stats = variant.Stats,
+		PreviewLines = createChoicePreview(profile, variant.Stats),
+		CurrentStacks = currentStacks,
+		NextStacks = currentStacks + 1,
 	}
 end
 
@@ -237,6 +428,7 @@ local function createChoice(player, level, title)
 	local availableDefinitions = table.clone(Perks.Definitions)
 	local choices = {}
 	local choicesByOptionId = {}
+	local profile = getOrCreateProfile(player)
 
 	for optionIndex = 1, 3 do
 		if #availableDefinitions <= 0 then
@@ -246,13 +438,12 @@ local function createChoice(player, level, title)
 		local definitionIndex = rng:NextInteger(1, #availableDefinitions)
 		local definition = table.remove(availableDefinitions, definitionIndex)
 		local rarityId = pickRarity(player)
-		local option = createChoiceOption(definition, rarityId, optionIndex)
+		local option = createChoiceOption(definition, rarityId, optionIndex, profile)
 
 		table.insert(choices, option)
 		choicesByOptionId[option.OptionId] = option
 	end
 
-	local profile = getOrCreateProfile(player)
 	profile.NextChoiceId += 1
 
 	return {
@@ -417,6 +608,23 @@ function PerkService.RemovePlayer(player)
 	profilesByUserId[player.UserId] = nil
 end
 
+function PerkService.ResetRun(player)
+	local profile = getOrCreateProfile(player)
+
+	CombatStateService.Resume(getPauseReason(player))
+	profile.Stats = createEmptyStats()
+	profile.StacksByPerkId = {}
+	profile.PendingLevels = {}
+	profile.ActiveChoice = nil
+	profile.NextChoiceId = 0
+	profile.CurrentShield = 0
+	profile.XpRemainder = 0
+	profile.GoldRemainder = 0
+	hideChoicesRemote:FireClient(player)
+	applyMovementStats(player)
+	sendPerkStats(player)
+end
+
 function PerkService.QueueLevelUp(player, level)
 	local profile = getOrCreateProfile(player)
 
@@ -452,6 +660,22 @@ function PerkService.GetStats(player)
 	end
 
 	return profile.Stats
+end
+
+function PerkService.GetRunPerkCount(player)
+	local profile = profilesByUserId[player.UserId]
+
+	if profile == nil then
+		return 0
+	end
+
+	local count = 0
+
+	for _, stackCount in pairs(profile.StacksByPerkId) do
+		count += math.max(0, math.floor(stackCount or 0))
+	end
+
+	return count
 end
 
 function PerkService.GetProjectileCount(player)

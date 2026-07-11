@@ -344,6 +344,9 @@ local function updateProjectile(projectileState, deltaTime)
 
 	if hitMonster ~= nil then
 		projectileState.HitMonsters[hitMonster] = true
+		-- Le monstre peut retourner dans le pool pendant DamageMonster si ce coup est fatal.
+		-- On conserve donc son chemin avant les degats pour que le log reste lisible.
+		local targetPath = hitMonster:GetFullName()
 
 		local damage = PerkService.CalculateOutgoingDamage(projectileState.Owner, CombatConfig.FireballDamage, hitMonster)
 		local didDamage, damageDealt = MonsterService.DamageMonster(hitMonster, damage, projectileState.Owner)
@@ -354,7 +357,7 @@ local function updateProjectile(projectileState, deltaTime)
 				Player = projectileState.Owner.Name,
 				Damage = damage,
 				DamageDealt = damageDealt,
-				Target = hitMonster,
+				Target = targetPath,
 			})
 		end
 

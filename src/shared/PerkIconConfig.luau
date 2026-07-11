@@ -1,0 +1,26 @@
+return {
+	-- Renseigner les identifiants apres import des PNG dans les assets Roblox.
+	AssetIds = {
+		more_enemies = "rbxassetid://119352181220604",
+		luck = "rbxassetid://89852258393211",
+		health_regen = "rbxassetid://131555073455484",
+		xp_gain = "rbxassetid://98892453790636",
+		shield = "rbxassetid://120179011322744",
+		projectile_speed = "rbxassetid://134572334789752",
+		projectile_count = "rbxassetid://120930342405781",
+		move_speed = "rbxassetid://71663927488576",
+		life_steal = "rbxassetid://126026795635106",
+		jump_bonus = "rbxassetid://106823315821886",
+		gold_gain = "rbxassetid://86297523664765",
+		flat_damage = "rbxassetid://72277604136640",
+		enemy_bounce = "rbxassetid://112464893571294",
+		effect_duration = "rbxassetid://125889608071772",
+		damage_percent = "rbxassetid://135232290820282",
+		crit_multiplier = "rbxassetid://103176006841583",
+		crit_chance = "rbxassetid://133420518965283",
+		collect_radius = "rbxassetid://104918000446420",
+		attack_speed = "rbxassetid://126879451643332",
+		armor = "rbxassetid://117620790842840",
+		elite_flat_damage = "rbxassetid://138727981658989",
+	},
+}

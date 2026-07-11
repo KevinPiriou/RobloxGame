@@ -4,6 +4,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ChestConfig = require(Shared:WaitForChild("ChestConfig"))
+local BossConfig = require(Shared:WaitForChild("BossConfig"))
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
@@ -232,6 +233,7 @@ function TemplateService.Start()
 
 	migrateOptionalTemplate(CombatConfig.TemplateFolderName, CombatConfig.MonsterTemplateName)
 	migrateOptionalTemplate(CombatConfig.TemplateFolderName, CombatConfig.EliteMonsterTemplateName)
+	migrateOptionalTemplate(CombatConfig.TemplateFolderName, BossConfig.BossTemplateName)
 	migrateOptionalTemplate(CombatConfig.TemplateFolderName, "Monster3")
 	migrateOptionalTemplate(CombatConfig.TemplateFolderName, CombatConfig.FireballTemplateName)
 

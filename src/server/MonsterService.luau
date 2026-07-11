@@ -30,6 +30,8 @@ local elapsedStatsUpdate = 0
 local simulationAccumulator = 0
 local monsterTickTimeTotal = 0
 local monsterTickSampleCount = 0
+local monsterTickMaxSeconds = 0
+local elapsedSincePerfLog = 0
 local waveStartedAt = CombatStateService.GetTime()
 local monstersByInstance = {}
 local monsterSpatialGrid = {}
@@ -731,6 +733,8 @@ local function releaseMonsterToPool(monsterState)
 
 	monster:SetAttribute("RuntimeMonster", false)
 	monster:SetAttribute("IsElite", false)
+	monster:SetAttribute("IsBoss", false)
+	monster:SetAttribute("BossName", nil)
 	monster:SetAttribute("ElitePackId", nil)
 	monster:SetAttribute("MonsterHealth", 0)
 
@@ -740,6 +744,10 @@ local function releaseMonsterToPool(monsterState)
 end
 
 local function getMonsterLootMultiplier(monsterState)
+	if monsterState.DropLoot == false then
+		return 0
+	end
+
 	if monsterState.IsElite then
 		return math.max(1, math.floor(CombatConfig.EliteMonsterLootMultiplier or 2))
 	end
@@ -799,7 +807,7 @@ local function removeMonster(monsterState, killer)
 	if killer ~= nil and killer.Parent == Players then
 		killsByUserId[killer.UserId] = (killsByUserId[killer.UserId] or 0) + 1
 
-		if deathPosition ~= nil then
+		if deathPosition ~= nil and monsterState.DropLoot ~= false then
 			local lootMultiplier = getMonsterLootMultiplier(monsterState)
 			local xpDropCount = math.max(1, (CombatConfig.XpGemsPerMonster or 1) * lootMultiplier)
 
@@ -819,6 +827,11 @@ local function removeMonster(monsterState, killer)
 	end
 
 	updateElitePackAfterRemoval(monsterState, killer, deathPosition)
+
+	if monsterState.OnDefeated ~= nil then
+		task.defer(monsterState.OnDefeated, monsterState.Instance, killer, deathPosition)
+	end
+
 	releaseMonsterToPool(monsterState)
 
 	sendStatsToAll()
@@ -922,10 +935,15 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 	local templateName = options.TemplateName or CombatConfig.MonsterTemplateName
 	local healthMultiplier = options.HealthMultiplier or 1
 	local damageMultiplier = options.DamageMultiplier or 1
-	local maxHealth = math.max(1, math.floor((CombatConfig.MonsterHealth * healthMultiplier) + 0.5))
-	local attackDamage = math.max(0, CombatConfig.MonsterAttackDamage * damageMultiplier)
+	local maxHealth = math.max(
+		1,
+		math.floor(options.MaxHealth or ((CombatConfig.MonsterHealth * healthMultiplier) + 0.5))
+	)
+	local attackDamage = math.max(0, options.AttackDamage or (CombatConfig.MonsterAttackDamage * damageMultiplier))
 	local isElite = options.IsElite == true
+	local isBoss = options.IsBoss == true
 	local elitePackId = options.ElitePackId
+	local speedMultiplier = math.max(0.1, options.SpeedMultiplier or 1)
 
 	if template == nil or surfacePosition == nil then
 		DebugLog.Warn("Combat", "Spawn monstre impossible", {
@@ -942,12 +960,18 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 	monster.Name = templateName
 	monster:SetAttribute("RuntimeMonster", true)
 	monster:SetAttribute("IsElite", isElite)
+	monster:SetAttribute("IsBoss", isBoss)
+	monster:SetAttribute("BossName", options.BossName)
 	monster:SetAttribute("MonsterMaxHealth", maxHealth)
 	monster:SetAttribute("MonsterHealth", maxHealth)
 	monster:SetAttribute("MonsterAttackDamage", attackDamage)
 	monster:SetAttribute("ElitePackId", elitePackId)
 
 	local humanoid, root = prepareMonsterInstance(monster, maxHealth)
+
+	if humanoid ~= nil then
+		humanoid.WalkSpeed *= speedMultiplier
+	end
 
 	if root == nil then
 		DebugLog.Warn("Combat", "Monstre sans BasePart, spawn annule", {
@@ -973,8 +997,15 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 		PivotRotation = pivotRotation,
 		Health = maxHealth,
 		AttackDamage = attackDamage,
+		SpeedMultiplier = speedMultiplier,
 		IsElite = isElite,
+		IsBoss = isBoss,
+		BossName = options.BossName,
 		ElitePackId = elitePackId,
+		MaxHealth = maxHealth,
+		DropLoot = options.DropLoot,
+		OnDefeated = options.OnDefeated,
+		OnHealthChanged = options.OnHealthChanged,
 		AnimationTrack = playMonsterAnimation(monster),
 		AnimationTime = rng:NextNumber(0, 10),
 		LastMoveToAt = 0,
@@ -1164,7 +1195,8 @@ local function updateMonsterMovement(monsterState, deltaTime, now)
 	end
 
 	local targetDistance = (Vector3.new(targetRoot.Position.X, 0, targetRoot.Position.Z) - Vector3.new(basePosition.X, 0, basePosition.Z)).Magnitude
-	local step = math.min(targetDistance, CombatConfig.MonsterDirectMoveSpeed * deltaTime)
+	local speedMultiplier = monsterState.SpeedMultiplier or 1
+	local step = math.min(targetDistance, CombatConfig.MonsterDirectMoveSpeed * speedMultiplier * deltaTime)
 	local nextPosition = basePosition + (moveDirection * step)
 
 	monsterState.BasePosition = nextPosition
@@ -1256,8 +1288,11 @@ local function updateMonsterStep(deltaTime)
 		end
 	end
 
-	monsterTickTimeTotal += os.clock() - startedAt
+	local tickDuration = os.clock() - startedAt
+	monsterTickTimeTotal += tickDuration
 	monsterTickSampleCount += 1
+	monsterTickMaxSeconds = math.max(monsterTickMaxSeconds, tickDuration)
+	elapsedSincePerfLog += deltaTime
 	elapsedStatsUpdate += deltaTime
 
 	if elapsedStatsUpdate >= CombatConfig.StatsUpdateInterval then
@@ -1271,13 +1306,21 @@ local function updateMonsterStep(deltaTime)
 		averageTickMs = (monsterTickTimeTotal / monsterTickSampleCount) * 1000
 	end
 
-	DebugLog.ThrottledInfo("Perf", "monster_tick", CombatConfig.PerfLogInterval or 5, "Perf monstres serveur", {
-		Alive = getAliveMonsterCount(),
-		GridCells = getSpatialGridCellCount(),
-		Pool = getMonsterPoolSize(),
-		SimulationHz = CombatConfig.MonsterSimulationHz,
-		AverageTickMs = averageTickMs,
-	})
+	if elapsedSincePerfLog >= (CombatConfig.PerfLogInterval or 5) then
+		DebugLog.Info("Perf", "Perf monstres serveur", {
+			Alive = getAliveMonsterCount(),
+			GridCells = getSpatialGridCellCount(),
+			Pool = getMonsterPoolSize(),
+			SimulationMode = if (CombatConfig.MonsterSimulationHz or 0) <= 0 then "Heartbeat" else "FixedHz",
+			SimulationHz = CombatConfig.MonsterSimulationHz,
+			AverageTickMs = averageTickMs,
+			MaxTickMs = monsterTickMaxSeconds * 1000,
+		})
+		elapsedSincePerfLog = 0
+		monsterTickTimeTotal = 0
+		monsterTickSampleCount = 0
+		monsterTickMaxSeconds = 0
+	end
 end
 
 local function updateMonsters(deltaTime)
@@ -1285,7 +1328,14 @@ local function updateMonsters(deltaTime)
 		return
 	end
 
-	local simulationHz = math.max(1, CombatConfig.MonsterSimulationHz or 15)
+	local configuredSimulationHz = CombatConfig.MonsterSimulationHz
+
+	if configuredSimulationHz == nil or configuredSimulationHz <= 0 then
+		updateMonsterStep(deltaTime)
+		return
+	end
+
+	local simulationHz = math.max(1, configuredSimulationHz)
 	local fixedStep = 1 / simulationHz
 	local maxStepsPerHeartbeat = 4
 	local steps = 0
@@ -1408,7 +1458,7 @@ local function getElitePackSurfacePosition(originPosition, index, count)
 	})
 end
 
-local function getElitePackCenterPosition(originPosition, player)
+local function getElitePackCenterPosition(originPosition, player, minimumSafetyDistance)
 	local playerRoot = nil
 
 	if player ~= nil then
@@ -1419,7 +1469,7 @@ local function getElitePackCenterPosition(originPosition, player)
 		return originPosition
 	end
 
-	local safetyDistance = CombatConfig.EliteMonsterPlayerSafetyDistance or 24
+	local safetyDistance = minimumSafetyDistance or CombatConfig.EliteMonsterPlayerSafetyDistance or 24
 	local playerPosition = playerRoot.Position
 	local offset = originPosition - playerPosition
 	local horizontalOffset = Vector3.new(offset.X, 0, offset.Z)
@@ -1547,6 +1597,77 @@ function MonsterService.SpawnElitePack(originPosition, player, requestedCount)
 	return spawnedCount, requested
 end
 
+function MonsterService.SpawnBossNearPlayer(originPosition, player, options)
+	options = options or {}
+
+	if monsterFolder == nil then
+		setupFolders()
+	end
+
+	if originPosition == nil or player == nil or not isPlayerAlive(player) then
+		DebugLog.Warn("Boss", "Spawn boss annule, joueur ou position invalide", {
+			Player = player and player.Name or "nil",
+			Origin = originPosition,
+		})
+		return false
+	end
+
+	local templateName = options.TemplateName or CombatConfig.EliteMonsterTemplateName
+	local template = options.Template or findTemplate(templateName, false)
+
+	if template == nil then
+		DebugLog.Warn("Boss", "Spawn boss annule, template absent", {
+			Player = player.Name,
+			TemplateName = templateName,
+		})
+		return false
+	end
+
+	if getAliveMonsterCount() >= CombatConfig.MonsterMaxAlive then
+		DebugLog.Warn("Boss", "Spawn boss annule, plafond monstres atteint", {
+			Player = player.Name,
+			MaxAlive = CombatConfig.MonsterMaxAlive,
+		})
+		return false
+	end
+
+	local center = getElitePackCenterPosition(originPosition, player, options.SafetyDistance)
+	local surfacePosition = getElitePackSurfacePosition(center, 1, 1)
+
+	if surfacePosition == nil then
+		DebugLog.Warn("Boss", "Spawn boss annule, surface introuvable", {
+			Player = player.Name,
+			Center = center,
+		})
+		return false
+	end
+
+	local didSpawn, monster, spawnPosition, monsterState = spawnMonsterAtSurface(surfacePosition, {
+		Template = template,
+		TemplateName = templateName,
+		MaxHealth = options.MaxHealth,
+		AttackDamage = options.AttackDamage,
+		IsBoss = true,
+		BossName = options.BossName,
+		DropLoot = options.DropLoot,
+		OnDefeated = options.OnDefeated,
+		OnHealthChanged = options.OnHealthChanged,
+	})
+
+	if didSpawn then
+		DebugLog.Info("Boss", "Boss genere", {
+			Player = player.Name,
+			Boss = monster,
+			Template = templateName,
+			Position = spawnPosition,
+			Health = options.MaxHealth,
+			Damage = options.AttackDamage,
+		})
+	end
+
+	return didSpawn, monster, spawnPosition, monsterState
+end
+
 function MonsterService.DebugSpawnMonstersNearPlayer(player, requestedCount)
 	DebugLog.Info("Combat", "Debug spawn monstres demande", {
 		Player = player.Name,
@@ -1610,6 +1731,24 @@ function MonsterService.ClearAllMonsters(reason)
 	end
 
 	return killedCount
+end
+
+function MonsterService.GetKills(player)
+	if player == nil then
+		return 0
+	end
+
+	return killsByUserId[player.UserId] or 0
+end
+
+function MonsterService.ResetRunStats(player)
+	if player == nil then
+		return
+	end
+
+	killsByUserId[player.UserId] = 0
+	difficultyPercent = 0
+	sendStats(player)
 end
 
 function MonsterService.AddDifficultyPercent(percent, player, source)
@@ -1749,6 +1888,10 @@ function MonsterService.DamageMonster(monster, damage, attacker)
 
 		local damageDealt = math.max(0, previousHealth - monsterState.Humanoid.Health)
 
+		if monsterState.OnHealthChanged ~= nil then
+			task.defer(monsterState.OnHealthChanged, monsterState.Instance, math.max(0, monsterState.Humanoid.Health), monsterState.MaxHealth)
+		end
+
 		if monsterState.Humanoid.Health <= 0 then
 			removeMonster(monsterState, attacker)
 		end
@@ -1762,6 +1905,10 @@ function MonsterService.DamageMonster(monster, damage, attacker)
 	monsterState.Instance:SetAttribute("MonsterHealth", monsterState.Health)
 
 	local damageDealt = math.max(0, math.min(previousHealth, damage))
+
+	if monsterState.OnHealthChanged ~= nil then
+		task.defer(monsterState.OnHealthChanged, monsterState.Instance, math.max(0, monsterState.Health), monsterState.MaxHealth)
+	end
 
 	if monsterState.Health <= 0 then
 		removeMonster(monsterState, attacker)
@@ -1784,7 +1931,11 @@ function MonsterService.Start()
 		simulationAccumulator = 0
 		monsterTickTimeTotal = 0
 		monsterTickSampleCount = 0
+		monsterTickMaxSeconds = 0
+		elapsedSincePerfLog = 0
 		groundedSinceByUserId[player.UserId] = nil
+		killsByUserId[player.UserId] = 0
+		difficultyPercent = 0
 		lastSpawnAtByUserId[player.UserId] = now + CombatConfig.MonsterInitialSpawnDelay - CombatConfig.MonsterSpawnInterval
 		sendStats(player)
 		DebugLog.Info("Combat", "Combat run demarre pour joueur", {
@@ -1798,6 +1949,10 @@ function MonsterService.Start()
 		groundedSinceByUserId[player.UserId] = nil
 		lastSpawnAtByUserId[player.UserId] = nil
 		simulationAccumulator = 0
+		monsterTickTimeTotal = 0
+		monsterTickSampleCount = 0
+		monsterTickMaxSeconds = 0
+		elapsedSincePerfLog = 0
 		MonsterService.ClearAllMonsters(reason)
 		sendStats(player)
 		DebugLog.Info("Combat", "Combat run arrete pour joueur", {

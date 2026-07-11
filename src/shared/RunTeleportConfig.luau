@@ -13,9 +13,12 @@ return {
 	-- Si la map de run devient un autre place, remplacer par son PlaceId.
 	RunPlaceId = game.PlaceId,
 	ShouldReserveServer = true,
+	-- Le lobby reste public. Garder le meme PlaceId tant que les deux zones partagent ce lieu.
+	LobbyPlaceId = game.PlaceId,
 
 	TouchCooldownSeconds = 6,
 	StudioSimulatesArrival = true,
+	StudioSimulatesLobbyReturn = true,
 
 	TeleportData = {
 		runMode = "Solo",

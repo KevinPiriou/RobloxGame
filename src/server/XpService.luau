@@ -21,6 +21,9 @@ local xpGemTemplatesByTier = {}
 local xpGemPoolFolder = nil
 local elapsedSinceScan = 0
 local elapsedSinceMerge = 0
+local elapsedSincePerfLog = 0
+local maxScanMilliseconds = 0
+local maxMergeMilliseconds = 0
 local heartbeatConnection = nil
 
 local function getOrCreateRemote(remoteName)
@@ -397,7 +400,7 @@ local function awardXp(player, xpValue)
 end
 
 local function finishGemCollection(player, gem, gemState, attractDuration)
-	if player.Parent ~= Players or gem.Parent == nil then
+	if gemState.Cancelled or player.Parent ~= Players or gem.Parent == nil then
 		if gem.Parent ~= nil then
 			gemState.Collected = false
 		end
@@ -710,6 +713,48 @@ function XpService.CollectAllForPlayer(player, attractDuration, spreadDuration)
 	return collectedCount
 end
 
+function XpService.ClearRunGems()
+	local gemsToRelease = {}
+
+	for gem, gemState in pairs(trackedGems) do
+		table.insert(gemsToRelease, {
+			Gem = gem,
+			State = gemState,
+		})
+	end
+
+	for _, entry in ipairs(gemsToRelease) do
+		entry.State.Cancelled = true
+		trackedGems[entry.Gem] = nil
+
+		if entry.Gem.Parent ~= nil then
+			releaseGem(entry.Gem, entry.State.Tier)
+		end
+	end
+end
+
+function XpService.GetRunStats(player)
+	local profile = getOrCreateProfile(player)
+
+	return {
+		Xp = profile.Xp,
+		TotalXp = profile.TotalXp,
+		Level = profile.Level,
+		XpRequired = getRequiredXpForLevel(profile.Level),
+	}
+end
+
+function XpService.ResetRun(player)
+	local profile = getOrCreateProfile(player)
+
+	profile.Xp = 0
+	profile.TotalXp = 0
+	profile.Level = 1
+	getOrCreateXpValue(player).Value = profile.TotalXp
+	getOrCreateLevelValue(player).Value = profile.Level
+	sendXpCount(player)
+end
+
 function XpService.Start()
 	DebugLog.Info("Xp", "XpService demarre", {
 		LootFolder = getRuntimeLootFolder(),
@@ -745,21 +790,33 @@ function XpService.Start()
 
 		elapsedSinceScan += deltaTime
 		elapsedSinceMerge += deltaTime
+		elapsedSincePerfLog += deltaTime
 
 		if elapsedSinceScan >= 0.15 then
 			elapsedSinceScan = 0
+			local startedAt = os.clock()
 			scanGemProximity()
+			maxScanMilliseconds = math.max(maxScanMilliseconds, (os.clock() - startedAt) * 1000)
 		end
 
 		if elapsedSinceMerge >= CombatConfig.XpMergeScanInterval then
 			elapsedSinceMerge = 0
+			local startedAt = os.clock()
 			mergeNearbyGems()
+			maxMergeMilliseconds = math.max(maxMergeMilliseconds, (os.clock() - startedAt) * 1000)
 		end
 
-		DebugLog.ThrottledInfo("Perf", "xp_pool", CombatConfig.PerfLogInterval or 5, "Perf XP serveur", {
+		if elapsedSincePerfLog >= (CombatConfig.PerfLogInterval or 5) then
+			DebugLog.Info("Perf", "Perf XP serveur", {
 			Tracked = getTrackedGemCount(),
 			Pool = getGemPoolSize(),
+			MaxScanMs = maxScanMilliseconds,
+			MaxMergeMs = maxMergeMilliseconds,
 		})
+			elapsedSincePerfLog = 0
+			maxScanMilliseconds = 0
+			maxMergeMilliseconds = 0
+		end
 	end)
 end
 
