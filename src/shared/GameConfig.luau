@@ -22,6 +22,11 @@ return {
 		3,
 		9,
 	},
+	CoinPoolPrewarmPerTier = {
+		60,
+		20,
+		8,
+	},
 	CoinMergeCount = 3,
 	CoinMergeRadius = 16,
 	CoinMergeScanInterval = 0.3,

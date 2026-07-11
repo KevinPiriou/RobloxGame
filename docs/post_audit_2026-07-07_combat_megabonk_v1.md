@@ -1971,3 +1971,158 @@ Les coffres generes payants ne montraient plus de message d'interaction, alors q
 ### Rollback conceptuel
 
 - Revenir a l'etat precedent revient a retirer le `ProximityPrompt` de `ChestService` et a reactiver `CLIENT_CHEST_PROMPTS_ENABLED` dans `ChestClient`.
+
+## 2026-07-10 23:48:22 +02:00 - Teleport run solo reserve
+
+### Contexte
+
+Une plaque de teleport issue de la boutique a ete ajoutee pres du spawner. Le besoin n'est pas un simple deplacement local entre deux plaques : marcher sur `TeleportPart2` doit lancer une run solo dans un serveur reserve, puis positionner le joueur sur le point d'arrivee `TeleportPart1`.
+
+### Diagnostic
+
+- Juste : le lancement de run doit rester serveur, car le client ne doit jamais decider seul d'un teleport inter-serveur.
+- Juste : `TeleportPart2` est le seul declencheur ; `TeleportPart1` reste un point d'arrivee pour eviter une boucle `TP1 -> TP2`.
+- Simplification : la V1 utilise `TeleportAsync` avec `ShouldReserveServer = true` et des `TeleportData` non sensibles.
+- Angle mort traite : en Studio, le teleport reserve n'est pas testable comme en production ; le service simule donc l'arrivee sur `TeleportPart1` pour valider le placement.
+
+### Changements
+
+- `src/shared/RunTeleportConfig.luau` ajoute la configuration du depart `TeleportPart2`, de l'arrivee `TeleportPart1`, du `RunPlaceId` et des donnees de run solo.
+- `src/server/RunTeleportService.luau` detecte les touches serveur sur `TeleportPart2`.
+- `src/server/RunTeleportService.luau` lance `TeleportService:TeleportAsync` avec `TeleportOptions.ShouldReserveServer = true`.
+- `src/server/RunTeleportService.luau` repositionne le joueur sur `TeleportPart1` apres arrivee via `player:GetJoinData().TeleportData`.
+- `src/server/RunTeleportService.luau` simule ce repositionnement en Studio pour permettre un Play Test local.
+- `src/server/GameManager.server.luau` demarre `RunTeleportService` et le branche au setup/remove joueur.
+- `src/shared/DebugConfig.luau` active la categorie console `RunTeleport`.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les warnings CRLF habituels sur les fichiers touches.
+- Juste : aucune reference de conflit en debut de ligne n'est presente dans `src` ou `docs`.
+
+### Angles morts
+
+- Angle mort : en production, le `RunPlaceId` pointe actuellement vers `game.PlaceId`. Si la run devient un autre place Roblox, il faudra remplacer cette valeur dans `RunTeleportConfig`.
+- Angle mort : les scripts inclus dans le modele boutique ne sont pas modifies. S'ils continuent a faire un teleport local parasite, il faudra les desactiver dans Studio ou ajouter une neutralisation runtime ciblee.
+- Angle mort : la separation lobby/run reste partielle tant que le meme place contient encore les systemes de run et les objets de gameplay.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a retirer `RunTeleportService`, `RunTeleportConfig`, l'appel dans `GameManager.server.luau` et la categorie `RunTeleport`.
+
+## 2026-07-10 23:59:10 +02:00 - Etat run apres arrivee TP1
+
+### Contexte
+
+Le teleport reserve etait en place, mais la run pouvait encore etre consideree comme active trop tot : le joueur arrivait ou reapparaissait au `SpawnLocation`, alors que la boucle combat doit commencer seulement apres le passage par `TeleportPart2` et le placement effectif sur `TeleportPart1`.
+
+### Diagnostic
+
+- Juste : `TeleportData` ne doit pas suffire a demarrer la run. Il indique une intention de run, pas une arrivee gameplay validee.
+- Juste : `TeleportPart2` reste le declencheur de depart ; `TeleportPart1` reste uniquement un point d'arrivee.
+- Simplification : `RunStateService` garde seulement l'etat actif/inactif, et `RunTeleportService` devient responsable de demarrer la run apres placement reussi.
+- Angle mort traite : les scripts et touches du modele boutique sont neutralises cote runtime pour empecher un retour parasite `TP1 -> TP2`.
+
+### Changements
+
+- `src/server/RunStateService.luau` n'active plus la run automatiquement avec `TeleportData`.
+- `src/server/RunTeleportService.luau` demarre maintenant la run uniquement apres un `movePlayerToArrival` reussi.
+- `src/server/RunTeleportService.luau` neutralise les scripts des modeles `TeleportPart1` / `TeleportPart2` et desactive le touch sur `TeleportPart1`.
+- `src/server/RunTeleportService.luau` refuse un nouveau teleport si la run du joueur est deja active.
+- `src/server/MonsterService.luau` et `src/server/WeaponService.luau` ignorent les joueurs dont la run n'est pas active.
+- `src/client/CombatUI.client.luau` bloque le timer et le bouton pause tant que la run n'est pas active.
+- `src/shared/DebugConfig.luau` active aussi la categorie console `RunState`.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les warnings CRLF habituels sur les fichiers touches.
+- Juste : aucune reference de conflit en debut de ligne n'est presente dans `src` ou `docs`.
+
+### Angles morts
+
+- Angle mort : les shrines, coffres, jarres et autres objets de map restent encore generes dans le meme place. La separation lobby/run est fonctionnelle pour le combat, mais pas encore architecturale.
+- Angle mort : si un script de boutique n'est pas descendant direct d'un modele `TeleportPart1` ou `TeleportPart2`, il peut rester actif et devra etre retire manuellement ou neutralise par nom.
+- Angle mort : le comportement reserve-server reel doit etre valide dans une experience publiee, car Studio ne simule pas parfaitement `TeleportAsync`.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a retirer `RunStateService`, les gates `IsRunActive` dans `MonsterService` / `WeaponService` / `CombatUI`, et le demarrage post-placement dans `RunTeleportService`.
+
+## 2026-07-11 00:22:10 +02:00 - Suppression runtime de TeleportPart1
+
+### Contexte
+
+Malgre la neutralisation des scripts et du touch, `TeleportPart1` permettait encore un retour parasite vers `TeleportPart2` en Play Test. Le besoin produit est plus simple : `TeleportPart1` doit servir uniquement de repere d'arrivee de run, puis disparaitre de la partie courante.
+
+### Diagnostic
+
+- Juste : supprimer l'item runtime apres placement est plus robuste que superposer une nouvelle neutralisation sur un modele boutique opaque.
+- Juste : la suppression doit arriver apres lecture de la position et deplacement du joueur, sinon le service perdrait son point d'arrivee.
+- Simplification : `TeleportPart1` n'est pas un interactable ; c'est un marqueur consommable de run.
+- Budget de complexite : complexite reduite cote comportement, avec une seule option de configuration `DestroyArrivalAfterUse`.
+
+### Changements
+
+- `src/shared/RunTeleportConfig.luau` ajoute `DestroyArrivalAfterUse = true`.
+- `src/server/RunTeleportService.luau` retourne l'instance d'arrivee utilisee par `movePlayerToArrival`.
+- `src/server/RunTeleportService.luau` detruit `TeleportPart1` apres deplacement reussi, en Studio comme apres un vrai teleport reserve.
+- `src/server/RunTeleportService.luau` log `ArrivalDestroyed` et `Point d'arrivee run supprime apres usage` pour faciliter le Play Test.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les warnings CRLF habituels sur les fichiers touches.
+- Juste : aucune reference de conflit en debut de ligne n'est presente dans `src` ou `docs`.
+
+### Angles morts
+
+- Angle mort : en Studio, la suppression de `TeleportPart1` empeche une deuxieme run dans la meme session Play si le point d'arrivee n'est pas regenere. C'est coherent avec le test actuel, mais il faudra une generation de run propre plus tard.
+- Angle mort : si plusieurs objets portent le nom `TeleportPart1`, seul le premier trouve par `Workspace:FindFirstChild(..., true)` sera consomme.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a remettre `DestroyArrivalAfterUse = false` ou a retirer l'appel a `destroyArrivalInstance` dans `RunTeleportService`.
+
+## 2026-07-11 01:29:25 +02:00 - Performance V1 serveur 1000 debug
+
+### Contexte
+
+Le combat survivor vise un plafond debug de 1000 ennemis, mais les chemins chauds serveur faisaient encore trop de travail par frame : mouvement monstre au `Heartbeat`, grille de separation reconstruite integralement, recherche de projectile sur tous les monstres, et clonage/destruction continu de monstres, projectiles, XP et coins.
+
+### Diagnostic
+
+- Juste : la premiere passe devait cibler le serveur avant l'interpolation client, car les scans et allocations serveur limitaient deja la boucle de run.
+- Juste : une simulation a tick fixe suffit pour la V1 ; le rendu client interpole reste un chantier separe.
+- Simplification : `MonsterService` conserve la responsabilite de la grille spatiale et expose seulement une requete proche, sans ajouter un nouveau service transversal.
+- Budget de complexite : complexite ajoutee localement par les pools, mais elle remplace des destructions repetees et reste limitee aux services concernes.
+
+### Changements
+
+- `src/shared/CombatConfig.luau` ajoute les reglages de simulation, pools, collision monstre et logs perf.
+- `src/server/MonsterService.luau` passe a une simulation fixe 15 Hz, maintient une grille spatiale persistante et expose `GetMonstersNear`.
+- `src/server/MonsterService.luau` recycle les monstres dans `ServerStorage/MonsterPools` au lieu de les detruire sur mort, debug clear ou fin de run.
+- `src/server/MonsterService.luau` desactive par defaut les animations serveur et les collisions/touch/query des parties de monstres.
+- `src/server/WeaponService.luau` passe les projectiles a une simulation fixe 30 Hz et recycle les fireballs dans `ServerStorage/ProjectilePools`.
+- `src/server/XpService.luau` et `src/server/CoinService.luau` recyclent les collectibles par tier dans `ServerStorage`, apres delai d'animation de collecte.
+- `src/client/CoinClient.client.luau` remet la transparence locale a zero quand un collectible recycle reapparait.
+- `src/shared/DebugConfig.luau` active la categorie `Perf` pour les logs throttles.
+
+### Proof of done local
+
+- Juste : `rojo build -o TestRoblox.rbxlx` passe.
+- Juste : `git diff --check` ne remonte que les warnings CRLF habituels sur les fichiers touches.
+- Juste : aucune reference de conflit en debut de ligne n'est presente dans `src` ou `docs`.
+- Juste : `GetClosestMonster` s'appuie maintenant sur `GetMonstersNear` et la grille persistante, plus sur un scan direct de toute la population.
+
+### Angles morts
+
+- Angle mort : le proof perf final doit encore etre fait en Play Test avec le bouton admin jusqu'a approcher 1000 ennemis.
+- Angle mort : les Humanoid lourds restent plus couteux que des monstres purement ancres ; la V1 les supporte mieux, mais ne transforme pas encore les rigs en hitbox simplifiee.
+- Angle mort : les animations client et l'interpolation visuelle 60 Hz ne sont pas implementees dans cette passe.
+- Angle mort : les pools peuvent augmenter jusqu'au pic de population atteint pendant une session ; c'est voulu, mais il faudra surveiller l'InstanceCount.
+
+### Rollback conceptuel
+
+- Revenir a l'etat precedent revient a remettre les ticks Heartbeat directs, retirer les pools ServerStorage, restaurer le scan complet de `GetClosestMonster`, et remettre les destructions directes sur monstres/projectiles/collectibles.

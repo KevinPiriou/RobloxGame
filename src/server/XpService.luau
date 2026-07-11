@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -17,6 +18,7 @@ local TEMPLATE_FOLDER_NAME = "CollectibleTemplates"
 local profilesByUserId = {}
 local trackedGems = {}
 local xpGemTemplatesByTier = {}
+local xpGemPoolFolder = nil
 local elapsedSinceScan = 0
 local elapsedSinceMerge = 0
 local heartbeatConnection = nil
@@ -38,12 +40,36 @@ end
 local updateXpRemote = getOrCreateRemote("Xp_UpdateCount")
 local collectXpRemote = getOrCreateRemote("Xp_PlayCollect")
 
+local function getOrCreateFolder(parent, folderName)
+	local folder = parent:FindFirstChild(folderName)
+
+	if folder == nil then
+		folder = Instance.new("Folder")
+		folder.Name = folderName
+		folder.Parent = parent
+	end
+
+	return folder
+end
+
 local function getRuntimeLootFolder()
 	return TemplateService.GetCombatLootFolder()
 end
 
+local function getXpGemPoolFolder()
+	if xpGemPoolFolder == nil then
+		xpGemPoolFolder = getOrCreateFolder(ServerStorage, "XpGemPools")
+	end
+
+	return xpGemPoolFolder
+end
+
 local function getTierName(tier)
 	return CombatConfig.XpGemTierNames[tier] or CombatConfig.XpGemTemplateName
+end
+
+local function getTierPoolFolder(tier)
+	return getOrCreateFolder(getXpGemPoolFolder(), getTierName(tier))
 end
 
 local function getTierValue(tier)
@@ -243,6 +269,76 @@ local function prepareCollectible(instance)
 	end
 end
 
+local function acquireGem(tier)
+	local tierPoolFolder = getTierPoolFolder(tier)
+	local gem = tierPoolFolder:FindFirstChild(getTierName(tier))
+
+	if gem == nil then
+		gem = tierPoolFolder:FindFirstChildWhichIsA("Model") or tierPoolFolder:FindFirstChildWhichIsA("BasePart")
+	end
+
+	if gem ~= nil then
+		gem.Parent = getRuntimeLootFolder()
+		return gem, true
+	end
+
+	gem = xpGemTemplatesByTier[tier]:Clone()
+	gem.Parent = getRuntimeLootFolder()
+
+	return gem, false
+end
+
+local function releaseGem(gem, tier)
+	if gem == nil or gem.Parent == nil then
+		return
+	end
+
+	trackedGems[gem] = nil
+	gem.Name = getTierName(tier or getGemTierByName(gem.Name) or 1)
+	gem.Parent = getTierPoolFolder(tier or getGemTierByName(gem.Name) or 1)
+end
+
+local function prewarmGemPool(tier, count)
+	local prewarmCount = math.max(0, math.floor(count or 0))
+
+	if xpGemTemplatesByTier[tier] == nil or prewarmCount <= 0 then
+		return
+	end
+
+	local tierPoolFolder = getTierPoolFolder(tier)
+
+	for _ = 1, prewarmCount do
+		local gem = xpGemTemplatesByTier[tier]:Clone()
+		gem.Name = getTierName(tier)
+		prepareCollectible(gem)
+		gem.Parent = tierPoolFolder
+	end
+end
+
+local function getGemPoolSize()
+	local total = 0
+
+	if xpGemPoolFolder == nil then
+		return total
+	end
+
+	for _, folder in ipairs(xpGemPoolFolder:GetChildren()) do
+		total += #folder:GetChildren()
+	end
+
+	return total
+end
+
+local function getTrackedGemCount()
+	local total = 0
+
+	for _ in pairs(trackedGems) do
+		total += 1
+	end
+
+	return total
+end
+
 local function trackGem(instance)
 	if not isCollectableGem(instance) then
 		return
@@ -319,7 +415,7 @@ local function finishGemCollection(player, gem, gemState, attractDuration)
 
 	task.delay(attractDuration + 0.1, function()
 		if gem.Parent ~= nil then
-			gem:Destroy()
+			releaseGem(gem, gemState.Tier)
 		end
 	end)
 end
@@ -470,7 +566,7 @@ local function mergeGroup(group, nextTier)
 		trackedGems[entry.Gem] = nil
 
 		if entry.Gem.Parent ~= nil then
-			entry.Gem:Destroy()
+			releaseGem(entry.Gem, entry.State.Tier)
 		end
 	end
 
@@ -537,9 +633,8 @@ function XpService.SpawnXpGem(position, tier)
 		xpGemTemplatesByTier[gemTier] = findGemTemplate(gemTier)
 	end
 
-	local gem = xpGemTemplatesByTier[gemTier]:Clone()
+	local gem = acquireGem(gemTier)
 	gem.Name = getTierName(gemTier)
-	gem.Parent = getRuntimeLootFolder()
 
 	prepareCollectible(gem)
 	pivotCollectible(gem, position)
@@ -624,7 +719,12 @@ function XpService.Start()
 
 	for tier = 1, #CombatConfig.XpGemTierNames do
 		xpGemTemplatesByTier[tier] = findGemTemplate(tier)
+		prewarmGemPool(tier, (CombatConfig.XpGemPoolPrewarmPerTier or {})[tier])
 	end
+
+	DebugLog.Info("Perf", "Pool XP prechauffe", {
+		Pool = getGemPoolSize(),
+	})
 
 	scanExistingGems()
 
@@ -655,6 +755,11 @@ function XpService.Start()
 			elapsedSinceMerge = 0
 			mergeNearbyGems()
 		end
+
+		DebugLog.ThrottledInfo("Perf", "xp_pool", CombatConfig.PerfLogInterval or 5, "Perf XP serveur", {
+			Tracked = getTrackedGemCount(),
+			Pool = getGemPoolSize(),
+		})
 	end)
 end
 

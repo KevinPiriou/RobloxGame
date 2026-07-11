@@ -168,6 +168,8 @@ local function trackCoin(instance)
 		return
 	end
 
+	setCoinTransparency(instance, 0)
+	hiddenCollectibles[instance] = nil
 	animatedCollectibles[instance] = true
 end
 

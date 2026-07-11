@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -21,6 +22,7 @@ local COIN_TIER_VALUES = GameConfig.CoinTierValues or { GameConfig.CoinsPerPicku
 local profilesByUserId = {}
 local trackedCoins = {}
 local coinTemplatesByTier = {}
+local coinPoolFolder = nil
 local elapsedSinceScan = 0
 local elapsedSinceMerge = 0
 local heartbeatConnection = nil
@@ -42,12 +44,36 @@ end
 local updateCoinsRemote = getOrCreateRemote("Coin_UpdateCount")
 local collectCoinRemote = getOrCreateRemote("Coin_PlayCollect")
 
+local function getOrCreateFolder(parent, folderName)
+	local folder = parent:FindFirstChild(folderName)
+
+	if folder == nil then
+		folder = Instance.new("Folder")
+		folder.Name = folderName
+		folder.Parent = parent
+	end
+
+	return folder
+end
+
 local function getRuntimeLootFolder()
 	return TemplateService.GetCombatLootFolder()
 end
 
+local function getCoinPoolFolder()
+	if coinPoolFolder == nil then
+		coinPoolFolder = getOrCreateFolder(ServerStorage, "CoinPools")
+	end
+
+	return coinPoolFolder
+end
+
 local function getTierName(tier)
 	return COIN_TIER_NAMES[tier] or COIN_TIER_NAMES[1] or "Coin"
+end
+
+local function getTierPoolFolder(tier)
+	return getOrCreateFolder(getCoinPoolFolder(), getTierName(tier))
 end
 
 local function getTierValue(tier)
@@ -244,6 +270,76 @@ local function pivotCoin(coin, position)
 	end
 end
 
+local function acquireCoin(tier)
+	local tierPoolFolder = getTierPoolFolder(tier)
+	local coin = tierPoolFolder:FindFirstChild(getTierName(tier))
+
+	if coin == nil then
+		coin = tierPoolFolder:FindFirstChildWhichIsA("Model") or tierPoolFolder:FindFirstChildWhichIsA("BasePart")
+	end
+
+	if coin ~= nil then
+		coin.Parent = getRuntimeLootFolder()
+		return coin, true
+	end
+
+	coin = coinTemplatesByTier[tier]:Clone()
+	coin.Parent = getRuntimeLootFolder()
+
+	return coin, false
+end
+
+local function releaseCoin(coin, tier)
+	if coin == nil or coin.Parent == nil then
+		return
+	end
+
+	trackedCoins[coin] = nil
+	coin.Name = getTierName(tier or getCoinTierByName(coin.Name) or 1)
+	coin.Parent = getTierPoolFolder(tier or getCoinTierByName(coin.Name) or 1)
+end
+
+local function prewarmCoinPool(tier, count)
+	local prewarmCount = math.max(0, math.floor(count or 0))
+
+	if coinTemplatesByTier[tier] == nil or prewarmCount <= 0 then
+		return
+	end
+
+	local tierPoolFolder = getTierPoolFolder(tier)
+
+	for _ = 1, prewarmCount do
+		local coin = coinTemplatesByTier[tier]:Clone()
+		coin.Name = getTierName(tier)
+		prepareCoin(coin)
+		coin.Parent = tierPoolFolder
+	end
+end
+
+local function getCoinPoolSize()
+	local total = 0
+
+	if coinPoolFolder == nil then
+		return total
+	end
+
+	for _, folder in ipairs(coinPoolFolder:GetChildren()) do
+		total += #folder:GetChildren()
+	end
+
+	return total
+end
+
+local function getTrackedCoinCount()
+	local total = 0
+
+	for _ in pairs(trackedCoins) do
+		total += 1
+	end
+
+	return total
+end
+
 local function trackCoin(instance)
 	if not isCollectableCoin(instance) then
 		return
@@ -310,7 +406,7 @@ local function finishCoinCollection(player, coin, coinState, attractDuration)
 
 	task.delay(attractDuration + 0.1, function()
 		if coin.Parent ~= nil then
-			coin:Destroy()
+			releaseCoin(coin, coinState.Tier)
 		end
 	end)
 end
@@ -461,7 +557,7 @@ local function mergeGroup(group, nextTier)
 		trackedCoins[entry.Coin] = nil
 
 		if entry.Coin.Parent ~= nil then
-			entry.Coin:Destroy()
+			releaseCoin(entry.Coin, entry.State.Tier)
 		end
 	end
 
@@ -565,9 +661,8 @@ function CoinService.SpawnCoin(position, tier)
 		coinTemplatesByTier[coinTier] = findCoinTemplate(coinTier)
 	end
 
-	local coin = coinTemplatesByTier[coinTier]:Clone()
+	local coin = acquireCoin(coinTier)
 	coin.Name = getTierName(coinTier)
-	coin.Parent = getRuntimeLootFolder()
 
 	prepareCoin(coin)
 	pivotCoin(coin, position)
@@ -647,6 +742,7 @@ end
 function CoinService.Start()
 	for tier = 1, #COIN_TIER_NAMES do
 		coinTemplatesByTier[tier] = findCoinTemplate(tier)
+		prewarmCoinPool(tier, (GameConfig.CoinPoolPrewarmPerTier or {})[tier])
 	end
 
 	DebugLog.Info("Coin", "CoinService demarre", {
@@ -654,6 +750,7 @@ function CoinService.Start()
 		LootFolder = getRuntimeLootFolder(),
 		CollectDistance = GameConfig.CoinCollectDistance,
 		MergeRadius = GameConfig.CoinMergeRadius,
+		Pool = getCoinPoolSize(),
 	})
 	scanExistingCoins()
 
@@ -684,6 +781,11 @@ function CoinService.Start()
 			elapsedSinceMerge = 0
 			mergeNearbyCoins()
 		end
+
+		DebugLog.ThrottledInfo("Perf", "coin_pool", CombatConfig.PerfLogInterval or 5, "Perf coins serveur", {
+			Tracked = getTrackedCoinCount(),
+			Pool = getCoinPoolSize(),
+		})
 	end)
 end
 

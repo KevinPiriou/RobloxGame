@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local ServerStorage = game:GetService("ServerStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
@@ -9,20 +10,38 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 
 local WeaponService = {}
 
 local runtimeFolder = nil
 local projectileFolder = nil
+local projectilePoolFolder = nil
 local fireballTemplate = nil
 local heartbeatConnection = nil
+local projectileAccumulator = 0
+local projectileTickTimeTotal = 0
+local projectileTickSampleCount = 0
 local cooldownsByUserId = {}
 local projectilesByInstance = {}
+
+local function getOrCreateFolder(parent, folderName)
+	local folder = parent:FindFirstChild(folderName)
+
+	if folder == nil then
+		folder = Instance.new("Folder")
+		folder.Name = folderName
+		folder.Parent = parent
+	end
+
+	return folder
+end
 
 local function setupFolders()
 	runtimeFolder = TemplateService.GetCombatRuntimeFolder()
 	projectileFolder = TemplateService.GetCombatProjectileFolder()
+	projectilePoolFolder = getOrCreateFolder(ServerStorage, "ProjectilePools")
 end
 
 local function createFallbackFireballTemplate(templateStorage)
@@ -118,25 +137,84 @@ local function getCharacterHumanoid(player)
 end
 
 local function isPlayerAlive(player)
+	if not RunStateService.IsRunActive(player) then
+		return false
+	end
+
 	local humanoid = getCharacterHumanoid(player)
 	local root = getCharacterRoot(player)
 
 	return humanoid ~= nil and root ~= nil and humanoid.Health > 0
 end
 
+local function getProjectilePoolSize()
+	if projectilePoolFolder == nil then
+		return 0
+	end
+
+	return #projectilePoolFolder:GetChildren()
+end
+
+local function acquireProjectileInstance()
+	local projectile = projectilePoolFolder:FindFirstChild(CombatConfig.FireballTemplateName)
+
+	if projectile == nil then
+		projectile = projectilePoolFolder:FindFirstChildWhichIsA("Model")
+			or projectilePoolFolder:FindFirstChildWhichIsA("BasePart")
+	end
+
+	if projectile ~= nil then
+		projectile.Parent = projectileFolder
+		return projectile, true
+	end
+
+	projectile = fireballTemplate:Clone()
+	projectile.Parent = projectileFolder
+
+	return projectile, false
+end
+
+local function releaseProjectileInstance(projectile)
+	if projectile == nil or projectile.Parent == nil then
+		return
+	end
+
+	projectile.Name = CombatConfig.FireballTemplateName
+	projectile:SetAttribute("RuntimeProjectile", false)
+	projectile.Parent = projectilePoolFolder
+end
+
+local function prewarmProjectilePool(count)
+	local prewarmCount = math.max(0, math.floor(count or 0))
+
+	if fireballTemplate == nil or prewarmCount <= 0 then
+		return
+	end
+
+	for _ = 1, prewarmCount do
+		local projectile = fireballTemplate:Clone()
+		projectile.Name = CombatConfig.FireballTemplateName
+		prepareProjectile(projectile)
+		projectile.Parent = projectilePoolFolder
+	end
+
+	DebugLog.Info("Perf", "Pool projectiles prechauffe", {
+		Template = CombatConfig.FireballTemplateName,
+		Count = prewarmCount,
+	})
+end
+
 local function destroyProjectile(projectile)
 	projectilesByInstance[projectile] = nil
 
-	if projectile.Parent ~= nil then
-		projectile:Destroy()
-	end
+	releaseProjectileInstance(projectile)
 end
 
 local function createProjectile(player, spawnPosition, targetMonster, targetRoot, direction)
-	local projectile = fireballTemplate:Clone()
+	local projectile, reusedFromPool = acquireProjectileInstance()
 
 	projectile.Name = CombatConfig.FireballTemplateName
-	projectile.Parent = projectileFolder
+	projectile:SetAttribute("RuntimeProjectile", true)
 
 	local projectileRoot = prepareProjectile(projectile)
 
@@ -144,7 +222,7 @@ local function createProjectile(player, spawnPosition, targetMonster, targetRoot
 		DebugLog.Warn("Weapon", "Projectile Fireball sans BasePart, tir annule", {
 			Projectile = projectile,
 		})
-		projectile:Destroy()
+		releaseProjectileInstance(projectile)
 		return
 	end
 
@@ -161,6 +239,7 @@ local function createProjectile(player, spawnPosition, targetMonster, targetRoot
 		Lifetime = PerkService.GetAttackDuration(player, CombatConfig.FireballLifetime),
 		BounceRemaining = PerkService.GetBounceCount(player),
 		HitMonsters = {},
+		ReusedFromPool = reusedFromPool,
 	}
 
 	DebugLog.ThrottledInfo("Weapon", "fireball_created_" .. player.UserId, 1, "Projectile cree", {
@@ -216,6 +295,10 @@ end
 
 local function updatePlayerWeapons(now)
 	for _, player in ipairs(Players:GetPlayers()) do
+		if not RunStateService.IsRunActive(player) then
+			continue
+		end
+
 		local lastFireAt = cooldownsByUserId[player.UserId] or 0
 		local cooldown = PerkService.GetAttackCooldown(player, CombatConfig.FireballCooldown)
 
@@ -304,13 +387,54 @@ local function updateProjectiles(deltaTime)
 	end
 end
 
+local function getActiveProjectileCount()
+	local count = 0
+
+	for _ in pairs(projectilesByInstance) do
+		count += 1
+	end
+
+	return count
+end
+
+local function updateWeaponStep(deltaTime)
+	local startedAt = os.clock()
+	local now = CombatStateService.GetTime()
+
+	updatePlayerWeapons(now)
+	updateProjectiles(deltaTime)
+
+	projectileTickTimeTotal += os.clock() - startedAt
+	projectileTickSampleCount += 1
+
+	local averageTickMs = 0
+
+	if projectileTickSampleCount > 0 then
+		averageTickMs = (projectileTickTimeTotal / projectileTickSampleCount) * 1000
+	end
+
+	DebugLog.ThrottledInfo("Perf", "projectile_tick", CombatConfig.PerfLogInterval or 5, "Perf projectiles serveur", {
+		Active = getActiveProjectileCount(),
+		Pool = getProjectilePoolSize(),
+		SimulationHz = CombatConfig.ProjectileSimulationHz,
+		AverageTickMs = averageTickMs,
+	})
+end
+
 function WeaponService.RemovePlayer(player)
 	cooldownsByUserId[player.UserId] = nil
+end
+
+local function clearProjectiles()
+	for projectile in pairs(projectilesByInstance) do
+		destroyProjectile(projectile)
+	end
 end
 
 function WeaponService.Start()
 	setupFolders()
 	fireballTemplate = findTemplate(CombatConfig.FireballTemplateName)
+	prewarmProjectilePool(CombatConfig.ProjectilePoolPrewarm)
 
 	DebugLog.Info("Weapon", "WeaponService demarre", {
 		RuntimeFolder = runtimeFolder,
@@ -318,7 +442,21 @@ function WeaponService.Start()
 		Template = fireballTemplate,
 		Cooldown = CombatConfig.FireballCooldown,
 		Range = CombatConfig.FireballRange,
+		SimulationHz = CombatConfig.ProjectileSimulationHz,
 	})
+
+	RunStateService.RunStarted:Connect(function(player)
+		cooldownsByUserId[player.UserId] = CombatStateService.GetTime()
+		projectileAccumulator = 0
+		projectileTickTimeTotal = 0
+		projectileTickSampleCount = 0
+	end)
+
+	RunStateService.RunEnded:Connect(function(player)
+		cooldownsByUserId[player.UserId] = nil
+		projectileAccumulator = 0
+		clearProjectiles()
+	end)
 
 	if heartbeatConnection ~= nil then
 		return
@@ -329,10 +467,22 @@ function WeaponService.Start()
 			return
 		end
 
-		local now = CombatStateService.GetTime()
+		local simulationHz = math.max(1, CombatConfig.ProjectileSimulationHz or 30)
+		local fixedStep = 1 / simulationHz
+		local maxStepsPerHeartbeat = 4
+		local steps = 0
 
-		updatePlayerWeapons(now)
-		updateProjectiles(deltaTime)
+		projectileAccumulator += deltaTime
+
+		while projectileAccumulator >= fixedStep and steps < maxStepsPerHeartbeat do
+			projectileAccumulator -= fixedStep
+			steps += 1
+			updateWeaponStep(fixedStep)
+		end
+
+		if steps >= maxStepsPerHeartbeat and projectileAccumulator >= fixedStep then
+			projectileAccumulator = fixedStep
+		end
 	end)
 end
 

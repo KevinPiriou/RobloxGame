@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -11,6 +12,7 @@ local CombatStateService = require(script.Parent:WaitForChild("CombatStateServic
 local ChestService = require(script.Parent:WaitForChild("ChestService"))
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
 local XpService = require(script.Parent:WaitForChild("XpService"))
@@ -22,10 +24,15 @@ local runtimeFolder = nil
 local monsterFolder = nil
 local monsterTemplate = nil
 local eliteMonsterTemplate = nil
+local poolFolder = nil
 local heartbeatConnection = nil
 local elapsedStatsUpdate = 0
+local simulationAccumulator = 0
+local monsterTickTimeTotal = 0
+local monsterTickSampleCount = 0
 local waveStartedAt = CombatStateService.GetTime()
 local monstersByInstance = {}
+local monsterSpatialGrid = {}
 local killsByUserId = {}
 local lastSpawnAtByUserId = {}
 local groundedSinceByUserId = {}
@@ -51,9 +58,22 @@ end
 
 local statsRemote = getOrCreateRemote("Combat_UpdateStats")
 
+local function getOrCreateFolder(parent, folderName)
+	local folder = parent:FindFirstChild(folderName)
+
+	if folder == nil then
+		folder = Instance.new("Folder")
+		folder.Name = folderName
+		folder.Parent = parent
+	end
+
+	return folder
+end
+
 local function setupFolders()
 	runtimeFolder = TemplateService.GetCombatRuntimeFolder()
 	monsterFolder = TemplateService.GetCombatMonsterFolder()
+	poolFolder = getOrCreateFolder(ServerStorage, "MonsterPools")
 end
 
 local function createFallbackMonsterTemplate(templateStorage, templateName)
@@ -63,7 +83,9 @@ local function createFallbackMonsterTemplate(templateStorage, templateName)
 	part.Color = Color3.fromRGB(190, 55, 55)
 	part.Material = Enum.Material.SmoothPlastic
 	part.Anchored = true
-	part.CanCollide = true
+	part.CanCollide = CombatConfig.MonsterPartsCanCollide == true
+	part.CanTouch = CombatConfig.MonsterPartsCanTouch == true
+	part.CanQuery = CombatConfig.MonsterPartsCanQuery == true
 	part.Parent = templateStorage
 
 	DebugLog.Warn("Combat", "Template monstre introuvable, fallback cree", {
@@ -164,6 +186,10 @@ local function findAnimation(instance)
 end
 
 local function playMonsterAnimation(monster)
+	if CombatConfig.MonsterServerAnimationsEnabled ~= true then
+		return nil
+	end
+
 	local animationHost = findAnimationHost(monster)
 	local animation = findAnimation(monster)
 
@@ -230,7 +256,9 @@ local function prepareMonsterInstance(monster, maxHealth)
 
 	for _, descendant in ipairs(monster:GetDescendants()) do
 		if descendant:IsA("BasePart") then
-			descendant.CanCollide = true
+			descendant.CanCollide = CombatConfig.MonsterPartsCanCollide == true
+			descendant.CanTouch = CombatConfig.MonsterPartsCanTouch == true
+			descendant.CanQuery = CombatConfig.MonsterPartsCanQuery == true
 
 			if humanoid ~= nil then
 				descendant.Anchored = false
@@ -246,13 +274,21 @@ local function prepareMonsterInstance(monster, maxHealth)
 
 	if monster:IsA("BasePart") then
 		monster.Anchored = humanoid == nil
+		monster.CanCollide = CombatConfig.MonsterPartsCanCollide == true
+		monster.CanTouch = CombatConfig.MonsterPartsCanTouch == true
+		monster.CanQuery = CombatConfig.MonsterPartsCanQuery == true
 	end
 
 	if humanoid ~= nil then
+		humanoid.BreakJointsOnDeath = false
 		humanoid.MaxHealth = resolvedMaxHealth
 		humanoid.Health = resolvedMaxHealth
 		humanoid.WalkSpeed = CombatConfig.MonsterWalkSpeed
 		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+
+		pcall(function()
+			humanoid:ChangeState(Enum.HumanoidStateType.Running)
+		end)
 	end
 
 	return humanoid, root
@@ -357,6 +393,10 @@ local function hasPlayerBeenGroundedLongEnough(player, now)
 end
 
 local function isPlayerAlive(player)
+	if not RunStateService.IsRunActive(player) then
+		return false
+	end
+
 	local humanoid = getCharacterHumanoid(player)
 	local root = getCharacterRoot(player)
 
@@ -412,11 +452,17 @@ local function getCurrentWaveMaxAlive()
 	local waveMaxAlive = CombatConfig.WaveBaseMaxAlive
 		+ ((waveNumber - 1) * CombatConfig.WaveMaxAliveIncrease)
 	local totalPlayerMultiplier = 0
+	local activePlayerCount = 0
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		if isPlayerAlive(player) then
+			activePlayerCount += 1
 			totalPlayerMultiplier += PerkService.GetEnemyCountMultiplier(player)
 		end
+	end
+
+	if activePlayerCount <= 0 then
+		return 0
 	end
 
 	totalPlayerMultiplier = math.max(1, totalPlayerMultiplier)
@@ -509,6 +555,190 @@ end
 
 local getLootScatterOffset
 
+local function getSpatialCellSize()
+	return math.max(1, CombatConfig.MonsterSpatialCellSize or CombatConfig.MonsterSeparationRadius or 8)
+end
+
+local function getGridKey(cellX, cellZ)
+	return tostring(cellX) .. ":" .. tostring(cellZ)
+end
+
+local function getSpatialCell(position)
+	local cellSize = getSpatialCellSize()
+
+	return math.floor(position.X / cellSize), math.floor(position.Z / cellSize)
+end
+
+local function removeMonsterFromSpatialGrid(monsterState)
+	local key = monsterState.SpatialGridKey
+
+	if key == nil then
+		return
+	end
+
+	local cell = monsterSpatialGrid[key]
+
+	if cell ~= nil then
+		cell[monsterState] = nil
+
+		if next(cell) == nil then
+			monsterSpatialGrid[key] = nil
+		end
+	end
+
+	monsterState.SpatialGridKey = nil
+	monsterState.SeparationCellX = nil
+	monsterState.SeparationCellZ = nil
+end
+
+local function updateMonsterSpatialCell(monsterState, position)
+	if position == nil then
+		return
+	end
+
+	local cellX, cellZ = getSpatialCell(position)
+	local key = getGridKey(cellX, cellZ)
+
+	if monsterState.SpatialGridKey == key then
+		return
+	end
+
+	removeMonsterFromSpatialGrid(monsterState)
+
+	local cell = monsterSpatialGrid[key]
+
+	if cell == nil then
+		cell = {}
+		monsterSpatialGrid[key] = cell
+	end
+
+	cell[monsterState] = true
+	monsterState.SpatialGridKey = key
+	monsterState.SeparationCellX = cellX
+	monsterState.SeparationCellZ = cellZ
+end
+
+local function getMonsterPoolFolder(templateName)
+	if poolFolder == nil then
+		setupFolders()
+	end
+
+	return getOrCreateFolder(poolFolder, templateName)
+end
+
+local function getMonsterPoolSize()
+	if poolFolder == nil then
+		return 0
+	end
+
+	local count = 0
+
+	for _, folder in ipairs(poolFolder:GetChildren()) do
+		count += #folder:GetChildren()
+	end
+
+	return count
+end
+
+local function getSpatialGridCellCount()
+	local count = 0
+
+	for _ in pairs(monsterSpatialGrid) do
+		count += 1
+	end
+
+	return count
+end
+
+local function acquireMonsterInstance(template, templateName)
+	local templatePoolFolder = getMonsterPoolFolder(templateName)
+	local pooledMonster = templatePoolFolder:FindFirstChild(templateName)
+
+	if pooledMonster == nil then
+		pooledMonster = templatePoolFolder:FindFirstChildWhichIsA("Model") or templatePoolFolder:FindFirstChildWhichIsA("BasePart")
+	end
+
+	if pooledMonster ~= nil then
+		pooledMonster.Parent = monsterFolder
+		return pooledMonster, true
+	end
+
+	local monster = template:Clone()
+	monster.Parent = monsterFolder
+
+	return monster, false
+end
+
+local function prewarmMonsterPool(template, templateName, count)
+	local prewarmCount = math.max(0, math.floor(count or 0))
+
+	if template == nil or prewarmCount <= 0 then
+		return
+	end
+
+	local templatePoolFolder = getMonsterPoolFolder(templateName)
+
+	for _ = 1, prewarmCount do
+		local monster = template:Clone()
+		monster.Name = templateName
+		monster.Parent = templatePoolFolder
+	end
+
+	DebugLog.Info("Perf", "Pool monstres prechauffe", {
+		Template = templateName,
+		Count = prewarmCount,
+	})
+end
+
+local function restoreMonsterColorsNow(monsterState)
+	if monsterState.OriginalPartColors == nil then
+		return
+	end
+
+	for part, originalColor in pairs(monsterState.OriginalPartColors) do
+		if part.Parent ~= nil then
+			part.Color = originalColor
+		end
+	end
+end
+
+local function releaseMonsterToPool(monsterState)
+	removeMonsterFromSpatialGrid(monsterState)
+
+	if monsterState.AnimationTrack ~= nil then
+		pcall(function()
+			monsterState.AnimationTrack:Stop(0)
+		end)
+	end
+
+	if monsterState.DeathConnection ~= nil then
+		monsterState.DeathConnection:Disconnect()
+		monsterState.DeathConnection = nil
+	end
+
+	if monsterState.AncestryConnection ~= nil then
+		monsterState.AncestryConnection:Disconnect()
+		monsterState.AncestryConnection = nil
+	end
+
+	restoreMonsterColorsNow(monsterState)
+
+	local monster = monsterState.Instance
+
+	if monster == nil or monster.Parent == nil then
+		return
+	end
+
+	monster:SetAttribute("RuntimeMonster", false)
+	monster:SetAttribute("IsElite", false)
+	monster:SetAttribute("ElitePackId", nil)
+	monster:SetAttribute("MonsterHealth", 0)
+
+	local templateName = monsterState.TemplateName or monster.Name or CombatConfig.MonsterTemplateName
+	monster.Name = templateName
+	monster.Parent = getMonsterPoolFolder(templateName)
+end
+
 local function getMonsterLootMultiplier(monsterState)
 	if monsterState.IsElite then
 		return math.max(1, math.floor(CombatConfig.EliteMonsterLootMultiplier or 2))
@@ -589,10 +819,7 @@ local function removeMonster(monsterState, killer)
 	end
 
 	updateElitePackAfterRemoval(monsterState, killer, deathPosition)
-
-	if monsterState.Instance.Parent ~= nil then
-		monsterState.Instance:Destroy()
-	end
+	releaseMonsterToPool(monsterState)
 
 	sendStatsToAll()
 end
@@ -710,7 +937,7 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 		return false
 	end
 
-	local monster = template:Clone()
+	local monster, reusedFromPool = acquireMonsterInstance(template, templateName)
 
 	monster.Name = templateName
 	monster:SetAttribute("RuntimeMonster", true)
@@ -718,10 +945,7 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 	monster:SetAttribute("MonsterMaxHealth", maxHealth)
 	monster:SetAttribute("MonsterHealth", maxHealth)
 	monster:SetAttribute("MonsterAttackDamage", attackDamage)
-	if elitePackId ~= nil then
-		monster:SetAttribute("ElitePackId", elitePackId)
-	end
-	monster.Parent = monsterFolder
+	monster:SetAttribute("ElitePackId", elitePackId)
 
 	local humanoid, root = prepareMonsterInstance(monster, maxHealth)
 
@@ -744,6 +968,7 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 		Instance = monster,
 		Humanoid = humanoid,
 		Root = root,
+		TemplateName = templateName,
 		BasePosition = spawnPivotPosition,
 		PivotRotation = pivotRotation,
 		Health = maxHealth,
@@ -757,18 +982,21 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 		OriginalPartColors = captureOriginalPartColors(monster),
 		DamageFlashId = 0,
 		IsDead = false,
+		ReusedFromPool = reusedFromPool,
 	}
 
 	monstersByInstance[monster] = monsterState
+	updateMonsterSpatialCell(monsterState, spawnPivotPosition)
 
-	monster.AncestryChanged:Connect(function(_, parent)
+	monsterState.AncestryConnection = monster.AncestryChanged:Connect(function(_, parent)
 		if parent == nil then
+			removeMonsterFromSpatialGrid(monsterState)
 			monstersByInstance[monster] = nil
 		end
 	end)
 
 	if humanoid ~= nil then
-		humanoid.Died:Connect(function()
+		monsterState.DeathConnection = humanoid.Died:Connect(function()
 			removeMonster(monsterState, monsterState.PendingKiller)
 		end)
 	end
@@ -819,40 +1047,7 @@ local function spawnMonsterNearPlayer(player)
 	return true
 end
 
-local function getGridKey(cellX, cellZ)
-	return tostring(cellX) .. ":" .. tostring(cellZ)
-end
-
-local function buildMonsterSpatialGrid()
-	local grid = {}
-	local cellSize = CombatConfig.MonsterSeparationRadius
-
-	for _, monsterState in pairs(monstersByInstance) do
-		if not monsterState.IsDead then
-			local root = findRoot(monsterState.Instance)
-
-			if root ~= nil then
-				monsterState.Root = root
-
-				local cellX = math.floor(root.Position.X / cellSize)
-				local cellZ = math.floor(root.Position.Z / cellSize)
-				local key = getGridKey(cellX, cellZ)
-
-				if grid[key] == nil then
-					grid[key] = {}
-				end
-
-				monsterState.SeparationCellX = cellX
-				monsterState.SeparationCellZ = cellZ
-				table.insert(grid[key], monsterState)
-			end
-		end
-	end
-
-	return grid
-end
-
-local function getMonsterSeparation(monsterState, spatialGrid)
+local function getMonsterSeparation(monsterState)
 	local root = monsterState.Root
 
 	if root == nil or monsterState.SeparationCellX == nil or monsterState.SeparationCellZ == nil then
@@ -865,10 +1060,10 @@ local function getMonsterSeparation(monsterState, spatialGrid)
 	for offsetX = -1, 1 do
 		for offsetZ = -1, 1 do
 			local key = getGridKey(monsterState.SeparationCellX + offsetX, monsterState.SeparationCellZ + offsetZ)
-			local cell = spatialGrid[key]
+			local cell = monsterSpatialGrid[key]
 
 			if cell ~= nil then
-				for _, otherState in ipairs(cell) do
+				for otherState in pairs(cell) do
 					if otherState ~= monsterState and not otherState.IsDead and otherState.Root ~= nil then
 						local offset = root.Position - otherState.Root.Position
 						local horizontalOffset = Vector3.new(offset.X, 0, offset.Z)
@@ -922,15 +1117,13 @@ local function getProceduralAnimationCFrame(monsterState, position, moveDirectio
 	return CFrame.lookAt(visualPosition, lookTarget) * CFrame.Angles(0, 0, sway) * pivotRotation
 end
 
-local function updateMonsterMovement(monsterState, deltaTime, now, spatialGrid)
-	local root = findRoot(monsterState.Instance)
+local function updateMonsterMovement(monsterState, deltaTime, now)
+	local root = monsterState.Root
 
 	if root == nil then
 		removeMonster(monsterState, nil)
 		return
 	end
-
-	monsterState.Root = root
 
 	local _, targetRoot, distance = getClosestAlivePlayer(root.Position)
 
@@ -943,9 +1136,11 @@ local function updateMonsterMovement(monsterState, deltaTime, now, spatialGrid)
 		return
 	end
 
-	local separation = getMonsterSeparation(monsterState, spatialGrid)
+	local separation = getMonsterSeparation(monsterState)
 
 	if monsterState.Humanoid ~= nil then
+		updateMonsterSpatialCell(monsterState, root.Position)
+
 		if now - monsterState.LastMoveToAt >= 0.35 then
 			local moveDirection = getMoveDirection(root.Position, targetRoot.Position, separation)
 
@@ -974,6 +1169,7 @@ local function updateMonsterMovement(monsterState, deltaTime, now, spatialGrid)
 
 	monsterState.BasePosition = nextPosition
 	pivotInstance(monsterState.Instance, getProceduralAnimationCFrame(monsterState, nextPosition, moveDirection, deltaTime))
+	updateMonsterSpatialCell(monsterState, nextPosition)
 end
 
 local function updateMonsterDamage(monsterState, now)
@@ -1047,29 +1243,63 @@ local function updateSpawns(now)
 	end
 end
 
-local function updateMonsters(deltaTime)
-	if CombatStateService.IsPaused() then
-		return
-	end
-
+local function updateMonsterStep(deltaTime)
 	local now = CombatStateService.GetTime()
+	local startedAt = os.clock()
 
 	updateSpawns(now)
 
-	local spatialGrid = buildMonsterSpatialGrid()
-
 	for _, monsterState in pairs(monstersByInstance) do
 		if not monsterState.IsDead then
-			updateMonsterMovement(monsterState, deltaTime, now, spatialGrid)
+			updateMonsterMovement(monsterState, deltaTime, now)
 			updateMonsterDamage(monsterState, now)
 		end
 	end
 
+	monsterTickTimeTotal += os.clock() - startedAt
+	monsterTickSampleCount += 1
 	elapsedStatsUpdate += deltaTime
 
 	if elapsedStatsUpdate >= CombatConfig.StatsUpdateInterval then
 		elapsedStatsUpdate = 0
 		sendStatsToAll()
+	end
+
+	local averageTickMs = 0
+
+	if monsterTickSampleCount > 0 then
+		averageTickMs = (monsterTickTimeTotal / monsterTickSampleCount) * 1000
+	end
+
+	DebugLog.ThrottledInfo("Perf", "monster_tick", CombatConfig.PerfLogInterval or 5, "Perf monstres serveur", {
+		Alive = getAliveMonsterCount(),
+		GridCells = getSpatialGridCellCount(),
+		Pool = getMonsterPoolSize(),
+		SimulationHz = CombatConfig.MonsterSimulationHz,
+		AverageTickMs = averageTickMs,
+	})
+end
+
+local function updateMonsters(deltaTime)
+	if CombatStateService.IsPaused() then
+		return
+	end
+
+	local simulationHz = math.max(1, CombatConfig.MonsterSimulationHz or 15)
+	local fixedStep = 1 / simulationHz
+	local maxStepsPerHeartbeat = 4
+	local steps = 0
+
+	simulationAccumulator += deltaTime
+
+	while simulationAccumulator >= fixedStep and steps < maxStepsPerHeartbeat do
+		simulationAccumulator -= fixedStep
+		steps += 1
+		updateMonsterStep(fixedStep)
+	end
+
+	if steps >= maxStepsPerHeartbeat and simulationAccumulator >= fixedStep then
+		simulationAccumulator = fixedStep
 	end
 end
 
@@ -1348,6 +1578,14 @@ end
 function MonsterService.DebugKillAllMonsters()
 	DebugLog.Info("Combat", "Debug kill all monstres demande")
 
+	return MonsterService.ClearAllMonsters("Debug")
+end
+
+function MonsterService.ClearAllMonsters(reason)
+	DebugLog.Info("Combat", "Nettoyage monstres demande", {
+		Reason = reason,
+	})
+
 	local monsterStates = {}
 
 	for _, monsterState in pairs(monstersByInstance) do
@@ -1361,14 +1599,13 @@ function MonsterService.DebugKillAllMonsters()
 			monsterState.IsDead = true
 			monstersByInstance[monsterState.Instance] = nil
 			killedCount += 1
-
-			if monsterState.Instance.Parent ~= nil then
-				monsterState.Instance:Destroy()
-			end
+			releaseMonsterToPool(monsterState)
 		end
 	end
 
 	if killedCount > 0 then
+		elitePacksById = {}
+		monsterSpatialGrid = {}
 		sendStatsToAll()
 	end
 
@@ -1404,25 +1641,70 @@ end
 function MonsterService.GetClosestMonster(position, maxDistance, ignoredMonsters)
 	local closestMonster = nil
 	local closestRoot = nil
-	local closestDistance = maxDistance or math.huge
+	local queryRadius = maxDistance or CombatConfig.FireballRange or 128
+	local closestDistanceSquared = queryRadius * queryRadius
 
-	for _, monsterState in pairs(monstersByInstance) do
-		if not monsterState.IsDead and (ignoredMonsters == nil or not ignoredMonsters[monsterState.Instance]) then
-			local root = findRoot(monsterState.Instance)
+	for _, monsterData in ipairs(MonsterService.GetMonstersNear(position, queryRadius, ignoredMonsters)) do
+		local distanceSquared = monsterData.DistanceSquared
 
-			if root ~= nil then
-				local distance = (root.Position - position).Magnitude
+		if distanceSquared <= closestDistanceSquared then
+			closestMonster = monsterData.Monster
+			closestRoot = monsterData.Root
+			closestDistanceSquared = distanceSquared
+		end
+	end
 
-				if distance <= closestDistance then
-					closestMonster = monsterState.Instance
-					closestRoot = root
-					closestDistance = distance
+	return closestMonster, closestRoot, math.sqrt(closestDistanceSquared)
+end
+
+function MonsterService.GetMonstersNear(position, radius, ignoredMonsters)
+	local results = {}
+	local queryRadius = math.max(0, radius or 0)
+
+	if queryRadius <= 0 then
+		return results
+	end
+
+	local cellSize = getSpatialCellSize()
+	local centerCellX, centerCellZ = getSpatialCell(position)
+	local cellRange = math.max(0, math.ceil(queryRadius / cellSize))
+	local radiusSquared = queryRadius * queryRadius
+
+	for offsetX = -cellRange, cellRange do
+		for offsetZ = -cellRange, cellRange do
+			local key = getGridKey(centerCellX + offsetX, centerCellZ + offsetZ)
+			local cell = monsterSpatialGrid[key]
+
+			if cell ~= nil then
+				for monsterState in pairs(cell) do
+					local monster = monsterState.Instance
+					local root = monsterState.Root
+
+					if
+						not monsterState.IsDead
+						and monster ~= nil
+						and root ~= nil
+						and monster.Parent ~= nil
+						and (ignoredMonsters == nil or not ignoredMonsters[monster])
+					then
+						local offset = root.Position - position
+						local distanceSquared = offset:Dot(offset)
+
+						if distanceSquared <= radiusSquared then
+							table.insert(results, {
+								Monster = monster,
+								Root = root,
+								State = monsterState,
+								DistanceSquared = distanceSquared,
+							})
+						end
+					end
 				end
 			end
 		end
 	end
 
-	return closestMonster, closestRoot, closestDistance
+	return results
 end
 
 function MonsterService.GetMonsterPosition(monster)
@@ -1432,7 +1714,7 @@ function MonsterService.GetMonsterPosition(monster)
 		return nil
 	end
 
-	local root = findRoot(monsterState.Instance)
+	local root = monsterState.Root
 
 	if root == nil then
 		return nil
@@ -1492,7 +1774,37 @@ function MonsterService.Start()
 	setupFolders()
 	monsterTemplate = findTemplate(CombatConfig.MonsterTemplateName, true)
 	eliteMonsterTemplate = findTemplate(CombatConfig.EliteMonsterTemplateName, false)
+	prewarmMonsterPool(monsterTemplate, CombatConfig.MonsterTemplateName, CombatConfig.MonsterPoolPrewarm)
 	waveStartedAt = CombatStateService.GetTime()
+
+	RunStateService.RunStarted:Connect(function(player, reason)
+		local now = CombatStateService.GetTime()
+
+		waveStartedAt = now
+		simulationAccumulator = 0
+		monsterTickTimeTotal = 0
+		monsterTickSampleCount = 0
+		groundedSinceByUserId[player.UserId] = nil
+		lastSpawnAtByUserId[player.UserId] = now + CombatConfig.MonsterInitialSpawnDelay - CombatConfig.MonsterSpawnInterval
+		sendStats(player)
+		DebugLog.Info("Combat", "Combat run demarre pour joueur", {
+			Player = player.Name,
+			Reason = reason,
+			WaveStartedAt = waveStartedAt,
+		})
+	end)
+
+	RunStateService.RunEnded:Connect(function(player, reason)
+		groundedSinceByUserId[player.UserId] = nil
+		lastSpawnAtByUserId[player.UserId] = nil
+		simulationAccumulator = 0
+		MonsterService.ClearAllMonsters(reason)
+		sendStats(player)
+		DebugLog.Info("Combat", "Combat run arrete pour joueur", {
+			Player = player.Name,
+			Reason = reason,
+		})
+	end)
 
 	DebugLog.Info("Combat", "MonsterService demarre", {
 		RuntimeFolder = runtimeFolder,

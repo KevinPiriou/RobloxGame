@@ -1,0 +1,24 @@
+return {
+	Enabled = true,
+
+	-- TeleportPart2 est dans le lobby/obby. TeleportPart1 est le point d'arrivee de run.
+	TriggerPartName = "TeleportPart2",
+	ArrivalPartName = "TeleportPart1",
+	ArrivalHeightOffset = 4,
+	DisableTemplateTeleportScripts = true,
+	DisableArrivalTouch = true,
+	DestroyArrivalAfterUse = true,
+
+	-- Par defaut on relance la run dans un serveur reserve du meme place.
+	-- Si la map de run devient un autre place, remplacer par son PlaceId.
+	RunPlaceId = game.PlaceId,
+	ShouldReserveServer = true,
+
+	TouchCooldownSeconds = 6,
+	StudioSimulatesArrival = true,
+
+	TeleportData = {
+		runMode = "Solo",
+		difficulty = 1,
+	},
+}

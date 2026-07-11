@@ -110,6 +110,7 @@ local state = {
 	Xp = 0,
 	XpRequired = 6,
 	PerkCount = 0,
+	IsRunActive = false,
 	IsUserPaused = false,
 	HasBlockingPause = false,
 }
@@ -614,11 +615,11 @@ local function refreshTimer()
 end
 
 local function isTimerPaused()
-	return state.IsUserPaused or state.HasBlockingPause
+	return not state.IsRunActive or state.IsUserPaused or state.HasBlockingPause
 end
 
 local function refreshPause()
-	isPauseButtonBlocked = state.HasBlockingPause and not state.IsUserPaused
+	isPauseButtonBlocked = (not state.IsRunActive) or (state.HasBlockingPause and not state.IsUserPaused)
 	pauseButton.Active = not isPauseButtonBlocked
 	pauseButton.AutoButtonColor = not isPauseButtonBlocked
 	pauseButton.Text = if state.IsUserPaused then ">" else "||"
@@ -793,6 +794,23 @@ local function onPausePayload(payload)
 	refreshPause()
 end
 
+local function onRunStatePayload(payload)
+	payload = payload or {}
+
+	local wasRunActive = state.IsRunActive
+
+	state.IsRunActive = payload.IsRunActive == true
+
+	if state.IsRunActive and not wasRunActive then
+		timerRemaining = RUN_TIMER_SECONDS
+	elseif not state.IsRunActive then
+		timerRemaining = RUN_TIMER_SECONDS
+	end
+
+	refreshTimer()
+	refreshPause()
+end
+
 local function waitForRemote(remoteName)
 	local remote = ReplicatedStorage:FindFirstChild(remoteName)
 
@@ -829,6 +847,7 @@ bindRemote("Xp_UpdateCount", onXpPayload)
 bindRemote("Coin_UpdateCount", onCoinsPayload)
 bindRemote("Perk_UpdateStats", onPerksPayload)
 bindRemote("Combat_PauseState", onPausePayload)
+bindRemote("Run_StateUpdate", onRunStatePayload)
 bindRemote(HudMessageConfig.RemoteName, onHudMessagePayload)
 
 task.spawn(function()
