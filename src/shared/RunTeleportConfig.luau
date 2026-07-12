@@ -1,7 +1,9 @@
 return {
 	Enabled = true,
 
-	-- TeleportPart2 est dans le lobby/obby. TeleportPart1 est le point d'arrivee de run.
+	-- Le GUI du lobby est le point d'entree principal.
+	-- TeleportPart2 reste un declencheur physique facultatif pour compatibilite.
+	-- TeleportPart1 est le point d'arrivee contenu dans chaque template de map.
 	TriggerPartName = "TeleportPart2",
 	ArrivalPartName = "TeleportPart1",
 	ArrivalHeightOffset = 4,

@@ -8,9 +8,11 @@ local RunStateService = {}
 
 local runStartedEvent = Instance.new("BindableEvent")
 local runEndedEvent = Instance.new("BindableEvent")
+local levelValidatedEvent = Instance.new("BindableEvent")
 
 RunStateService.RunStarted = runStartedEvent.Event
 RunStateService.RunEnded = runEndedEvent.Event
+RunStateService.LevelValidated = levelValidatedEvent.Event
 
 local statesByUserId = {}
 local characterConnectionsByUserId = {}
@@ -136,6 +138,15 @@ end
 
 function RunStateService.EndRun(player, reason)
 	return RunStateService.SetRunActive(player, false, reason or "RunEnded")
+end
+
+function RunStateService.NotifyLevelValidated(player)
+	if player == nil or not RunStateService.IsRunActive(player) then
+		return false
+	end
+
+	levelValidatedEvent:Fire(player)
+	return true
 end
 
 function RunStateService.IsRunActive(player)

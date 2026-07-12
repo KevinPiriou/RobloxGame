@@ -12,6 +12,7 @@ local PerkIconConfig = require(Shared:WaitForChild("PerkIconConfig"))
 local showChoicesRemote = ReplicatedStorage:WaitForChild("Perk_ShowChoices")
 local hideChoicesRemote = ReplicatedStorage:WaitForChild("Perk_HideChoices")
 local selectChoiceRemote = ReplicatedStorage:WaitForChild("Perk_SelectChoice")
+local rerollChoiceRemote = ReplicatedStorage:WaitForChild("Perk_RerollRequest")
 
 local existingGui = playerGui:FindFirstChild("PerkChoiceGui")
 
@@ -101,7 +102,7 @@ overlay.Parent = screenGui
 local panel = Instance.new("Frame")
 panel.Name = "Panel"
 panel.AnchorPoint = Vector2.new(0.5, 0.5)
-panel.Position = UDim2.new(0.59, 0, 0.5, 0)
+panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 panel.Size = UDim2.new(0.66, 0, 0, 446)
 panel.BackgroundColor3 = COLORS.Panel
 panel.BackgroundTransparency = 0.2
@@ -167,9 +168,27 @@ subtitleLabel.Position = UDim2.fromOffset(22, 57)
 subtitleLabel.Size = UDim2.new(1, -44, 0, 20)
 subtitleLabel.TextXAlignment = Enum.TextXAlignment.Center
 
+local rerollButton = Instance.new("TextButton")
+rerollButton.Name = "RerollButton"
+rerollButton.AnchorPoint = Vector2.new(0.5, 0)
+rerollButton.Position = UDim2.new(0.5, 0, 0, 78)
+rerollButton.Size = UDim2.fromOffset(190, 20)
+rerollButton.BackgroundColor3 = Color3.fromRGB(63, 37, 92)
+rerollButton.BackgroundTransparency = 0.16
+rerollButton.BorderSizePixel = 0
+rerollButton.AutoButtonColor = false
+rerollButton.Font = Enum.Font.GothamBold
+rerollButton.Text = "RELANCER (0)"
+rerollButton.TextColor3 = COLORS.Text
+rerollButton.TextSize = 10
+rerollButton.Visible = false
+rerollButton.Parent = panel
+addCorner(rerollButton, 5)
+addStroke(rerollButton, COLORS.PurpleLight, 0.28, 1)
+
 local divider = Instance.new("Frame")
 divider.Name = "Divider"
-divider.Position = UDim2.new(0, 22, 0, 90)
+divider.Position = UDim2.new(0, 22, 0, 104)
 divider.Size = UDim2.new(1, -44, 0, 1)
 divider.BackgroundColor3 = COLORS.PurpleLight
 divider.BackgroundTransparency = 0.7
@@ -178,8 +197,8 @@ divider.Parent = panel
 
 local optionsFrame = Instance.new("ScrollingFrame")
 optionsFrame.Name = "Options"
-optionsFrame.Position = UDim2.fromOffset(18, 108)
-optionsFrame.Size = UDim2.new(1, -36, 1, -126)
+optionsFrame.Position = UDim2.fromOffset(18, 122)
+optionsFrame.Size = UDim2.new(1, -36, 1, -140)
 optionsFrame.BackgroundTransparency = 1
 optionsFrame.BorderSizePixel = 0
 optionsFrame.CanvasSize = UDim2.fromOffset(0, 0)
@@ -199,7 +218,28 @@ optionsLayout.Parent = optionsFrame
 
 local currentChoiceId = nil
 local isSubmitting = false
+local isRerollPending = false
 local optionButtons = {}
+
+local function getRerollCredits()
+	return math.max(0, math.floor(tonumber(player:GetAttribute("PerkRerollCredits")) or 0))
+end
+
+local function refreshRerollButton()
+	local credits = getRerollCredits()
+	local canReroll = screenGui.Enabled
+		and currentChoiceId ~= nil
+		and credits > 0
+		and not isSubmitting
+		and not isRerollPending
+
+	rerollButton.Visible = screenGui.Enabled and currentChoiceId ~= nil
+	rerollButton.Active = canReroll
+	rerollButton.Selectable = canReroll
+	rerollButton.Text = "RELANCER (" .. tostring(credits) .. ")"
+	rerollButton.TextTransparency = if canReroll then 0 else 0.48
+	rerollButton.BackgroundTransparency = if canReroll then 0.16 else 0.55
+end
 
 local function setEntryHover(entry, isHovered)
 	if entry.Option == nil or isSubmitting then
@@ -459,6 +499,8 @@ local function setButtonsEnabled(isEnabled)
 			}):Play()
 		end
 	end
+
+	refreshRerollButton()
 end
 
 local function getViewportSize()
@@ -489,7 +531,7 @@ local function updateResponsiveLayout()
 			entry.Button.Size = UDim2.new(1, -6, 0, 310)
 		end
 	else
-		panel.Position = UDim2.new(0.59, 0, 0.5, 0)
+		panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 		panel.Size = UDim2.new(0.66, 0, 0, 446)
 		optionsLayout.FillDirection = Enum.FillDirection.Horizontal
 		optionsLayout.Padding = UDim.new(0, 10)
@@ -514,6 +556,7 @@ end
 local function hideChoices()
 	currentChoiceId = nil
 	isSubmitting = false
+	isRerollPending = false
 	screenGui.Enabled = false
 	setButtonsEnabled(true)
 	DebugLog.Info("Perks", "UI choix perk cachee", {
@@ -527,6 +570,7 @@ local function showChoices(payload)
 
 	currentChoiceId = payload.ChoiceId
 	isSubmitting = false
+	isRerollPending = false
 	titleLabel.Text = getTitle(payload)
 	subtitleLabel.Text = "CHOISIS UNE AMELIORATION PERMANENTE"
 	screenGui.Enabled = true
@@ -588,6 +632,8 @@ local function showChoices(payload)
 			end
 		end
 	end
+
+	refreshRerollButton()
 end
 
 for _, entry in ipairs(optionButtons) do
@@ -608,8 +654,30 @@ for _, entry in ipairs(optionButtons) do
 	end)
 end
 
+rerollButton.Activated:Connect(function()
+	if currentChoiceId == nil or isSubmitting or isRerollPending or getRerollCredits() <= 0 then
+		return
+	end
+
+	isRerollPending = true
+	refreshRerollButton()
+	DebugLog.Info("Perks", "UI reroll perk envoye", {
+		Player = player.Name,
+		ChoiceId = currentChoiceId,
+	})
+	rerollChoiceRemote:FireServer(currentChoiceId)
+
+	task.delay(2, function()
+		if isRerollPending then
+			isRerollPending = false
+			refreshRerollButton()
+		end
+	end)
+end)
+
 showChoicesRemote.OnClientEvent:Connect(showChoices)
 hideChoicesRemote.OnClientEvent:Connect(hideChoices)
+player:GetAttributeChangedSignal("PerkRerollCredits"):Connect(refreshRerollButton)
 
 if Workspace.CurrentCamera ~= nil then
 	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateResponsiveLayout)

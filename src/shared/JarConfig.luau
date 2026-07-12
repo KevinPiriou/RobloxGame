@@ -22,10 +22,6 @@ return {
 	PromptObjectText = "Jarre",
 	BreakDistance = 5,
 	BreakValidationTolerance = 0.75,
-	BreakSoundId = "rbxassetid://9114498899",
-	BreakSoundVolume = 0.75,
-	BreakSoundMaxDistance = 55,
-	BreakSoundLifetime = 4,
 	BreakResolveDelay = 0.12,
 
 	DropHeightOffset = 1.1,

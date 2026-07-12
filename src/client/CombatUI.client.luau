@@ -9,6 +9,7 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local ChestConfig = require(Shared:WaitForChild("ChestConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local HudMessageConfig = require(Shared:WaitForChild("HudMessageConfig"))
 
@@ -53,6 +54,7 @@ local COLORS = {
 	HealthDark = Color3.fromRGB(15, 128, 58),
 	Shield = Color3.fromRGB(25, 255, 218),
 	ShieldDark = Color3.fromRGB(0, 104, 156),
+	Arcane = Color3.fromRGB(149, 222, 255),
 	Kills = Color3.fromRGB(255, 43, 57),
 	Gold = Color3.fromRGB(255, 202, 48),
 	Green = Color3.fromRGB(105, 245, 100),
@@ -66,8 +68,13 @@ local COLORS = {
 
 -- Remplacer les chaines vides par des ids du catalogue Roblox Studio si besoin.
 local ICON_IMAGES = {
+	ArcaneGem = "rbxassetid://137344039860332",
 	Kills = "rbxassetid://78565181494437",
 	Gold = "rbxassetid://137648994340847",
+	NextChest = "rbxassetid://75386927173068",
+	Timer = "rbxassetid://84807607704086",
+	Pause = "rbxassetid://99288878339871",
+	Play = "rbxassetid://111726051060051",
 	Health = "rbxassetid://107129416801939",
 	Shield = "rbxassetid://125061574107320",
 }
@@ -106,6 +113,8 @@ local state = {
 	Kills = 0,
 	WeaponName = "Fireball",
 	Coins = 0,
+	ArcaneGems = math.max(0, math.floor(tonumber(player:GetAttribute("ArcaneGems")) or 0)),
+	NextChestCost = ChestConfig.BaseOpenCost,
 	Level = 1,
 	Xp = 0,
 	XpRequired = 6,
@@ -174,7 +183,7 @@ local function createLabel(parent, name, text, font, textSize, color)
 	return label
 end
 
-local function createIcon(parent, name, imageId, fallbackText, color)
+local function createIcon(parent, name, imageId, fallbackText, color, preserveImageColors)
 	local holder = Instance.new("Frame")
 	holder.Name = name
 	holder.BackgroundTransparency = 1
@@ -186,7 +195,7 @@ local function createIcon(parent, name, imageId, fallbackText, color)
 		image.Name = "Image"
 		image.BackgroundTransparency = 1
 		image.Image = imageId
-		image.ImageColor3 = color or COLORS.Text
+		image.ImageColor3 = if preserveImageColors then Color3.new(1, 1, 1) else (color or COLORS.Text)
 		image.ScaleType = Enum.ScaleType.Fit
 		image.Size = UDim2.fromScale(1, 1)
 		image.Parent = holder
@@ -258,6 +267,34 @@ local function addRunGlassSurface(parent, name, position, size, radius, accent)
 	return surface
 end
 
+local function addTopBarGlassSurface(parent, name, position, size, radius)
+	local surface = Instance.new("Frame")
+	surface.Name = name
+	surface.Position = position
+	surface.Size = size
+	surface.BackgroundColor3 = Color3.fromRGB(37, 51, 70)
+	surface.BackgroundTransparency = 0.26
+	surface.BorderSizePixel = 0
+	surface.ZIndex = 0
+	surface.Parent = parent
+	addCorner(surface, radius)
+	addStroke(surface, COLORS.GlassTint, 0.36, 2)
+	addGradient(surface, Color3.fromRGB(61, 81, 108), Color3.fromRGB(17, 27, 39), 90)
+
+	local inner = Instance.new("Frame")
+	inner.Name = "Inner"
+	inner.Position = UDim2.fromOffset(4, 4)
+	inner.Size = UDim2.new(1, -8, 1, -8)
+	inner.BackgroundColor3 = Color3.fromRGB(17, 27, 39)
+	inner.BackgroundTransparency = 0.38
+	inner.BorderSizePixel = 0
+	inner.Parent = surface
+	addCorner(inner, math.max(0, radius - 3))
+	addStroke(inner, COLORS.GlassStroke, 0.66, 1)
+
+	return surface
+end
+
 local function setBarProgress(fill, progress)
 	TweenService:Create(fill, BAR_TWEEN, {
 		Size = UDim2.new(math.clamp(progress, 0, 1), 0, 1, 0),
@@ -307,7 +344,7 @@ end
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "CombatGui"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = false
+screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 6
 screenGui.Parent = playerGui
 
@@ -333,11 +370,18 @@ local function playDamageFlash()
 	damageFlashTween:Play()
 end
 
+local TOP_CLUSTER_WIDTH = 960
+local TOP_CLUSTER_HEIGHT = 70
+local TOP_FRAME_HEIGHT = 60
+local TOP_PAUSE_SIZE = 22
+local TOP_STAT_ICON_SIZE = 28
+local TOP_STAT_TEXT_SIZE = 20
+
 local topCluster = Instance.new("Frame")
 topCluster.Name = "TopCluster"
 topCluster.AnchorPoint = Vector2.new(0.5, 0)
-topCluster.Position = UDim2.new(0.5, 0, 0, 12)
-topCluster.Size = UDim2.fromOffset(500, 58)
+topCluster.Position = UDim2.new(0.5, 0, 0, 2)
+topCluster.Size = UDim2.fromOffset(TOP_CLUSTER_WIDTH, TOP_CLUSTER_HEIGHT)
 topCluster.BackgroundTransparency = 1
 topCluster.BorderSizePixel = 0
 topCluster.Parent = screenGui
@@ -345,15 +389,9 @@ topCluster.Parent = screenGui
 local topScale = Instance.new("UIScale")
 topScale.Parent = topCluster
 
-local topPauseSize = 42
-local topStatSlotWidth = 104
-local topStatValueOffset = 43
-local topStatIconSize = 31
-local topStatTextSize = 22
-
 local topFrame = Instance.new("Frame")
 topFrame.Name = "TopMetalFrame"
-topFrame.Size = UDim2.new(1, 0, 0, 52)
+topFrame.Size = UDim2.new(1, 0, 0, TOP_FRAME_HEIGHT)
 topFrame.BackgroundColor3 = Color3.fromRGB(37, 51, 70)
 topFrame.BackgroundTransparency = 0.26
 topFrame.BorderSizePixel = 0
@@ -373,81 +411,189 @@ topInner.Parent = topFrame
 addCorner(topInner, 9)
 addStroke(topInner, COLORS.GlassStroke, 0.66, 1)
 
+local lobbyArcaneChip = Instance.new("Frame")
+lobbyArcaneChip.Name = "LobbyArcaneChip"
+lobbyArcaneChip.AnchorPoint = Vector2.new(0.5, 0)
+lobbyArcaneChip.Position = UDim2.new(0.5, 0, 0, 4)
+lobbyArcaneChip.Size = UDim2.fromOffset(148, 38)
+lobbyArcaneChip.BackgroundTransparency = 1
+lobbyArcaneChip.BorderSizePixel = 0
+lobbyArcaneChip.Parent = screenGui
+addTopBarGlassSurface(lobbyArcaneChip, "Background", UDim2.fromScale(0, 0), UDim2.fromScale(1, 1), 8)
+
+local lobbyArcaneIcon = createIcon(lobbyArcaneChip, "ArcaneIcon", ICON_IMAGES.ArcaneGem, "A", COLORS.Arcane, true)
+lobbyArcaneIcon.Position = UDim2.fromOffset(12, 7)
+lobbyArcaneIcon.Size = UDim2.fromOffset(24, 24)
+
+local lobbyArcaneCaption = createLabel(lobbyArcaneChip, "Caption", "GEMMES", UI_FONTS.Bold, 9, COLORS.Muted)
+lobbyArcaneCaption.Position = UDim2.fromOffset(43, 4)
+lobbyArcaneCaption.Size = UDim2.fromOffset(92, 12)
+
+local lobbyArcaneValue = createLabel(lobbyArcaneChip, "Value", "0", UI_FONTS.Heavy, 18, COLORS.Arcane)
+lobbyArcaneValue.Position = UDim2.fromOffset(43, 15)
+lobbyArcaneValue.Size = UDim2.fromOffset(92, 19)
+addTextSizeConstraint(lobbyArcaneValue, 12, 18)
+
+local arcaneSlot = Instance.new("Frame")
+arcaneSlot.Name = "ArcaneSlot"
+arcaneSlot.AnchorPoint = Vector2.new(0, 0.5)
+arcaneSlot.Position = UDim2.fromOffset(32, 30)
+arcaneSlot.Size = UDim2.fromOffset(82, 28)
+arcaneSlot.BackgroundTransparency = 1
+arcaneSlot.BorderSizePixel = 0
+arcaneSlot.Parent = topCluster
+
+local arcaneIcon = createIcon(arcaneSlot, "ArcaneIcon", ICON_IMAGES.ArcaneGem, "A", COLORS.Arcane, true)
+arcaneIcon.AnchorPoint = Vector2.new(0, 0.5)
+arcaneIcon.Position = UDim2.fromOffset(0, 14)
+arcaneIcon.Size = UDim2.fromOffset(TOP_STAT_ICON_SIZE, TOP_STAT_ICON_SIZE)
+
+local arcaneValue = createLabel(arcaneSlot, "ArcaneValue", "0", UI_FONTS.Heavy, TOP_STAT_TEXT_SIZE, COLORS.Arcane)
+arcaneValue.AnchorPoint = Vector2.new(0, 0.5)
+arcaneValue.Position = UDim2.fromOffset(34, 14)
+arcaneValue.Size = UDim2.fromOffset(48, 28)
+arcaneValue.TextScaled = true
+arcaneValue.TextXAlignment = Enum.TextXAlignment.Left
+addTextSizeConstraint(arcaneValue, 11, TOP_STAT_TEXT_SIZE)
+
 local killsSlot = Instance.new("Frame")
 killsSlot.Name = "KillsSlot"
-killsSlot.Position = UDim2.fromOffset(12, 4)
-killsSlot.Size = UDim2.fromOffset(topStatSlotWidth, 52)
+killsSlot.AnchorPoint = Vector2.new(0, 0.5)
+killsSlot.Position = UDim2.fromOffset(142, 30)
+killsSlot.Size = UDim2.fromOffset(74, 28)
 killsSlot.BackgroundTransparency = 1
 killsSlot.BorderSizePixel = 0
 killsSlot.Parent = topCluster
 
 local killsIcon = createIcon(killsSlot, "KillsIcon", ICON_IMAGES.Kills, "K", COLORS.Kills)
-killsIcon.Position = UDim2.fromOffset(0, 6)
-killsIcon.Size = UDim2.fromOffset(topStatIconSize, topStatIconSize)
+killsIcon.AnchorPoint = Vector2.new(0, 0.5)
+killsIcon.Position = UDim2.fromOffset(0, 14)
+killsIcon.Size = UDim2.fromOffset(TOP_STAT_ICON_SIZE, TOP_STAT_ICON_SIZE)
 
-local killsValue = createLabel(killsSlot, "KillsValue", "0", UI_FONTS.Heavy, topStatTextSize, COLORS.Kills)
-killsValue.Position = UDim2.fromOffset(topStatValueOffset, 4)
-killsValue.Size = UDim2.fromOffset(topStatSlotWidth - topStatValueOffset, 35)
+local killsValue = createLabel(killsSlot, "KillsValue", "0", UI_FONTS.Heavy, TOP_STAT_TEXT_SIZE, COLORS.Kills)
+killsValue.AnchorPoint = Vector2.new(0, 0.5)
+killsValue.Position = UDim2.fromOffset(34, 14)
+killsValue.Size = UDim2.fromOffset(40, 28)
 killsValue.TextScaled = true
 killsValue.TextXAlignment = Enum.TextXAlignment.Left
-addTextSizeConstraint(killsValue, 15, topStatTextSize)
+addTextSizeConstraint(killsValue, 11, TOP_STAT_TEXT_SIZE)
 
 local goldSlot = Instance.new("Frame")
 goldSlot.Name = "GoldSlot"
-goldSlot.Position = UDim2.fromOffset(124, 4)
-goldSlot.Size = UDim2.fromOffset(topStatSlotWidth, 52)
+goldSlot.AnchorPoint = Vector2.new(0, 0.5)
+goldSlot.Position = UDim2.fromOffset(252, 30)
+goldSlot.Size = UDim2.fromOffset(74, 28)
 goldSlot.BackgroundTransparency = 1
 goldSlot.BorderSizePixel = 0
 goldSlot.Parent = topCluster
 
 local goldIcon = createIcon(goldSlot, "GoldIcon", ICON_IMAGES.Gold, "G", COLORS.Gold)
-goldIcon.Position = UDim2.fromOffset(0, 6)
-goldIcon.Size = UDim2.fromOffset(topStatIconSize, topStatIconSize)
+goldIcon.AnchorPoint = Vector2.new(0, 0.5)
+goldIcon.Position = UDim2.fromOffset(0, 14)
+goldIcon.Size = UDim2.fromOffset(TOP_STAT_ICON_SIZE, TOP_STAT_ICON_SIZE)
 
-local goldValue = createLabel(goldSlot, "GoldValue", "0", UI_FONTS.Heavy, topStatTextSize, COLORS.Gold)
-goldValue.Position = UDim2.fromOffset(topStatValueOffset, 4)
-goldValue.Size = UDim2.fromOffset(topStatSlotWidth - topStatValueOffset, 35)
+local goldValue = createLabel(goldSlot, "GoldValue", "0", UI_FONTS.Heavy, TOP_STAT_TEXT_SIZE, COLORS.Gold)
+goldValue.AnchorPoint = Vector2.new(0, 0.5)
+goldValue.Position = UDim2.fromOffset(34, 14)
+goldValue.Size = UDim2.fromOffset(40, 28)
 goldValue.TextScaled = true
 goldValue.TextXAlignment = Enum.TextXAlignment.Left
-addTextSizeConstraint(goldValue, 15, topStatTextSize)
+addTextSizeConstraint(goldValue, 11, TOP_STAT_TEXT_SIZE)
+
+local chestCostSlot = Instance.new("Frame")
+chestCostSlot.Name = "ChestCostSlot"
+chestCostSlot.AnchorPoint = Vector2.new(0, 0.5)
+chestCostSlot.Position = UDim2.fromOffset(560, 30)
+chestCostSlot.Size = UDim2.fromOffset(238, 28)
+chestCostSlot.BackgroundTransparency = 1
+chestCostSlot.BorderSizePixel = 0
+chestCostSlot.Parent = topCluster
+
+local chestCostCoinIcon = createIcon(chestCostSlot, "CoinIcon", ICON_IMAGES.Gold, "G", COLORS.Gold)
+chestCostCoinIcon.AnchorPoint = Vector2.new(0, 0.5)
+chestCostCoinIcon.Position = UDim2.fromOffset(0, 14)
+chestCostCoinIcon.Size = UDim2.fromOffset(19, 19)
+
+local chestCostIcon = createIcon(chestCostSlot, "ChestIcon", ICON_IMAGES.NextChest, "C", COLORS.Gold, true)
+chestCostIcon.AnchorPoint = Vector2.new(0, 0.5)
+chestCostIcon.Position = UDim2.fromOffset(16, 14)
+chestCostIcon.Size = UDim2.fromOffset(26, 26)
+
+local chestCostValue = createLabel(chestCostSlot, "ChestCostValue", "5", UI_FONTS.Heavy, TOP_STAT_TEXT_SIZE, COLORS.Gold)
+chestCostValue.AnchorPoint = Vector2.new(0, 0.5)
+chestCostValue.Position = UDim2.fromOffset(49, 14)
+chestCostValue.Size = UDim2.fromOffset(58, 28)
+chestCostValue.TextScaled = true
+chestCostValue.TextXAlignment = Enum.TextXAlignment.Left
+addTextSizeConstraint(chestCostValue, 11, TOP_STAT_TEXT_SIZE)
+
+local topLevelValue = createLabel(chestCostSlot, "TopLevelValue", "LVL 1", UI_FONTS.Heavy, 18, COLORS.Text)
+topLevelValue.AnchorPoint = Vector2.new(0, 0.5)
+topLevelValue.Position = UDim2.fromOffset(116, 14)
+topLevelValue.Size = UDim2.fromOffset(96, 28)
+topLevelValue.TextScaled = true
+topLevelValue.TextXAlignment = Enum.TextXAlignment.Left
+addTextSizeConstraint(topLevelValue, 12, 18)
+
+local pauseDiamond = Instance.new("Frame")
+pauseDiamond.Name = "PauseDiamond"
+pauseDiamond.AnchorPoint = Vector2.new(0.5, 0.5)
+pauseDiamond.Position = UDim2.new(0.5, 0, 0, 45)
+pauseDiamond.Size = UDim2.fromOffset(30, 30)
+pauseDiamond.BackgroundColor3 = Color3.fromRGB(21, 34, 52)
+pauseDiamond.BackgroundTransparency = 0.08
+pauseDiamond.BorderSizePixel = 0
+pauseDiamond.Rotation = 45
+pauseDiamond.Parent = topCluster
+addCorner(pauseDiamond, 4)
+addStroke(pauseDiamond, Color3.fromRGB(164, 222, 255), 0.24, 1)
+addGradient(pauseDiamond, Color3.fromRGB(68, 98, 138), Color3.fromRGB(18, 25, 38), 45)
 
 local pauseButton = Instance.new("TextButton")
 pauseButton.Name = "PauseButton"
-pauseButton.AnchorPoint = Vector2.new(1, 0)
-pauseButton.Position = UDim2.new(1, -10, 0, 5)
-pauseButton.Size = UDim2.fromOffset(topPauseSize, topPauseSize)
-pauseButton.BackgroundColor3 = Color3.fromRGB(37, 51, 70)
-pauseButton.BackgroundTransparency = 0.24
+pauseButton.AnchorPoint = Vector2.new(0.5, 0.5)
+pauseButton.Position = UDim2.new(0.5, 0, 0, 45)
+pauseButton.Size = UDim2.fromOffset(TOP_PAUSE_SIZE, TOP_PAUSE_SIZE)
+pauseButton.BackgroundTransparency = 1
 pauseButton.BorderSizePixel = 0
-pauseButton.Font = UI_FONTS.Heavy
-pauseButton.Text = "||"
-pauseButton.TextColor3 = COLORS.Green
-pauseButton.TextSize = 22
-pauseButton.TextStrokeTransparency = 0.45
+pauseButton.Text = ""
 pauseButton.AutoButtonColor = true
 pauseButton.Parent = topCluster
-addCorner(pauseButton, 8)
-addStroke(pauseButton, Color3.fromRGB(208, 160, 255), 0.34, 1)
-addTextSizeConstraint(pauseButton, 15, 22)
+
+local pauseImage = Instance.new("ImageLabel")
+pauseImage.Name = "PauseImage"
+pauseImage.BackgroundTransparency = 1
+pauseImage.Image = ICON_IMAGES.Pause
+pauseImage.ScaleType = Enum.ScaleType.Fit
+pauseImage.Size = UDim2.fromScale(1, 1)
+pauseImage.Parent = pauseButton
 
 local timerSlot = Instance.new("Frame")
 timerSlot.Name = "TimerSlot"
-timerSlot.Position = UDim2.fromOffset(236, 4)
-timerSlot.Size = UDim2.fromOffset(132, 44)
+timerSlot.AnchorPoint = Vector2.new(0.5, 0.5)
+timerSlot.Position = UDim2.new(0.5, 0, 0, 30)
+timerSlot.Size = UDim2.fromOffset(112, 28)
 timerSlot.BackgroundTransparency = 1
 timerSlot.BorderSizePixel = 0
 timerSlot.Parent = topCluster
 
-local timerCaption = createLabel(timerSlot, "Caption", "TEMPS", UI_FONTS.Bold, 9, COLORS.Muted)
-timerCaption.Position = UDim2.fromOffset(0, 4)
-timerCaption.Size = UDim2.new(1, 0, 0, 12)
-timerCaption.TextXAlignment = Enum.TextXAlignment.Center
+local timerImage = Instance.new("ImageLabel")
+timerImage.Name = "TimerImage"
+timerImage.AnchorPoint = Vector2.new(0.5, 0.5)
+timerImage.Position = UDim2.fromScale(0.5, 0.5)
+timerImage.Size = UDim2.fromOffset(40, 40)
+timerImage.BackgroundTransparency = 1
+timerImage.Image = ICON_IMAGES.Timer
+timerImage.ScaleType = Enum.ScaleType.Fit
+timerImage.ImageTransparency = 0.2
+timerImage.Parent = timerSlot
 
-local timerLabel = createLabel(timerSlot, "TimerLabel", "12:00", UI_FONTS.Heavy, 19, Color3.fromRGB(125, 219, 255))
-timerLabel.Position = UDim2.fromOffset(0, 15)
-timerLabel.Size = UDim2.new(1, 0, 0, 25)
+local timerLabel = createLabel(timerSlot, "TimerLabel", "12:00", UI_FONTS.Heavy, 18, Color3.fromRGB(220, 246, 255))
+timerLabel.Size = UDim2.fromScale(1, 1)
 timerLabel.TextXAlignment = Enum.TextXAlignment.Center
-addTextSizeConstraint(timerLabel, 13, 19)
+timerLabel.TextStrokeTransparency = 0.08
+timerLabel.ZIndex = 2
+addTextSizeConstraint(timerLabel, 12, 18)
 
 local eventMessageFrame = Instance.new("Frame")
 eventMessageFrame.Name = "EventMessageFrame"
@@ -521,13 +667,12 @@ xpSize.Parent = xpPanel
 local xpScale = Instance.new("UIScale")
 xpScale.Parent = xpPanel
 
-addRunGlassSurface(
+addTopBarGlassSurface(
 	xpPanel,
 	"BarsGlassBackground",
 	UDim2.fromOffset(-14, -8),
 	UDim2.new(1, 28, 1, 16),
-	13,
-	Color3.fromRGB(232, 241, 252)
+	13
 )
 
 local hpGroup = Instance.new("Frame")
@@ -665,38 +810,43 @@ addStroke(centerGem, Color3.fromRGB(238, 246, 255), 0.42, 1)
 
 local function updateResponsiveLayout()
 	local viewportSize = getViewportSize()
+	local function getTopScale(targetScale)
+		local availableWidth = math.max(1, viewportSize.X - 24)
+
+		return math.min(targetScale, availableWidth / TOP_CLUSTER_WIDTH)
+	end
 
 	if viewportSize.X < 560 then
-		topCluster.Position = UDim2.new(0.5, 0, 0, 8)
-		topScale.Scale = 0.68
-		eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 60)
+		topCluster.Position = UDim2.new(0.5, 0, 0, 2)
+		topScale.Scale = getTopScale(0.72)
+		eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 78)
 		eventMessageFrame.Size = UDim2.new(0.9, 0, 0, 50)
 		eventMessageScale.Scale = 0.84
 		xpPanel.Position = UDim2.new(0.5, 0, 1, -8)
 		xpPanel.Size = UDim2.new(0.88, 0, 0, 80)
 		xpScale.Scale = 0.8
 	elseif viewportSize.X < 760 then
-		topCluster.Position = UDim2.new(0.5, 0, 0, 8)
-		topScale.Scale = 0.78
-		eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 66)
+		topCluster.Position = UDim2.new(0.5, 0, 0, 2)
+		topScale.Scale = getTopScale(0.84)
+		eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 82)
 		eventMessageFrame.Size = UDim2.new(0.84, 0, 0, 52)
 		eventMessageScale.Scale = 0.9
 		xpPanel.Position = UDim2.new(0.5, 0, 1, -8)
 		xpPanel.Size = UDim2.new(0.82, 0, 0, 80)
 		xpScale.Scale = 0.86
 	elseif viewportSize.X < 1250 then
-		topCluster.Position = UDim2.new(0.5, 0, 0, 10)
-		topScale.Scale = 0.9
-		eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 76)
+		topCluster.Position = UDim2.new(0.5, 0, 0, 2)
+		topScale.Scale = getTopScale(0.95)
+		eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 86)
 		eventMessageFrame.Size = UDim2.new(0.58, 0, 0, 54)
 		eventMessageScale.Scale = 0.96
 		xpPanel.Position = UDim2.new(0.5, 0, 1, -12)
 		xpPanel.Size = UDim2.new(0.62, 0, 0, 80)
 		xpScale.Scale = 0.92
 	else
-		topCluster.Position = UDim2.new(0.5, 0, 0, 12)
-		topScale.Scale = 1
-		eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 82)
+		topCluster.Position = UDim2.new(0.5, 0, 0, 2)
+		topScale.Scale = getTopScale(1)
+		eventMessageFrame.Position = UDim2.new(0.5, 0, 0, 90)
 		eventMessageFrame.Size = UDim2.fromOffset(620, 56)
 		eventMessageScale.Scale = 1
 		xpPanel.Position = UDim2.new(0.5, 0, 1, -16)
@@ -726,6 +876,7 @@ local function refreshXp()
 	local progress = state.Xp / math.max(1, state.XpRequired)
 
 	levelValue.Text = ("LVL %s"):format(formatNumber(state.Level))
+	topLevelValue.Text = ("LVL %s"):format(formatNumber(state.Level))
 	xpText.Text = ("XP %s / %s"):format(formatNumber(state.Xp), formatNumber(state.XpRequired))
 	setBarProgress(xpFill, progress)
 end
@@ -734,12 +885,23 @@ local function refreshCoins()
 	goldValue.Text = formatTopStatNumber(state.Coins)
 end
 
+local function refreshArcaneGems()
+	arcaneValue.Text = formatTopStatNumber(state.ArcaneGems)
+	lobbyArcaneValue.Text = formatTopStatNumber(state.ArcaneGems)
+end
+
+local function refreshChestCost()
+	chestCostValue.Text = formatTopStatNumber(state.NextChestCost)
+end
+
 local function refreshTimer()
 	timerLabel.Text = formatTimer(timerRemaining)
 end
 
 local function refreshRunVisibility()
 	topCluster.Visible = state.IsRunActive
+	xpPanel.Visible = state.IsRunActive
+	lobbyArcaneChip.Visible = not state.IsRunActive
 
 	if not state.IsRunActive then
 		eventMessageFrame.Visible = false
@@ -754,18 +916,8 @@ local function refreshPause()
 	isPauseButtonBlocked = (not state.IsRunActive) or (state.HasBlockingPause and not state.IsUserPaused)
 	pauseButton.Active = not isPauseButtonBlocked
 	pauseButton.AutoButtonColor = not isPauseButtonBlocked
-	pauseButton.Text = if state.IsUserPaused then ">" else "||"
-	pauseButton.TextColor3 = if isPauseButtonBlocked then COLORS.Muted else Color3.fromRGB(243, 235, 255)
-	pauseButton.TextTransparency = if isPauseButtonBlocked then 0.42 else 0
-
-	local stroke = pauseButton:FindFirstChildWhichIsA("UIStroke")
-
-	if stroke ~= nil then
-		TweenService:Create(stroke, QUICK_TWEEN, {
-			Color = if isPauseButtonBlocked then COLORS.Muted else Color3.fromRGB(208, 160, 255),
-			Transparency = if state.IsUserPaused then 0.1 else 0.38,
-		}):Play()
-	end
+	pauseImage.Image = if state.IsUserPaused then ICON_IMAGES.Play else ICON_IMAGES.Pause
+	pauseImage.ImageTransparency = if isPauseButtonBlocked then 0.45 else 0
 end
 
 local function showEventMessage(payload)
@@ -898,6 +1050,20 @@ local function onCoinsPayload(payload)
 	refreshCoins()
 end
 
+local function onChestPricePayload(payload)
+	payload = payload or {}
+
+	if payload.Coins ~= nil then
+		state.Coins = payload.Coins
+		refreshCoins()
+	end
+
+	if payload.NextOpenCost ~= nil then
+		state.NextChestCost = math.max(0, math.floor(tonumber(payload.NextOpenCost) or state.NextChestCost))
+		refreshChestCost()
+	end
+end
+
 local function onPerksPayload(payload)
 	payload = payload or {}
 
@@ -978,6 +1144,7 @@ end
 bindRemote("Combat_UpdateStats", onStatsPayload)
 bindRemote("Xp_UpdateCount", onXpPayload)
 bindRemote("Coin_UpdateCount", onCoinsPayload)
+bindRemote("Chest_PriceUpdate", onChestPricePayload)
 bindRemote("Perk_UpdateStats", onPerksPayload)
 bindRemote("Combat_PauseState", onPausePayload)
 bindRemote("Run_StateUpdate", onRunStatePayload)
@@ -987,6 +1154,11 @@ player:GetAttributeChangedSignal("IsRunActive"):Connect(function()
 	onRunStatePayload({
 		IsRunActive = player:GetAttribute("IsRunActive") == true,
 	})
+end)
+
+player:GetAttributeChangedSignal("ArcaneGems"):Connect(function()
+	state.ArcaneGems = math.max(0, math.floor(tonumber(player:GetAttribute("ArcaneGems")) or 0))
+	refreshArcaneGems()
 end)
 
 task.spawn(function()
@@ -1035,6 +1207,8 @@ end)
 refreshCombatStats()
 refreshXp()
 refreshCoins()
+refreshArcaneGems()
+refreshChestCost()
 refreshTimer()
 refreshRunVisibility()
 refreshPause()

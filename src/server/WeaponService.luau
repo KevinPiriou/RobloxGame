@@ -8,6 +8,7 @@ local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
+local AudioService = require(script.Parent:WaitForChild("AudioService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
@@ -291,6 +292,8 @@ local function fireAtClosestMonster(player)
 
 		createProjectile(player, spawnPosition, targetMonster, targetRoot, projectileDirection)
 	end
+
+	AudioService.PlayForPlayer(player, "FireballCast")
 end
 
 local function updatePlayerWeapons(now)

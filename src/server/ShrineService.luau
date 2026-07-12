@@ -8,6 +8,7 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local ShrineConfig = require(Shared:WaitForChild("ShrineConfig"))
 
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
+local AudioService = require(script.Parent:WaitForChild("AudioService"))
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local HudMessageService = require(script.Parent:WaitForChild("HudMessageService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
@@ -46,7 +47,6 @@ local SHRINE_DEFINITIONS = {
 		PromptObjectText = ShrineConfig.EliteChallengePromptObjectText,
 		ChargeDuration = ShrineConfig.ChargeDuration * 0.5,
 		ChargeDistance = ShrineConfig.ChargeDistance,
-		CompleteSoundId = ShrineConfig.EliteChallengeCompleteSoundId,
 		SpawnMinRadius = 36,
 		SpawnMaxRadius = ShrineConfig.SpawnWorldMaxRadius,
 		SpawnMinDistance = 32,
@@ -77,6 +77,7 @@ local runtimeFolder = nil
 local isStarted = false
 local shrineTemplatesByType = {}
 local spawnedCountsByType = {}
+local nextAudioLoopId = 0
 local shrinesByInstance = {}
 local chargeHeartbeatConnection = nil
 
@@ -365,109 +366,23 @@ local function setShrineChargeProgress(shrine, progress)
 	shrine:SetAttribute("ShrineChargeProgress", math.clamp(progress, 0, 1))
 end
 
-local function normalizeSoundId(soundId)
-	if typeof(soundId) == "number" then
-		return "rbxassetid://" .. tostring(soundId)
-	end
+local function playChargeSound(shrineState, player)
+	local chargingPlayer = player or shrineState.ChargingPlayer
 
-	if typeof(soundId) ~= "string" or soundId == "" then
-		return nil
-	end
-
-	if string.find(soundId, "rbxassetid://") == 1 then
-		return soundId
-	end
-
-	return "rbxassetid://" .. soundId
-end
-
-local function createShrineSound(parent, name, soundId, volume, maxDistance, isLooped)
-	local normalizedSoundId = normalizeSoundId(soundId)
-
-	if normalizedSoundId == nil or parent == nil then
-		return nil
-	end
-
-	local sound = parent:FindFirstChild(name)
-
-	if sound == nil then
-		sound = Instance.new("Sound")
-		sound.Name = name
-		sound.Parent = parent
-	end
-
-	assert(sound:IsA("Sound"), name .. " doit etre un Sound.")
-
-	sound.SoundId = normalizedSoundId
-	sound.Volume = volume
-	sound.RollOffMode = Enum.RollOffMode.InverseTapered
-	sound.RollOffMaxDistance = maxDistance
-	sound.Looped = isLooped
-
-	DebugLog.Info("Audio", "Sound shrine configure", {
-		Name = name,
-		SoundId = normalizedSoundId,
-		Looped = isLooped,
-		Parent = parent,
-	})
-
-	return sound
-end
-
-local function setupShrineSounds(promptPart, definition)
-	local chargeSoundId = definition.ChargeSoundId or ShrineConfig.ChargeSoundId
-	local completeSoundId = definition.CompleteSoundId or ShrineConfig.CompleteSoundId
-
-	return {
-		Charge = createShrineSound(
-			promptPart,
-			"ShrineChargeSound",
-			chargeSoundId,
-			ShrineConfig.ChargeSoundVolume,
-			ShrineConfig.ChargeSoundMaxDistance,
-			true
-		),
-		Complete = createShrineSound(
-			promptPart,
-			"ShrineCompleteSound",
-			completeSoundId,
-			ShrineConfig.CompleteSoundVolume,
-			ShrineConfig.CompleteSoundMaxDistance,
-			false
-		),
-	}
-end
-
-local function playChargeSound(shrineState)
-	local sound = shrineState.ChargeSound
-
-	if sound == nil then
-		return
-	end
-
-	if not sound.IsPlaying then
-		sound.TimePosition = 0
-		sound:Play()
+	if chargingPlayer ~= nil then
+		AudioService.StartLoopForPlayer(chargingPlayer, "ShrineCharge", shrineState.AudioLoopId)
 	end
 end
 
 local function stopChargeSound(shrineState)
-	local sound = shrineState.ChargeSound
-
-	if sound ~= nil and sound.IsPlaying then
-		sound:Stop()
+	if shrineState.ChargingPlayer ~= nil then
+		AudioService.StopLoopForPlayer(shrineState.ChargingPlayer, shrineState.AudioLoopId)
 	end
 end
 
-local function playCompleteSound(shrineState)
-	local sound = shrineState.CompleteSound
-
-	if sound == nil then
-		return
-	end
-
-	sound.TimePosition = 0
-	sound:Play()
+local function playCompleteSound(shrineState, player)
+	local soundKey = if shrineState.Definition.TypeId == "EliteChallenge" then "ShrineEliteComplete" else "ShrineComplete"
+	AudioService.PlayForPlayer(player, soundKey)
 end
 
 local function getMarkerHeight(shrine)
@@ -509,35 +424,114 @@ local function setupActivationMarker(shrine)
 	marker.Size = UDim2.fromOffset(42, 42)
 	marker.StudsOffset = Vector3.new(0, getMarkerHeight(shrine), 0)
 
-	local label = marker:FindFirstChild("Label")
+	local shell = marker:FindFirstChild("MetalShell")
+
+	if shell == nil then
+		shell = Instance.new("Frame")
+		shell.Name = "MetalShell"
+		shell.Parent = marker
+	end
+
+	assert(shell:IsA("Frame"), "MetalShell du marker shrine doit etre un Frame.")
+
+	shell.Size = UDim2.fromScale(1, 1)
+	shell.BackgroundColor3 = Color3.fromRGB(37, 51, 70)
+	shell.BackgroundTransparency = 0.14
+	shell.BorderSizePixel = 0
+	shell.ZIndex = 1
+
+	local shellCorner = shell:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
+	shellCorner.CornerRadius = UDim.new(1, 0)
+	shellCorner.Parent = shell
+
+	local shellStroke = shell:FindFirstChild("MetalStroke")
+
+	if shellStroke == nil then
+		shellStroke = Instance.new("UIStroke")
+		shellStroke.Name = "MetalStroke"
+		shellStroke.Parent = shell
+	end
+
+	assert(shellStroke:IsA("UIStroke"), "MetalStroke du marker shrine doit etre un UIStroke.")
+	shellStroke.Color = Color3.fromRGB(122, 199, 255)
+	shellStroke.Transparency = 0.2
+	shellStroke.Thickness = 2
+
+	local shellGradient = shell:FindFirstChild("MetalGradient")
+
+	if shellGradient == nil then
+		shellGradient = Instance.new("UIGradient")
+		shellGradient.Name = "MetalGradient"
+		shellGradient.Parent = shell
+	end
+
+	assert(shellGradient:IsA("UIGradient"), "MetalGradient du marker shrine doit etre un UIGradient.")
+	shellGradient.Rotation = 90
+	shellGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(74, 98, 130)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(11, 19, 30)),
+	})
+
+	local inner = shell:FindFirstChild("GlassInner")
+
+	if inner == nil then
+		inner = Instance.new("Frame")
+		inner.Name = "GlassInner"
+		inner.Parent = shell
+	end
+
+	assert(inner:IsA("Frame"), "GlassInner du marker shrine doit etre un Frame.")
+
+	inner.Position = UDim2.fromOffset(4, 4)
+	inner.Size = UDim2.new(1, -8, 1, -8)
+	inner.BackgroundColor3 = Color3.fromRGB(12, 21, 32)
+	inner.BackgroundTransparency = 0.28
+	inner.BorderSizePixel = 0
+	inner.ZIndex = 2
+
+	local innerCorner = inner:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
+	innerCorner.CornerRadius = UDim.new(1, 0)
+	innerCorner.Parent = inner
+
+	local innerStroke = inner:FindFirstChild("GlassStroke")
+
+	if innerStroke == nil then
+		innerStroke = Instance.new("UIStroke")
+		innerStroke.Name = "GlassStroke"
+		innerStroke.Parent = inner
+	end
+
+	assert(innerStroke:IsA("UIStroke"), "GlassStroke du marker shrine doit etre un UIStroke.")
+	innerStroke.Color = Color3.fromRGB(238, 247, 255)
+	innerStroke.Transparency = 0.7
+	innerStroke.Thickness = 1
+
+	local label = marker:FindFirstChild("Label", true)
 
 	if label == nil then
 		label = Instance.new("TextLabel")
 		label.Name = "Label"
-		label.Parent = marker
 	end
 
 	assert(label:IsA("TextLabel"), "Label du marker shrine doit etre un TextLabel.")
 
+	label.Parent = inner
 	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
-	label.BackgroundTransparency = 0.28
+	label.BackgroundTransparency = 1
 	label.BorderSizePixel = 0
 	label.Font = Enum.Font.GothamBlack
 	label.Text = ShrineConfig.ActivationMarkerText
 	label.TextColor3 = Color3.fromRGB(255, 232, 92)
 	label.TextScaled = true
-	label.TextStrokeTransparency = 0.3
+	label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	label.TextStrokeTransparency = 0.2
+	label.ZIndex = 3
 
-	local corner = label:FindFirstChildOfClass("UICorner") or Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(1, 0)
-	corner.Parent = label
-
-	local stroke = label:FindFirstChildOfClass("UIStroke") or Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(255, 255, 255)
-	stroke.Transparency = 0.72
-	stroke.Thickness = 1
-	stroke.Parent = label
+	for _, child in ipairs(label:GetChildren()) do
+		if child:IsA("UICorner") or child:IsA("UIStroke") then
+			child:Destroy()
+		end
+	end
 
 	return marker
 end
@@ -583,9 +577,10 @@ local function onChargeStarted(shrine, player)
 		return
 	end
 
+	shrineState.ChargingPlayer = player
 	shrine:SetAttribute("ShrineCharging", true)
 	setBubbleVisible(shrine, true)
-	playChargeSound(shrineState)
+	playChargeSound(shrineState, player)
 	DebugLog.Info("Shrine", "Charge shrine commencee", {
 		Player = player.Name,
 		Shrine = shrine,
@@ -603,6 +598,7 @@ local function onChargeEnded(shrine)
 	shrine:SetAttribute("ShrineCharging", false)
 	setBubbleVisible(shrine, false)
 	stopChargeSound(shrineState)
+	shrineState.ChargingPlayer = nil
 	DebugLog.Info("Shrine", "Charge shrine interrompue", {
 		Shrine = shrine,
 		TypeId = shrineState.Definition.TypeId,
@@ -668,10 +664,10 @@ local function activateShrineFromPlayer(shrine, prompt, player)
 	end
 
 	shrineState.Active = false
-	shrineState.ChargingPlayer = nil
 	shrineState.ChargeProgress = 1
 	stopChargeSound(shrineState)
-	playCompleteSound(shrineState)
+	shrineState.ChargingPlayer = nil
+	playCompleteSound(shrineState, player)
 	setShrineInactive(shrine, prompt)
 	activateShrineEffect(player, shrineState.Definition, shrine)
 	DebugLog.Info("Shrine", "Shrine validee", {
@@ -696,9 +692,9 @@ local function updateBubblePresenceShrine(shrine, shrineState, deltaTime)
 
 	if CombatStateService.IsPaused() then
 		if shrineState.ChargingPlayer ~= nil then
+			stopChargeSound(shrineState)
 			shrineState.ChargingPlayer = nil
 			shrine:SetAttribute("ShrineCharging", false)
-			stopChargeSound(shrineState)
 		end
 
 		return
@@ -711,7 +707,7 @@ local function updateBubblePresenceShrine(shrine, shrineState, deltaTime)
 			shrineState.ChargingPlayer = player
 			shrine:SetAttribute("ShrineCharging", true)
 			setBubbleVisible(shrine, true)
-			playChargeSound(shrineState)
+			playChargeSound(shrineState, player)
 			DebugLog.Info("Shrine", "Charge shrine par presence commencee", {
 				Player = player.Name,
 				Shrine = shrine,
@@ -737,9 +733,9 @@ local function updateBubblePresenceShrine(shrine, shrineState, deltaTime)
 		})
 	end
 
+	stopChargeSound(shrineState)
 	shrineState.ChargingPlayer = nil
 	shrine:SetAttribute("ShrineCharging", false)
-	stopChargeSound(shrineState)
 
 	if (shrineState.ChargeProgress or 0) > 0 then
 		local dischargeDuration = math.max(0.1, definition.DischargeDuration or definition.ChargeDuration)
@@ -782,6 +778,7 @@ local function setupPrompt(shrine, definition)
 	prompt.HoldDuration = definition.ChargeDuration
 	prompt.MaxActivationDistance = definition.ChargeDistance
 	prompt.RequiresLineOfSight = false
+	prompt.Style = Enum.ProximityPromptStyle.Custom
 	prompt.Enabled = true
 
 	DebugLog.Info("Shrine", "ProximityPrompt shrine pret", {
@@ -865,7 +862,7 @@ local function prepareShrineInstance(shrine, definition)
 
 	local marker = setupActivationMarker(shrine)
 
-	return prompt, marker, setupShrineSounds(promptPart, definition)
+	return prompt, marker
 end
 
 local function pivotInstance(instance, cframe)
@@ -896,7 +893,7 @@ local function spawnShrineAtSurface(definition, surfacePosition)
 		return nil
 	end
 
-	local prompt, marker, sounds = prepareShrineInstance(shrine, definition)
+	local prompt, marker = prepareShrineInstance(shrine, definition)
 	local pivotPosition = WorldSpawnService.GetSurfacePivotPosition(
 		shrine,
 		surfacePosition,
@@ -906,6 +903,7 @@ local function spawnShrineAtSurface(definition, surfacePosition)
 
 	pivotInstance(shrine, WorldSpawnService.GetPivotCFrameAtPosition(shrine, pivotPosition))
 
+	nextAudioLoopId += 1
 	shrinesByInstance[shrine] = {
 		Active = true,
 		Definition = definition,
@@ -913,12 +911,17 @@ local function spawnShrineAtSurface(definition, surfacePosition)
 		Prompt = prompt,
 		ChargeProgress = 0,
 		ChargingPlayer = nil,
-		ChargeSound = sounds.Charge,
-		CompleteSound = sounds.Complete,
+		AudioLoopId = "ShrineCharge_" .. tostring(nextAudioLoopId),
 	}
 
 	shrine.AncestryChanged:Connect(function(_, parent)
 		if parent == nil then
+			local shrineState = shrinesByInstance[shrine]
+
+			if shrineState ~= nil then
+				stopChargeSound(shrineState)
+			end
+
 			shrinesByInstance[shrine] = nil
 		end
 	end)
@@ -1091,6 +1094,29 @@ local function spawnInitialShrines()
 	end
 end
 
+function ShrineService.ClearRunContent()
+	if runtimeFolder ~= nil then
+		for _, child in ipairs(runtimeFolder:GetChildren()) do
+			child:Destroy()
+		end
+	end
+
+	shrinesByInstance = {}
+	spawnedCountsByType = {}
+end
+
+function ShrineService.GenerateForRun()
+	ShrineService.ClearRunContent()
+	spawnInitialShrines()
+
+	local total = 0
+	for _, count in pairs(spawnedCountsByType) do
+		total += count
+	end
+
+	return total
+end
+
 function ShrineService.SetupPlayer(player)
 	DebugLog.Info("Shrine", "Setup joueur shrine", {
 		Player = player.Name,
@@ -1124,7 +1150,6 @@ function ShrineService.Start()
 		chargeHeartbeatConnection = RunService.Heartbeat:Connect(updateBubblePresenceShrines)
 	end
 
-	spawnInitialShrines()
 end
 
 return ShrineService

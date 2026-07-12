@@ -175,6 +175,7 @@ local function setupPrompt(totem)
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = TotemConfig.ActivationDistance
 	prompt.RequiresLineOfSight = false
+	prompt.Style = Enum.ProximityPromptStyle.Custom
 	prompt.Enabled = totem:GetAttribute("TotemActivated") ~= true
 
 	prompt.Triggered:Connect(function(player)
@@ -361,6 +362,24 @@ local function spawnInitialTotems()
 	})
 end
 
+function TotemService.ClearRunContent()
+	if runtimeFolder ~= nil then
+		for _, child in ipairs(runtimeFolder:GetChildren()) do
+			child:Destroy()
+		end
+	end
+
+	trackedTotems = {}
+	spawnedTotemCount = 0
+end
+
+function TotemService.GenerateForRun(session)
+	rng = Random.new((math.floor(tonumber(session and session.Seed) or 0) + 301) % 2147483647)
+	TotemService.ClearRunContent()
+	spawnInitialTotems()
+	return spawnedTotemCount
+end
+
 function TotemService.Start()
 	if isStarted then
 		DebugLog.Info("Totem", "Start ignore, service deja demarre")
@@ -376,7 +395,6 @@ function TotemService.Start()
 	)
 
 	scanExistingTotems()
-	spawnInitialTotems()
 
 	DebugLog.Info("Totem", "TotemService demarre", {
 		RuntimeFolder = runtimeFolder,

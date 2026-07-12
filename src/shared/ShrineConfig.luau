@@ -36,14 +36,6 @@ return {
 	PerkChoiceTitle = "Autel de perk",
 	EliteChallengeTitle = "Defi elite",
 
-	ChargeSoundId = "rbxassetid://140576516515813",
-	ChargeSoundVolume = 0.55,
-	ChargeSoundMaxDistance = 65,
-	CompleteSoundId = "rbxassetid://123179124316015",
-	EliteChallengeCompleteSoundId = "rbxassetid://9043352093",
-	CompleteSoundVolume = 0.8,
-	CompleteSoundMaxDistance = 80,
-
 	ActivationMarkerName = "ActivationMarker",
 	ActivationMarkerText = "!",
 	ActivationMarkerHeightOffset = 3.1,

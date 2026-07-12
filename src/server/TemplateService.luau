@@ -3,6 +3,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local ChapterConfig = require(Shared:WaitForChild("ChapterConfig"))
 local ChestConfig = require(Shared:WaitForChild("ChestConfig"))
 local BossConfig = require(Shared:WaitForChild("BossConfig"))
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
@@ -21,7 +22,7 @@ local SERVER_TEMPLATE_FOLDERS = {
 	ShrineConfig.TemplateFolderName,
 	PortalConfig.TemplateFolderName,
 	JarConfig.TemplateFolderName,
-	"MapTemplates",
+	ChapterConfig.TemplateFolderName,
 	ChestConfig.TemplateFolderName,
 	TotemConfig.TemplateFolderName,
 }
@@ -253,6 +254,10 @@ function TemplateService.Start()
 	migrateOptionalTemplate(ChestConfig.TemplateFolderName, ChestConfig.OpenChestName)
 	migrateOptionalTemplate(JarConfig.TemplateFolderName, JarConfig.JarName)
 	migrateOptionalTemplate(TotemConfig.TemplateFolderName, TotemConfig.DifficultTotemName)
+
+	for _, chapter in pairs(ChapterConfig.Chapters) do
+		migrateOptionalTemplate(ChapterConfig.TemplateFolderName, chapter.MapTemplateName)
+	end
 
 	DebugLog.Info("Templates", "Arborescence templates/runtime prete", {
 		CombatRuntime = TemplateService.GetCombatRuntimeFolder(),

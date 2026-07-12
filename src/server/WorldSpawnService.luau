@@ -8,6 +8,8 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local WorldSpawnService = {}
 
 local rng = Random.new()
+local activeSurfaceRoot = nil
+local activeSurfaceCenter = nil
 local GOLDEN_ANGLE = math.pi * (3 - math.sqrt(5))
 
 local DEFAULT_RUNTIME_FOLDER_NAMES = {
@@ -164,15 +166,26 @@ function WorldSpawnService.GetPositionsFromFolder(folder)
 end
 
 function WorldSpawnService.FindSurfacePositionAtXZ(x, z, options)
-	local center = options.Center or Vector3.new(0, 0, 0)
+	local center = activeSurfaceCenter or options.Center or Vector3.new(0, 0, 0)
 	local raycastHeight = options.RaycastHeight or 240
 	local raycastDepth = options.RaycastDepth or 520
 	local rayOrigin = Vector3.new(x, center.Y + raycastHeight, z)
 	local rayDirection = Vector3.new(0, -raycastDepth, 0)
 	local raycastParams = RaycastParams.new()
 
-	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	raycastParams.FilterDescendantsInstances = getDefaultExcludeInstances(options.ExcludeInstances)
+	local includeInstances = options.IncludeInstances
+
+	if includeInstances == nil and activeSurfaceRoot ~= nil and activeSurfaceRoot.Parent ~= nil then
+		includeInstances = { activeSurfaceRoot }
+	end
+
+	if includeInstances ~= nil and #includeInstances > 0 then
+		raycastParams.FilterType = Enum.RaycastFilterType.Include
+		raycastParams.FilterDescendantsInstances = includeInstances
+	else
+		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+		raycastParams.FilterDescendantsInstances = getDefaultExcludeInstances(options.ExcludeInstances)
+	end
 
 	local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 
@@ -183,9 +196,29 @@ function WorldSpawnService.FindSurfacePositionAtXZ(x, z, options)
 	return result.Position
 end
 
+function WorldSpawnService.SetRunContext(surfaceRoot, seed, surfaceCenter)
+	activeSurfaceRoot = surfaceRoot
+	activeSurfaceCenter = surfaceCenter
+	rng = Random.new(math.floor(tonumber(seed) or 0))
+
+	DebugLog.Info("WorldSpawn", "Contexte de generation active", {
+		SurfaceRoot = surfaceRoot,
+		Center = surfaceCenter,
+		Seed = seed,
+	})
+end
+
+function WorldSpawnService.ClearRunContext(surfaceRoot)
+	if surfaceRoot == nil or activeSurfaceRoot == surfaceRoot then
+		activeSurfaceRoot = nil
+		activeSurfaceCenter = nil
+		rng = Random.new()
+	end
+end
+
 function WorldSpawnService.FindDistributedSurfacePositions(options)
 	local requestedCount = options.Count or 0
-	local center = options.Center or Vector3.new(0, 0, 0)
+	local center = activeSurfaceCenter or options.Center or Vector3.new(0, 0, 0)
 	local minRadius = options.MinRadius or 0
 	local maxRadius = math.max(minRadius, options.MaxRadius or 160)
 	local minDistance = options.MinDistance or 12

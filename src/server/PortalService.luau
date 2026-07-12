@@ -105,14 +105,22 @@ local function setupPortalPrompt(portal)
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = BossConfig.PortalActivationDistance
 	prompt.RequiresLineOfSight = false
+	prompt.Style = Enum.ProximityPromptStyle.Custom
 	prompt.Enabled = true
 
 	prompt.Triggered:Connect(function(player)
-		local started = BossService.TryStartBoss(player, portal, function()
+		local started, reason = BossService.TryStartBoss(player, portal, function()
 			if prompt.Parent ~= nil then
 				prompt.Enabled = true
 			end
 		end)
+
+		DebugLog.Info("Portal", "Activation portail demandee", {
+			Player = player.Name,
+			Portal = portal,
+			Started = started,
+			Reason = reason,
+		})
 
 		if started then
 			prompt.Enabled = false
@@ -200,6 +208,22 @@ local function spawnInitialPortal()
 	})
 end
 
+function PortalService.ClearRunContent()
+	if runtimeFolder ~= nil then
+		for _, child in ipairs(runtimeFolder:GetChildren()) do
+			child:Destroy()
+		end
+	end
+
+	spawnedPortalCount = 0
+end
+
+function PortalService.GenerateForRun()
+	PortalService.ClearRunContent()
+	spawnInitialPortal()
+	return spawnedPortalCount
+end
+
 function PortalService.Start()
 	if isStarted then
 		DebugLog.Info("Portal", "Start ignore, service deja demarre")
@@ -220,7 +244,6 @@ function PortalService.Start()
 		InitialSpawnCount = PortalConfig.InitialSpawnCount,
 	})
 
-	spawnInitialPortal()
 end
 
 return PortalService

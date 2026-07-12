@@ -45,6 +45,8 @@ local function getOrCreateState(player)
 		state = {
 			StartedAt = nil,
 			LevelValidated = false,
+			RunId = nil,
+			ChapterId = nil,
 		}
 		statesByUserId[player.UserId] = state
 	end
@@ -68,6 +70,8 @@ local function buildSummary(player, reason)
 
 	return {
 		Reason = reason,
+		RunId = state.RunId,
+		ChapterId = state.ChapterId,
 		LevelValidated = state.LevelValidated == true,
 		Kills = MonsterService.GetKills(player),
 		Coins = CoinService.GetCoins(player),
@@ -93,22 +97,6 @@ local function showSummary(player, payload)
 	})
 end
 
-local function queueSummaryAfterRespawn(player, payload)
-	pendingSummariesByUserId[player.UserId] = payload
-
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-
-	if humanoid ~= nil and humanoid.Health > 0 then
-		task.delay(0.35, function()
-			if pendingSummariesByUserId[player.UserId] == payload then
-				pendingSummariesByUserId[player.UserId] = nil
-				showSummary(player, payload)
-			end
-		end)
-	end
-end
-
 function RunEndService.MarkLevelValidated(player)
 	if player == nil then
 		return
@@ -117,6 +105,7 @@ function RunEndService.MarkLevelValidated(player)
 	local state = getOrCreateState(player)
 	state.LevelValidated = true
 	player:SetAttribute("RunLevelValidated", true)
+	RunStateService.NotifyLevelValidated(player)
 
 	DebugLog.Info("RunEnd", "Niveau valide pour la run", {
 		Player = player.Name,
@@ -173,6 +162,8 @@ function RunEndService.Start()
 		local state = getOrCreateState(player)
 		state.StartedAt = CombatStateService.GetTime()
 		state.LevelValidated = false
+		state.RunId = player:GetAttribute("RunId")
+		state.ChapterId = player:GetAttribute("RunChapterId")
 		player:SetAttribute("RunLevelValidated", false)
 		pendingSummariesByUserId[player.UserId] = nil
 		resetRunState(player)
@@ -190,13 +181,16 @@ function RunEndService.Start()
 		resetRunState(player)
 		state.StartedAt = nil
 		state.LevelValidated = false
+		state.RunId = nil
+		state.ChapterId = nil
 		player:SetAttribute("RunLevelValidated", false)
 
 		if reason == "Death" and RunTeleportService.ReturnToLobby(player, summary) then
 			return
 		end
 
-		queueSummaryAfterRespawn(player, summary)
+		pendingSummariesByUserId[player.UserId] = summary
+		player:LoadCharacter()
 
 		DebugLog.Info("RunEnd", "Etat de run reinitialise", {
 			Player = player.Name,

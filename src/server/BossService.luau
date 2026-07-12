@@ -1,6 +1,4 @@
-local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local BossConfig = require(Shared:WaitForChild("BossConfig"))
@@ -8,6 +6,7 @@ local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
+local AudioService = require(script.Parent:WaitForChild("AudioService"))
 local BossAttackService = require(script.Parent:WaitForChild("BossAttackService"))
 local HudMessageService = require(script.Parent:WaitForChild("HudMessageService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
@@ -75,31 +74,6 @@ local function hideBossUi(player)
 	bossRemote:FireClient(player, {
 		Action = "Hide",
 	})
-end
-
-local function playArrivalSound(position)
-	if BossConfig.ArrivalSoundId == nil or BossConfig.ArrivalSoundId == "" or position == nil then
-		return
-	end
-
-	local emitter = Instance.new("Part")
-	emitter.Name = "BossArrivalSoundPoint"
-	emitter.Size = Vector3.new(0.2, 0.2, 0.2)
-	emitter.CFrame = CFrame.new(position)
-	emitter.Transparency = 1
-	emitter.Anchored = true
-	emitter.CanCollide = false
-	emitter.CanTouch = false
-	emitter.CanQuery = false
-	emitter.Parent = Workspace
-
-	local sound = Instance.new("Sound")
-	sound.Name = "BossArrivalSound"
-	sound.SoundId = BossConfig.ArrivalSoundId
-	sound.Volume = BossConfig.ArrivalSoundVolume
-	sound.Parent = emitter
-	sound:Play()
-	Debris:AddItem(emitter, 12)
 end
 
 local function loadBossTemplate()
@@ -183,6 +157,7 @@ local function spawnBossAfterAnnouncement(player, state)
 		BossName = BossConfig.DisplayName,
 		SafetyDistance = BossConfig.SpawnSafetyDistance,
 		SpeedMultiplier = BossConfig.SpeedMultiplier,
+		UseProceduralMotion = false,
 		DropLoot = false,
 		OnHealthChanged = function(changedMonster, health, maxHealth)
 			local currentState = statesByUserId[player.UserId]
@@ -218,7 +193,7 @@ local function spawnBossAfterAnnouncement(player, state)
 
 	state.Phase = "Active"
 	state.Boss = monster
-	playArrivalSound(origin)
+	AudioService.PlayForPlayer(player, "BossArrival")
 	sendBossBar(player, monster, BossConfig.MaxHealth, BossConfig.MaxHealth)
 	BossAttackService.Activate(player, monster, attackDamage)
 
@@ -232,12 +207,24 @@ local function spawnBossAfterAnnouncement(player, state)
 end
 
 function BossService.TryStartBoss(player, portal, onFailed)
-	if player == nil or portal == nil or not RunStateService.IsRunActive(player) or CombatStateService.IsPaused() then
-		return false
+	if player == nil then
+		return false, "PlayerMissing"
+	end
+
+	if portal == nil then
+		return false, "PortalMissing"
+	end
+
+	if not RunStateService.IsRunActive(player) then
+		return false, "RunInactive"
+	end
+
+	if CombatStateService.IsPaused() then
+		return false, "CombatPaused"
 	end
 
 	if statesByUserId[player.UserId] ~= nil or portal:GetAttribute("BossPortalActivated") == true then
-		return false
+		return false, "BossAlreadyActive"
 	end
 
 	local position = getPortalPosition(portal)
@@ -247,7 +234,7 @@ function BossService.TryStartBoss(player, portal, onFailed)
 			Player = player.Name,
 			Portal = portal,
 		})
-		return false
+		return false, "PortalPositionMissing"
 	end
 
 	local state = {
@@ -273,7 +260,7 @@ function BossService.TryStartBoss(player, portal, onFailed)
 		Position = position,
 	})
 
-	return true
+	return true, "Ok"
 end
 
 function BossService.RemovePlayer(player)

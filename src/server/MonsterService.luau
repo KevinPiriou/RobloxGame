@@ -187,6 +187,22 @@ local function findAnimation(instance)
 	return nil
 end
 
+local function hasModelAnimationScript(instance)
+	local animationScript = instance:FindFirstChild("PlayAnimation", true)
+
+	return animationScript ~= nil and animationScript:IsA("BaseScript")
+end
+
+local function resolveProceduralMotion(instance, requestedValue)
+	if requestedValue ~= nil then
+		return requestedValue == true
+	end
+
+	-- Les templates qui portent leur propre script d'animation ne doivent pas etre combines
+	-- avec le balancement procedural historique du combat.
+	return not hasModelAnimationScript(instance)
+end
+
 local function playMonsterAnimation(monster)
 	if CombatConfig.MonsterServerAnimationsEnabled ~= true then
 		return nil
@@ -262,20 +278,13 @@ local function prepareMonsterInstance(monster, maxHealth)
 			descendant.CanTouch = CombatConfig.MonsterPartsCanTouch == true
 			descendant.CanQuery = CombatConfig.MonsterPartsCanQuery == true
 
-			if humanoid ~= nil then
-				descendant.Anchored = false
-
-				pcall(function()
-					descendant:SetNetworkOwner(nil)
-				end)
-			else
-				descendant.Anchored = true
-			end
+			-- Le combat deplace les ennemis par PivotTo ; un Humanoid ne doit pas les soumettre a la gravite.
+			descendant.Anchored = true
 		end
 	end
 
 	if monster:IsA("BasePart") then
-		monster.Anchored = humanoid == nil
+		monster.Anchored = true
 		monster.CanCollide = CombatConfig.MonsterPartsCanCollide == true
 		monster.CanTouch = CombatConfig.MonsterPartsCanTouch == true
 		monster.CanQuery = CombatConfig.MonsterPartsCanQuery == true
@@ -286,11 +295,8 @@ local function prepareMonsterInstance(monster, maxHealth)
 		humanoid.MaxHealth = resolvedMaxHealth
 		humanoid.Health = resolvedMaxHealth
 		humanoid.WalkSpeed = CombatConfig.MonsterWalkSpeed
+		humanoid.AutoRotate = false
 		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-
-		pcall(function()
-			humanoid:ChangeState(Enum.HumanoidStateType.Running)
-		end)
 	end
 
 	return humanoid, root
@@ -704,6 +710,17 @@ local function restoreMonsterColorsNow(monsterState)
 	end
 end
 
+local function resetMonsterAnimators(monster)
+	-- Les AnimationTrack restent comptes par Roblox meme apres Stop().
+	-- Un ennemi reutilise doit repartir avec un Animator neuf pour eviter
+	-- d'atteindre la limite de 64 pistes sur les templates Meshy.
+	for _, descendant in ipairs(monster:GetDescendants()) do
+		if descendant:IsA("Animator") then
+			descendant:Destroy()
+		end
+	end
+end
+
 local function releaseMonsterToPool(monsterState)
 	removeMonsterFromSpatialGrid(monsterState)
 
@@ -737,6 +754,8 @@ local function releaseMonsterToPool(monsterState)
 	monster:SetAttribute("BossName", nil)
 	monster:SetAttribute("ElitePackId", nil)
 	monster:SetAttribute("MonsterHealth", 0)
+
+	resetMonsterAnimators(monster)
 
 	local templateName = monsterState.TemplateName or monster.Name or CombatConfig.MonsterTemplateName
 	monster.Name = templateName
@@ -779,7 +798,7 @@ local function updateElitePackAfterRemoval(monsterState, killer, deathPosition)
 
 		if killer ~= nil and killer.Parent == Players and deathPosition ~= nil and not packState.RewardSpawned then
 			packState.RewardSpawned = true
-			ChestService.SpawnRewardChestAtPosition(deathPosition)
+			ChestService.SpawnRewardChestAtPosition(deathPosition, killer)
 			DebugLog.Info("Combat", "Pack elite termine, ChestOpen demande", {
 				Player = killer.Name,
 				PackId = elitePackId,
@@ -950,12 +969,15 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 			TemplateName = templateName,
 			HasTemplate = template ~= nil,
 			SurfacePosition = surfacePosition,
+			Reason = if template == nil then "TemplateMissing" else "SurfaceMissing",
 			IsElite = isElite,
+			IsBoss = isBoss,
 		})
 		return false
 	end
 
 	local monster, reusedFromPool = acquireMonsterInstance(template, templateName)
+	local useProceduralMotion = resolveProceduralMotion(monster, options.UseProceduralMotion)
 
 	monster.Name = templateName
 	monster:SetAttribute("RuntimeMonster", true)
@@ -998,6 +1020,7 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 		Health = maxHealth,
 		AttackDamage = attackDamage,
 		SpeedMultiplier = speedMultiplier,
+		UseProceduralMotion = useProceduralMotion,
 		IsElite = isElite,
 		IsBoss = isBoss,
 		BossName = options.BossName,
@@ -1008,7 +1031,6 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 		OnHealthChanged = options.OnHealthChanged,
 		AnimationTrack = playMonsterAnimation(monster),
 		AnimationTime = rng:NextNumber(0, 10),
-		LastMoveToAt = 0,
 		LastDamageByUserId = {},
 		OriginalPartColors = captureOriginalPartColors(monster),
 		DamageFlashId = 0,
@@ -1148,7 +1170,7 @@ local function getProceduralAnimationCFrame(monsterState, position, moveDirectio
 	return CFrame.lookAt(visualPosition, lookTarget) * CFrame.Angles(0, 0, sway) * pivotRotation
 end
 
-local function updateMonsterMovement(monsterState, deltaTime, now)
+local function updateMonsterMovement(monsterState, deltaTime)
 	local root = monsterState.Root
 
 	if root == nil then
@@ -1169,24 +1191,6 @@ local function updateMonsterMovement(monsterState, deltaTime, now)
 
 	local separation = getMonsterSeparation(monsterState)
 
-	if monsterState.Humanoid ~= nil then
-		updateMonsterSpatialCell(monsterState, root.Position)
-
-		if now - monsterState.LastMoveToAt >= 0.35 then
-			local moveDirection = getMoveDirection(root.Position, targetRoot.Position, separation)
-
-			if moveDirection.Magnitude > 0 then
-				monsterState.Humanoid:MoveTo(root.Position + (moveDirection * 24))
-			else
-				monsterState.Humanoid:MoveTo(targetRoot.Position)
-			end
-
-			monsterState.LastMoveToAt = now
-		end
-
-		return
-	end
-
 	local basePosition = monsterState.BasePosition or root.Position
 	local moveDirection = getMoveDirection(basePosition, targetRoot.Position, separation)
 
@@ -1200,7 +1204,15 @@ local function updateMonsterMovement(monsterState, deltaTime, now)
 	local nextPosition = basePosition + (moveDirection * step)
 
 	monsterState.BasePosition = nextPosition
-	pivotInstance(monsterState.Instance, getProceduralAnimationCFrame(monsterState, nextPosition, moveDirection, deltaTime))
+
+	if monsterState.UseProceduralMotion ~= true then
+		local lookTarget = nextPosition + moveDirection
+		local pivotRotation = monsterState.PivotRotation or CFrame.new()
+		pivotInstance(monsterState.Instance, CFrame.lookAt(nextPosition, lookTarget) * pivotRotation)
+	else
+		pivotInstance(monsterState.Instance, getProceduralAnimationCFrame(monsterState, nextPosition, moveDirection, deltaTime))
+	end
+
 	updateMonsterSpatialCell(monsterState, nextPosition)
 end
 
@@ -1283,7 +1295,7 @@ local function updateMonsterStep(deltaTime)
 
 	for _, monsterState in pairs(monstersByInstance) do
 		if not monsterState.IsDead then
-			updateMonsterMovement(monsterState, deltaTime, now)
+			updateMonsterMovement(monsterState, deltaTime)
 			updateMonsterDamage(monsterState, now)
 		end
 	end
@@ -1437,9 +1449,6 @@ local function getElitePackSurfacePosition(originPosition, index, count)
 			RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
 			RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
 			ExcludeInstances = { monsterFolder },
-			RejectedSurfaceNameContains = {
-				"MurInvisible",
-			},
 		})
 
 		if surfacePosition ~= nil then
@@ -1447,15 +1456,47 @@ local function getElitePackSurfacePosition(originPosition, index, count)
 		end
 	end
 
-	return WorldSpawnService.FindSurfacePositionAtXZ(originPosition.X, originPosition.Z, {
+	local surfacePosition = WorldSpawnService.FindSurfacePositionAtXZ(originPosition.X, originPosition.Z, {
 		Center = originPosition,
 		RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
 		RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
 		ExcludeInstances = { monsterFolder },
-		RejectedSurfaceNameContains = {
-			"MurInvisible",
-		},
 	})
+
+	if surfacePosition ~= nil then
+		return surfacePosition
+	end
+
+	-- Certains anciens templates reposent encore sur un sol parent de Workspace.
+	-- Le fallback garde les elites et le boss sur le meme sol que Monster1.
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = {
+		monsterFolder,
+		TemplateService.GetShrinesRuntimeFolder(),
+		TemplateService.GetPortalsRuntimeFolder(),
+		TemplateService.GetChestsRuntimeFolder(),
+		TemplateService.GetJarsRuntimeFolder(),
+		TemplateService.GetTotemsRuntimeFolder(),
+	}
+
+	local rayOrigin = originPosition + Vector3.new(0, CombatConfig.MonsterGroundRaycastHeight, 0)
+	local result = Workspace:Raycast(
+		rayOrigin,
+		Vector3.new(0, -CombatConfig.MonsterGroundRaycastDepth, 0),
+		raycastParams
+	)
+
+	if result ~= nil and result.Normal.Y >= 0.65 then
+		DebugLog.ThrottledWarn("Combat", "elite_surface_fallback", 2, "Fallback sol utilise pour elite ou boss", {
+			Origin = originPosition,
+			Surface = result.Position,
+			Instance = result.Instance,
+		})
+		return result.Position
+	end
+
+	return nil
 end
 
 local function getElitePackCenterPosition(originPosition, player, minimumSafetyDistance)
@@ -1493,12 +1534,9 @@ local function getElitePackCenterPosition(originPosition, player, minimumSafetyD
 		RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
 		RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
 		ExcludeInstances = { monsterFolder },
-		RejectedSurfaceNameContains = {
-			"MurInvisible",
-		},
 	})
 
-	return surfacePosition or Vector3.new(candidatePosition.X, originPosition.Y, candidatePosition.Z)
+	return surfacePosition or getElitePackSurfacePosition(candidatePosition, 1, 1) or candidatePosition
 end
 
 function MonsterService.SpawnElitePack(originPosition, player, requestedCount)
@@ -1650,6 +1688,7 @@ function MonsterService.SpawnBossNearPlayer(originPosition, player, options)
 		IsBoss = true,
 		BossName = options.BossName,
 		DropLoot = options.DropLoot,
+		SpeedMultiplier = options.SpeedMultiplier,
 		OnDefeated = options.OnDefeated,
 		OnHealthChanged = options.OnHealthChanged,
 	})
@@ -1662,6 +1701,10 @@ function MonsterService.SpawnBossNearPlayer(originPosition, player, options)
 			Position = spawnPosition,
 			Health = options.MaxHealth,
 			Damage = options.AttackDamage,
+			HasHumanoid = monsterState.Humanoid ~= nil,
+			Root = monsterState.Root,
+			RootAnchored = monsterState.Root.Anchored,
+		UsesProceduralMotion = monsterState.UseProceduralMotion,
 		})
 	end
 

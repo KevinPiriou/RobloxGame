@@ -1,4 +1,3 @@
-local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
@@ -7,6 +6,7 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local JarConfig = require(Shared:WaitForChild("JarConfig"))
 
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
+local AudioService = require(script.Parent:WaitForChild("AudioService"))
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
@@ -235,34 +235,6 @@ local function spawnCoinDrops(origin, ignoredInstance)
 	return count
 end
 
-local function playBreakSound(position)
-	if typeof(position) ~= "Vector3" or JarConfig.BreakSoundId == nil or JarConfig.BreakSoundId == "" then
-		return
-	end
-
-	local soundPart = Instance.new("Part")
-	soundPart.Name = "JarBreakSoundPoint"
-	soundPart.Size = Vector3.new(0.2, 0.2, 0.2)
-	soundPart.CFrame = CFrame.new(position)
-	soundPart.Transparency = 1
-	soundPart.Anchored = true
-	soundPart.CanCollide = false
-	soundPart.CanTouch = false
-	soundPart.CanQuery = false
-	soundPart.Parent = Workspace
-
-	local sound = Instance.new("Sound")
-	sound.Name = "JarBreakSound"
-	sound.SoundId = JarConfig.BreakSoundId
-	sound.Volume = JarConfig.BreakSoundVolume
-	sound.RollOffMode = Enum.RollOffMode.InverseTapered
-	sound.RollOffMaxDistance = JarConfig.BreakSoundMaxDistance
-	sound.Parent = soundPart
-	sound:Play()
-
-	Debris:AddItem(soundPart, JarConfig.BreakSoundLifetime)
-end
-
 local function breakJar(player, jar, prompt)
 	local jarState = trackedJars[jar]
 	local canBreak, reason = canBreakJar(player, jar, jarState)
@@ -277,7 +249,7 @@ local function breakJar(player, jar, prompt)
 	end
 
 	local jarPosition = getJarPosition(jar)
-	playBreakSound(jarPosition)
+	AudioService.PlayForPlayer(player, "JarBreak")
 
 	jarState.Broken = true
 	jar:SetAttribute("JarBroken", true)
@@ -343,6 +315,7 @@ local function setupPrompt(jar)
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = JarConfig.BreakDistance
 	prompt.RequiresLineOfSight = false
+	prompt.Style = Enum.ProximityPromptStyle.Custom
 	prompt.Enabled = jar:GetAttribute("JarBroken") ~= true
 
 	prompt.Triggered:Connect(function(player)
@@ -524,6 +497,24 @@ local function spawnInitialJars()
 	})
 end
 
+function JarService.ClearRunContent()
+	if runtimeFolder ~= nil then
+		for _, child in ipairs(runtimeFolder:GetChildren()) do
+			child:Destroy()
+		end
+	end
+
+	trackedJars = {}
+	spawnedJarCount = 0
+end
+
+function JarService.GenerateForRun(session)
+	rng = Random.new((math.floor(tonumber(session and session.Seed) or 0) + 401) % 2147483647)
+	JarService.ClearRunContent()
+	spawnInitialJars()
+	return spawnedJarCount
+end
+
 function JarService.Start()
 	if isStarted then
 		DebugLog.Info("Jar", "Start ignore, service deja demarre")
@@ -538,7 +529,6 @@ function JarService.Start()
 		createFallbackJarTemplate
 	)
 	scanExistingJars()
-	spawnInitialJars()
 
 	DebugLog.Info("Jar", "JarService demarre", {
 		RuntimeFolder = runtimeFolder,

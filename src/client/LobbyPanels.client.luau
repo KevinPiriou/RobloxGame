@@ -27,6 +27,7 @@ type EntryData = {
 	Description: string,
 	Value: string,
 	Symbol: string,
+	OfferId: string?,
 }
 
 type TabData = {
@@ -63,24 +64,28 @@ local PANELS: {PanelData} = {
 						Description = "Relance une offre de perk.",
 						Value = "50 ROBUX",
 						Symbol = "P",
+						OfferId = "PerkRerollOne",
 					},
 					{
 						Title = "REROLL PERK X3",
 						Description = "Trois relances de perk.",
 						Value = "125 ROBUX",
 						Symbol = "P",
+						OfferId = "PerkRerollThree",
 					},
 					{
 						Title = "REROLL ITEM X1",
 						Description = "Relance une offre d'objet.",
 						Value = "50 ROBUX",
 						Symbol = "I",
+						OfferId = "ItemRerollOne",
 					},
 					{
 						Title = "REROLL ITEM X3",
 						Description = "Trois relances d'objet.",
 						Value = "125 ROBUX",
 						Symbol = "I",
+						OfferId = "ItemRerollThree",
 					},
 				},
 			},
@@ -94,6 +99,7 @@ local PANELS: {PanelData} = {
 						Description = "Badge, couleur de pseudo, aura exclusive et titre de profil.",
 						Value = "ENV. 99 ROBUX",
 						Symbol = "F",
+						OfferId = "FounderPass",
 					},
 				},
 			},
@@ -390,6 +396,7 @@ local function createGridCard(
 	local card = Instance.new("Frame")
 	card.Name = "GridCard"
 	card.LayoutOrder = layoutOrder
+	card:SetAttribute("OfferId", entry.OfferId)
 	card.BackgroundColor3 = COLORS.Card
 	card.BackgroundTransparency = 0.22
 	card.BorderSizePixel = 0
@@ -963,6 +970,7 @@ local function bindCamera()
 end
 
 Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera)
+
 task.spawn(bindShortcutMenu)
 bindCamera()
 setVisiblePanel(nil)

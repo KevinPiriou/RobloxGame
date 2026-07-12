@@ -8,6 +8,7 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local Perks = require(Shared:WaitForChild("Perks"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
+local CommerceService = require(script.Parent:WaitForChild("CommerceService"))
 local JumpBonusService = require(script.Parent:WaitForChild("JumpBonusService"))
 
 local PerkService = {}
@@ -35,6 +36,7 @@ end
 local showChoicesRemote = getOrCreateRemote("Perk_ShowChoices")
 local hideChoicesRemote = getOrCreateRemote("Perk_HideChoices")
 local selectChoiceRemote = getOrCreateRemote("Perk_SelectChoice")
+local rerollChoiceRemote = getOrCreateRemote("Perk_RerollRequest")
 local updatePerksRemote = getOrCreateRemote("Perk_UpdateStats")
 
 local function createEmptyStats()
@@ -566,6 +568,50 @@ local function onChoiceSelected(player, choiceId, optionId)
 	end
 end
 
+local function onRerollRequested(player, choiceId)
+	if typeof(choiceId) ~= "string" then
+		return
+	end
+
+	local profile = getOrCreateProfile(player)
+	local activeChoice = profile.ActiveChoice
+
+	if activeChoice == nil or activeChoice.ChoiceId ~= choiceId then
+		DebugLog.Warn("Perks", "Reroll perk refuse, choix inactif", {
+			Player = player.Name,
+			ChoiceId = choiceId,
+		})
+		return
+	end
+
+	local consumed, reason = CommerceService.TryConsumePerkReroll(player)
+
+	if not consumed then
+		DebugLog.Warn("Perks", "Reroll perk refuse", {
+			Player = player.Name,
+			ChoiceId = choiceId,
+			Reason = reason,
+		})
+		return
+	end
+
+	local rerolledChoice = createChoice(player, activeChoice.Level, activeChoice.Title)
+	profile.ActiveChoice = rerolledChoice
+
+	DebugLog.Info("Perks", "Offre de perk relancee", {
+		Player = player.Name,
+		PreviousChoiceId = choiceId,
+		ChoiceId = rerolledChoice.ChoiceId,
+		Level = rerolledChoice.Level,
+	})
+	showChoicesRemote:FireClient(player, {
+		ChoiceId = rerolledChoice.ChoiceId,
+		Level = rerolledChoice.Level,
+		Title = rerolledChoice.Title,
+		Choices = rerolledChoice.Choices,
+	})
+end
+
 function PerkService.SetupPlayer(player)
 	DebugLog.Info("Perks", "Setup joueur perks", {
 		Player = player.Name,
@@ -822,6 +868,7 @@ function PerkService.Start()
 	isStarted = true
 	DebugLog.Info("Perks", "PerkService demarre")
 	selectChoiceRemote.OnServerEvent:Connect(onChoiceSelected)
+	rerollChoiceRemote.OnServerEvent:Connect(onRerollRequested)
 
 	RunService.Heartbeat:Connect(function(deltaTime)
 		if CombatStateService.IsPaused() then

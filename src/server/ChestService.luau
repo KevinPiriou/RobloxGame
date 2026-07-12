@@ -1,4 +1,3 @@
-local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -8,6 +7,7 @@ local ChestConfig = require(Shared:WaitForChild("ChestConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
+local AudioService = require(script.Parent:WaitForChild("AudioService"))
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
@@ -179,34 +179,6 @@ local function getChestPosition(chest)
 	return root.Position
 end
 
-local function playOpenSound(position)
-	if typeof(position) ~= "Vector3" or ChestConfig.OpenSoundId == nil or ChestConfig.OpenSoundId == "" then
-		return
-	end
-
-	local soundPart = Instance.new("Part")
-	soundPart.Name = "ChestOpenSoundPoint"
-	soundPart.Size = Vector3.new(0.2, 0.2, 0.2)
-	soundPart.CFrame = CFrame.new(position)
-	soundPart.Transparency = 1
-	soundPart.Anchored = true
-	soundPart.CanCollide = false
-	soundPart.CanTouch = false
-	soundPart.CanQuery = false
-	soundPart.Parent = Workspace
-
-	local sound = Instance.new("Sound")
-	sound.Name = "ChestOpenSound"
-	sound.SoundId = ChestConfig.OpenSoundId
-	sound.Volume = ChestConfig.OpenSoundVolume
-	sound.RollOffMode = Enum.RollOffMode.InverseTapered
-	sound.RollOffMaxDistance = ChestConfig.OpenSoundMaxDistance
-	sound.Parent = soundPart
-	sound:Play()
-
-	Debris:AddItem(soundPart, ChestConfig.OpenSoundLifetime)
-end
-
 local function setupPrompt(chest)
 	local root = findChestRoot(chest)
 
@@ -230,6 +202,7 @@ local function setupPrompt(chest)
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = ChestConfig.PromptDistance
 	prompt.RequiresLineOfSight = false
+	prompt.Style = Enum.ProximityPromptStyle.Custom
 	prompt.Enabled = chest:GetAttribute("ChestOpened") ~= true and chest:GetAttribute("ChestOpening") ~= true
 
 	prompt.Triggered:Connect(function(player)
@@ -414,6 +387,31 @@ local function spawnInitialChests()
 		Requested = ChestConfig.InitialSpawnCount,
 		SpawnedCount = spawnedChestCount,
 	})
+end
+
+function ChestService.ClearRunContent()
+	for chest, connections in pairs(rewardChestTouchConnections) do
+		for _, connection in ipairs(connections) do
+			connection:Disconnect()
+		end
+		rewardChestTouchConnections[chest] = nil
+	end
+
+	if runtimeFolder ~= nil then
+		for _, child in ipairs(runtimeFolder:GetChildren()) do
+			child:Destroy()
+		end
+	end
+
+	trackedChests = {}
+	spawnedChestCount = 0
+end
+
+function ChestService.GenerateForRun(session)
+	rng = Random.new((math.floor(tonumber(session and session.Seed) or 0) + 201) % 2147483647)
+	ChestService.ClearRunContent()
+	spawnInitialChests()
+	return spawnedChestCount
 end
 
 local function getPlayerRoot(player)
@@ -617,7 +615,7 @@ onOpenRequested = function(player, chest)
 		chestState.Prompt.Enabled = false
 	end
 
-	playOpenSound(getChestPosition(chest))
+	AudioService.PlayForPlayer(player, "ChestOpen")
 
 	local reward = pickReward()
 
@@ -781,7 +779,7 @@ local function connectRewardChestTouch(chest)
 	rewardChestTouchConnections[chest] = connections
 end
 
-function ChestService.SpawnRewardChestAtPosition(position)
+function ChestService.SpawnRewardChestAtPosition(position, player)
 	if position == nil then
 		return nil
 	end
@@ -824,7 +822,7 @@ function ChestService.SpawnRewardChestAtPosition(position)
 
 	pivotInstance(chest, WorldSpawnService.GetPivotCFrameAtPosition(chest, pivotPosition, rng:NextNumber(0, math.pi * 2)))
 	connectRewardChestTouch(chest)
-	playOpenSound(pivotPosition)
+	AudioService.PlayForPlayer(player, "RewardChestSpawn")
 
 	DebugLog.Info("Chest", "ChestOpen reward genere", {
 		Chest = chest,
@@ -881,7 +879,6 @@ function ChestService.Start()
 	)
 	openChestTemplate = TemplateService.GetTemplate(ChestConfig.TemplateFolderName, ChestConfig.OpenChestName)
 	scanExistingChests()
-	spawnInitialChests()
 	DebugLog.Info("Chest", "ChestService demarre", {
 		RuntimeFolder = runtimeFolder,
 		Template = chestTemplate,

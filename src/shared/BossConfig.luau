@@ -38,8 +38,4 @@ return {
 	DecisionRemoteName = "Boss_ChooseOutcome",
 	ResultRemoteName = "Run_ShowSummary",
 	ReturnToLobbyRemoteName = "Run_ReturnToLobby",
-
-	-- Laisser vide tant que le son n'est pas importe dans Roblox.
-	ArrivalSoundId = "",
-	ArrivalSoundVolume = 0.7,
 }

@@ -8,6 +8,8 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local RunTeleportConfig = require(Shared:WaitForChild("RunTeleportConfig"))
 
+local ChapterProgressService = require(script.Parent:WaitForChild("ChapterProgressService"))
+local RunSessionService = require(script.Parent:WaitForChild("RunSessionService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 
 local RunTeleportService = {}
@@ -34,7 +36,22 @@ local function getOrCreateRemote(remoteName)
 	return remote
 end
 
+local function getOrCreateRemoteFunction(remoteName)
+	local remote = ReplicatedStorage:FindFirstChild(remoteName)
+
+	if remote == nil then
+		remote = Instance.new("RemoteFunction")
+		remote.Name = remoteName
+		remote.Parent = ReplicatedStorage
+	end
+
+	assert(remote:IsA("RemoteFunction"), remoteName .. " doit etre un RemoteFunction.")
+
+	return remote
+end
+
 local runSummaryRemote = getOrCreateRemote("Run_ShowSummary")
+local startRunRemote = getOrCreateRemoteFunction("Run_StartRequest")
 
 local function getPlayerFromHit(hit)
 	if hit == nil then
@@ -197,7 +214,7 @@ local function destroyArrivalInstance(arrival)
 	return true
 end
 
-local function movePlayerToArrival(player, arrivalPartName)
+local function movePlayerToArrival(player, arrivalPartName, providedArrival)
 	local character = player.Character
 
 	if character == nil then
@@ -214,7 +231,7 @@ local function movePlayerToArrival(player, arrivalPartName)
 		return false, "RootMissing", nil
 	end
 
-	local arrival = findArrivalInstance(arrivalPartName)
+	local arrival = providedArrival or findArrivalInstance(arrivalPartName)
 
 	if arrival == nil then
 		return false, "ArrivalMissing", nil
@@ -231,7 +248,7 @@ local function movePlayerToArrival(player, arrivalPartName)
 	return true, "Ok", arrival
 end
 
-local function copyTeleportData()
+local function copyTeleportData(player)
 	local data = {}
 
 	for key, value in pairs(RunTeleportConfig.TeleportData or {}) do
@@ -240,6 +257,14 @@ local function copyTeleportData()
 
 	data.arrivalPartName = RunTeleportConfig.ArrivalPartName
 	data.sourcePartName = RunTeleportConfig.TriggerPartName
+
+	local sessionData = RunSessionService.GetTeleportData(player)
+
+	if sessionData ~= nil then
+		for key, value in pairs(sessionData) do
+			data[key] = value
+		end
+	end
 
 	return data
 end
@@ -282,7 +307,7 @@ local function canStartTeleport(player)
 	return true, "Ok"
 end
 
-function RunTeleportService.StartSoloRun(player, trigger)
+function RunTeleportService.StartSoloRun(player, trigger, explicitChapterId)
 	local canStart, reason = canStartTeleport(player)
 
 	if not canStart then
@@ -291,22 +316,53 @@ function RunTeleportService.StartSoloRun(player, trigger)
 			Reason = reason,
 			Trigger = trigger,
 		})
-		return false
+		return false, reason
 	end
 
 	cooldownsByUserId[player.UserId] = os.clock()
 	teleportingByUserId[player.UserId] = true
 
-	local teleportData = copyTeleportData()
+	local requestedChapter = math.floor(
+		tonumber(explicitChapterId)
+			or tonumber(trigger and trigger:GetAttribute("ChapterId"))
+			or ChapterProgressService.GetSelectedChapter(player)
+	)
+	local prepared, sessionOrReason = RunSessionService.PrepareRun(player, requestedChapter)
+
+	if not prepared then
+		teleportingByUserId[player.UserId] = nil
+		DebugLog.Warn("RunTeleport", "Preparation de run refusee", {
+			Player = player.Name,
+			ChapterId = requestedChapter,
+			Reason = sessionOrReason,
+		})
+		return false, sessionOrReason
+	end
+
+	local teleportData = copyTeleportData(player)
 
 	if RunService:IsStudio() and RunTeleportConfig.StudioSimulatesArrival then
-		local moved, moveReason, arrival = movePlayerToArrival(player, RunTeleportConfig.ArrivalPartName)
+		local activated, activateReason, generatedArrival = RunSessionService.ActivatePreparedRun(
+			player,
+			sessionOrReason.RunId,
+			"StudioTeleport"
+		)
+		local moved, moveReason, arrival = false, activateReason, nil
+
+		if activated then
+			moved, moveReason, arrival = movePlayerToArrival(
+				player,
+				RunTeleportConfig.ArrivalPartName,
+				generatedArrival
+			)
+		end
 		local arrivalDestroyed = false
 
 		teleportingByUserId[player.UserId] = nil
 		if moved then
-			RunStateService.StartRun(player, "StudioTeleport")
 			arrivalDestroyed = destroyArrivalInstance(arrival)
+		elseif activated then
+			RunStateService.EndRun(player, "ArrivalFailed")
 		end
 		DebugLog.Warn("RunTeleport", "Teleport reserve simule en Studio", {
 			Player = player.Name,
@@ -315,7 +371,7 @@ function RunTeleportService.StartSoloRun(player, trigger)
 			Reason = moveReason,
 			ArrivalDestroyed = arrivalDestroyed,
 		})
-		return moved
+		return moved, moveReason
 	end
 
 	local teleportOptions = Instance.new("TeleportOptions")
@@ -328,13 +384,16 @@ function RunTeleportService.StartSoloRun(player, trigger)
 
 	if not success then
 		teleportingByUserId[player.UserId] = nil
+		RunSessionService.CancelPreparedRun(player, "TeleportFailed")
 		DebugLog.Warn("RunTeleport", "Teleport run impossible", {
 			Player = player.Name,
 			PlaceId = RunTeleportConfig.RunPlaceId,
 			Error = tostring(result),
 		})
-		return false
+		return false, "TeleportFailed"
 	end
+
+	RunSessionService.MarkTeleporting(player)
 
 	DebugLog.Info("RunTeleport", "Teleport run demande", {
 		Player = player.Name,
@@ -343,7 +402,7 @@ function RunTeleportService.StartSoloRun(player, trigger)
 		Result = tostring(result),
 	})
 
-	return true
+	return true, "TeleportRequested"
 end
 
 function RunTeleportService.ReturnToLobby(player, summary)
@@ -456,7 +515,7 @@ local function scanTriggers()
 	end
 end
 
-local function getTeleportArrivalName(player)
+local function getSoloTeleportData(player)
 	local success, joinData = pcall(function()
 		return player:GetJoinData()
 	end)
@@ -471,11 +530,7 @@ local function getTeleportArrivalName(player)
 		return nil
 	end
 
-	if typeof(teleportData.arrivalPartName) == "string" and teleportData.arrivalPartName ~= "" then
-		return teleportData.arrivalPartName
-	end
-
-	return RunTeleportConfig.ArrivalPartName
+	return teleportData
 end
 
 local function getLobbyReturnSummary(player)
@@ -504,6 +559,8 @@ function RunTeleportService.SetupPlayer(player)
 	local lobbySummary = getLobbyReturnSummary(player)
 
 	if lobbySummary ~= nil then
+		RunSessionService.ResolveArrival(player, nil)
+
 		local function sendLobbySummary()
 			local connection = arrivalConnectionsByUserId[player.UserId]
 
@@ -528,21 +585,33 @@ function RunTeleportService.SetupPlayer(player)
 		return
 	end
 
-	local arrivalPartName = getTeleportArrivalName(player)
+	local soloTeleportData = getSoloTeleportData(player)
 
-	if arrivalPartName == nil then
+	if soloTeleportData == nil then
+		RunSessionService.ResolveArrival(player, nil)
 		return
 	end
+
+	local arrivalPartName = if typeof(soloTeleportData.arrivalPartName) == "string"
+		and soloTeleportData.arrivalPartName ~= ""
+		then soloTeleportData.arrivalPartName
+		else RunTeleportConfig.ArrivalPartName
 
 	neutralizeTeleportTemplateParts()
 
 	local function placeCharacter()
-		local moved, reason, arrival = movePlayerToArrival(player, arrivalPartName)
+		local activated, activationReason, generatedArrival = RunSessionService.ResolveArrival(player, soloTeleportData)
+		local moved, reason, arrival = false, activationReason, nil
+
+		if activated then
+			moved, reason, arrival = movePlayerToArrival(player, arrivalPartName, generatedArrival)
+		end
 		local arrivalDestroyed = false
 
 		if moved then
-			RunStateService.StartRun(player, "TeleportArrival")
 			arrivalDestroyed = destroyArrivalInstance(arrival)
+		elseif activated then
+			RunStateService.EndRun(player, "ArrivalFailed")
 		end
 
 		DebugLog.Info("RunTeleport", "Placement joueur apres teleport", {
@@ -590,6 +659,21 @@ function RunTeleportService.Start()
 	end
 
 	isStarted = true
+	startRunRemote.OnServerInvoke = function(player, chapterId)
+		local selected, selectionReason = ChapterProgressService.SelectChapter(player, chapterId)
+
+		if not selected then
+			DebugLog.Warn("RunTeleport", "Lancement GUI refuse", {
+				Player = player.Name,
+				ChapterId = chapterId,
+				Reason = selectionReason,
+			})
+			return false, selectionReason
+		end
+
+		return RunTeleportService.StartSoloRun(player, nil, chapterId)
+	end
+
 	neutralizeTeleportTemplateParts()
 	scanTriggers()
 
@@ -626,6 +710,7 @@ function RunTeleportService.Start()
 
 	TeleportService.TeleportInitFailed:Connect(function(player, teleportResult, errorMessage, placeId)
 		teleportingByUserId[player.UserId] = nil
+		RunSessionService.CancelPreparedRun(player, "TeleportInitFailed")
 		local pendingSummary = pendingLobbySummariesByUserId[player.UserId]
 		pendingLobbySummariesByUserId[player.UserId] = nil
 		DebugLog.Warn("RunTeleport", "Initialisation teleport echouee", {

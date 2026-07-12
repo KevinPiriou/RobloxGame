@@ -54,7 +54,7 @@ end
 local bossBar = Instance.new("Frame")
 bossBar.Name = "BossHealthBar"
 bossBar.AnchorPoint = Vector2.new(0.5, 0)
-bossBar.Position = UDim2.new(0.5, 0, 0, 96)
+bossBar.Position = UDim2.new(0.5, 0, 0, 104)
 bossBar.Size = UDim2.new(0.48, 0, 0, 58)
 bossBar.BackgroundColor3 = Color3.fromRGB(12, 14, 21)
 bossBar.BackgroundTransparency = 0.12
