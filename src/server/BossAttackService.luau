@@ -10,6 +10,7 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
@@ -230,11 +231,13 @@ local function explodeBubbles(player, state, telegraph, bubbles)
 			local horizontalDistance = Vector2.new(offset.X, offset.Z).Magnitude
 
 			if horizontalDistance <= BossConfig.ConeAttackHitRadius then
-				local incomingDamage = PerkService.CalculateIncomingDamage(player, state.ConeDamage)
+				local incomingDamage, shieldAbsorbed = PerkService.CalculateIncomingDamage(player, state.ConeDamage)
 
 				if incomingDamage > 0 then
 					humanoid:TakeDamage(incomingDamage)
 				end
+
+				RunAnalyticsService.RecordDamageTaken(player, incomingDamage, shieldAbsorbed)
 
 				telegraph.DidHitPlayer = true
 			end

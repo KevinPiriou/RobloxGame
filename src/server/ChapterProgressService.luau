@@ -184,11 +184,18 @@ function ChapterProgressService.MarkChapterCompleted(player, chapterId)
 		return false
 	end
 
+	local wasCompleted = profile.Data.CompletedChapters[tostring(chapter.Id)] == true
+	local previousHighestUnlockedChapter = profile.Data.HighestUnlockedChapter
 	profile.Data.CompletedChapters[tostring(chapter.Id)] = true
 	profile.Data.HighestUnlockedChapter = math.max(
 		profile.Data.HighestUnlockedChapter,
 		math.min(ChapterConfig.GetChapterCount(), chapter.Id + 1)
 	)
+	local newlyUnlockedChapterId = nil
+
+	if profile.Data.HighestUnlockedChapter > previousHighestUnlockedChapter then
+		newlyUnlockedChapterId = profile.Data.HighestUnlockedChapter
+	end
 	profile.Dirty = true
 	publishProfile(player, profile)
 
@@ -198,7 +205,10 @@ function ChapterProgressService.MarkChapterCompleted(player, chapterId)
 		HighestUnlockedChapter = profile.Data.HighestUnlockedChapter,
 	})
 
-	return true
+	return true, {
+		WasAlreadyCompleted = wasCompleted,
+		NewlyUnlockedChapterId = newlyUnlockedChapterId,
+	}
 end
 
 function ChapterProgressService.SavePlayer(player)

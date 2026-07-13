@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ChestConfig = require(Shared:WaitForChild("ChestConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local UiTheme = require(Shared:WaitForChild("UiTheme"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -28,30 +29,10 @@ local currentOpenCost = ChestConfig.BaseOpenCost
 -- Ce bloc client reste disponible comme fallback, mais il ne dessine plus de label.
 local CLIENT_CHEST_PROMPTS_ENABLED = false
 
-local CHEST_UI_COLORS = {
-	Panel = Color3.fromRGB(17, 27, 39),
-	PanelTop = Color3.fromRGB(37, 51, 70),
-	Text = Color3.fromRGB(245, 248, 255),
-	Muted = Color3.fromRGB(191, 202, 218),
-	Accent = Color3.fromRGB(180, 91, 255),
-	AccentLight = Color3.fromRGB(224, 171, 255),
-}
+local CHEST_UI_COLORS = UiTheme.Contexts.Chest
 
-local function addCorner(instance, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = instance
-	return corner
-end
-
-local function addStroke(instance, color, transparency, thickness)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Transparency = transparency
-	stroke.Thickness = thickness
-	stroke.Parent = instance
-	return stroke
-end
+local addCorner = UiTheme.AddCorner
+local addStroke = UiTheme.AddStroke
 
 local function getChestContainer(instance)
 	local current = instance
@@ -312,6 +293,10 @@ slotGradient.Transparency = NumberSequence.new({
 	NumberSequenceKeypoint.new(1, 0.34),
 })
 slotGradient.Parent = slotPanel
+UiTheme.AddSurfaceFinish(slotPanel, {
+	Accent = CHEST_UI_COLORS.Accent,
+	Intensity = 0.68,
+})
 
 local slotPadding = Instance.new("UIPadding")
 slotPadding.PaddingTop = UDim.new(0, 12)
@@ -345,15 +330,26 @@ reelCorner.CornerRadius = UDim.new(0, 6)
 reelCorner.Parent = reelFrame
 addStroke(reelFrame, CHEST_UI_COLORS.Accent, 0.46, 1)
 
+local rewardIcon = Instance.new("ImageLabel")
+rewardIcon.Name = "RewardIcon"
+rewardIcon.Position = UDim2.fromOffset(7, 5)
+rewardIcon.Size = UDim2.fromOffset(32, 32)
+rewardIcon.BackgroundTransparency = 1
+rewardIcon.Image = ""
+rewardIcon.ScaleType = Enum.ScaleType.Fit
+rewardIcon.Parent = reelFrame
+
 local reelLabel = Instance.new("TextLabel")
 reelLabel.Name = "RewardName"
-reelLabel.Size = UDim2.fromScale(1, 1)
+reelLabel.Position = UDim2.fromOffset(44, 0)
+reelLabel.Size = UDim2.new(1, -51, 1, 0)
 reelLabel.BackgroundTransparency = 1
 reelLabel.Font = Enum.Font.GothamBold
 reelLabel.Text = "..."
 reelLabel.TextColor3 = CHEST_UI_COLORS.AccentLight
 reelLabel.TextSize = 18
 reelLabel.TextWrapped = true
+reelLabel.TextXAlignment = Enum.TextXAlignment.Left
 reelLabel.Parent = reelFrame
 
 local slotSubtitle = Instance.new("TextLabel")
@@ -433,6 +429,17 @@ local function closeSlotUi()
 	activeOpeningId = nil
 end
 
+local function setDisplayedReward(reward)
+	if typeof(reward) == "table" then
+		reelLabel.Text = tostring(reward.Name or "Objet mystere")
+		rewardIcon.Image = tostring(reward.Icon or "")
+		return
+	end
+
+	reelLabel.Text = tostring(reward or "Objet mystere")
+	rewardIcon.Image = ""
+end
+
 local function playSlotAnimation(payload)
 	payload = payload or {}
 
@@ -471,14 +478,14 @@ local function playSlotAnimation(payload)
 
 		if os.clock() >= nextTickAt then
 			currentIndex = (currentIndex % #spinItems) + 1
-			reelLabel.Text = tostring(spinItems[currentIndex])
+			setDisplayedReward(spinItems[currentIndex])
 			nextTickAt = os.clock() + interval
 		end
 
 		RunService.RenderStepped:Wait()
 	end
 
-	reelLabel.Text = tostring(reward.Name or "Objet mystere")
+	setDisplayedReward(reward)
 	slotSubtitle.Text = tostring(reward.Description or "Objet a venir")
 	buttonRow.Visible = true
 	setDecisionButtonsEnabled(true)
@@ -638,12 +645,14 @@ choiceResultRemote.OnClientEvent:Connect(function(payload)
 	end
 
 	if payload.Accepted then
-		slotSubtitle.Text = "Objet valide."
+		local stacks = math.max(1, math.floor(tonumber(payload.ItemCount) or 1))
+		slotSubtitle.Text = "Objet equipe - x" .. tostring(stacks)
 	else
 		slotSubtitle.Text = "Objet passe."
 	end
 
-	task.delay(0.35, closeSlotUi)
+	-- Laisse le joueur lire le stack obtenu avant la reprise de la run.
+	task.delay(0.75, closeSlotUi)
 end)
 
 priceUpdateRemote.OnClientEvent:Connect(function(payload)

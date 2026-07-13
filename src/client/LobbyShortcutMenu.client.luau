@@ -9,6 +9,8 @@ local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local UiTheme = require(Shared:WaitForChild("UiTheme"))
 
 --==================================================
 -- CONFIGURATION
@@ -80,7 +82,7 @@ local HOVER_SCALE = 1.12
 local SELECTED_SCALE = 1.08
 
 -- Police proche de celle de ta DA actuelle.
-local BUTTON_FONT = Font.fromEnum(Enum.Font.GothamBold)
+local BUTTON_FONT = Font.fromEnum(UiTheme.Fonts.Bold)
 
 local TWEEN_FAST = TweenInfo.new(
 	0.12,
@@ -191,17 +193,7 @@ local function tween(
 	):Play()
 end
 
-local function createCorner(
-	parent: Instance,
-	radius: number
-): UICorner
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = parent
-
-	return corner
-end
+local createCorner = UiTheme.AddCorner
 
 local function getMenusGui(): ScreenGui?
 	local menus = playerGui:FindFirstChild("Menus")

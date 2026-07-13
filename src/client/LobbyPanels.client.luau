@@ -3,22 +3,16 @@
 -- Cree les panneaux du lobby relies aux raccourcis lateraux.
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local UiTheme = require(Shared:WaitForChild("UiTheme"))
+local WeaponSkinConfig = require(Shared:WaitForChild("WeaponSkinConfig"))
 
-local COLORS = {
-	Panel = Color3.fromRGB(17, 27, 39),
-	PanelTop = Color3.fromRGB(37, 51, 70),
-	Card = Color3.fromRGB(20, 34, 48),
-	CardHover = Color3.fromRGB(32, 48, 66),
-	Text = Color3.fromRGB(244, 248, 255),
-	Muted = Color3.fromRGB(180, 194, 211),
-	Dark = Color3.fromRGB(8, 13, 20),
-	Purple = Color3.fromRGB(180, 91, 255),
-	PurpleLight = Color3.fromRGB(224, 171, 255),
-}
+local COLORS = UiTheme.Contexts.Lobby
 
 type ContentLayout = "Grid" | "List" | "Profile"
 
@@ -45,6 +39,28 @@ type PanelData = {
 	Accent: Color3,
 	Tabs: {TabData},
 }
+
+type WeaponSkinData = {
+	Id: string,
+	Name: string,
+	Description: string,
+	Image: string,
+}
+
+local FIREBALL = WeaponSkinConfig.Weapons.fireball
+local FIREBALL_WEAPON_ICON = FIREBALL.Icon
+local FIREBALL_SKINS: {WeaponSkinData} = FIREBALL.Skins
+
+local selectedFireballSkinId = FIREBALL.DefaultSkinId or FIREBALL_SKINS[1].Id
+local selectFireballSkinRemote: RemoteEvent? = nil
+
+task.spawn(function()
+	local remote = ReplicatedStorage:WaitForChild("WeaponSkin_Select", 20)
+
+	if remote ~= nil and remote:IsA("RemoteEvent") then
+		selectFireballSkinRemote = remote
+	end
+end)
 
 local PANELS: {PanelData} = {
 	{
@@ -144,22 +160,22 @@ local PANELS: {PanelData} = {
 				Layout = "List",
 				Entries = {
 					{
-						Title = "PREMIERE RUN",
-						Description = "Termine ta premiere run pour gagner une recompense.",
+						Title = "FAIRE UNE RUN",
+						Description = "Termine une run.",
 						Value = "0 / 1",
 						Symbol = "1",
 					},
 					{
-						Title = "CHASSEUR DE MONSTRES",
-						Description = "Elimine des monstres pendant tes runs.",
-						Value = "0 / 100",
-						Symbol = "M",
+						Title = "GARDIEN DU CHAPITRE 1",
+						Description = "Vaincs le boss de la map du chapitre 1.",
+						Value = "0 / 1",
+						Symbol = "B",
 					},
 					{
-						Title = "COLLECTIONNEUR",
-						Description = "Ramasse des objets de valeur pendant une run.",
-						Value = "0 / 50",
-						Symbol = "C",
+						Title = "AUTELS DE PERK",
+						Description = "Active 10 autels de perk.",
+						Value = "0 / 10",
+						Symbol = "P",
 					},
 				},
 			},
@@ -169,22 +185,22 @@ local PANELS: {PanelData} = {
 				Layout = "List",
 				Entries = {
 					{
-						Title = "DEFI DU JOUR",
-						Description = "La premiere mission quotidienne apparaitra ici.",
-						Value = "0 / 1",
-						Symbol = "D",
+						Title = "DEFI 100 ENNEMIS",
+						Description = "Elimine 100 ennemis aujourd'hui.",
+						Value = "0 / 100",
+						Symbol = "1",
 					},
 					{
-						Title = "SURVIVANT DU JOUR",
-						Description = "Survis pendant le temps demande dans une run.",
-						Value = "0 / 1",
-						Symbol = "S",
-					},
-					{
-						Title = "OR DU JOUR",
-						Description = "Recupere de l'or pendant une run.",
+						Title = "DEFI 250 ENNEMIS",
+						Description = "Elimine 250 ennemis aujourd'hui.",
 						Value = "0 / 250",
-						Symbol = "O",
+						Symbol = "2",
+					},
+					{
+						Title = "DEFI 500 ENNEMIS",
+						Description = "Elimine 500 ennemis aujourd'hui.",
+						Value = "0 / 500",
+						Symbol = "3",
 					},
 				},
 			},
@@ -255,9 +271,8 @@ local PANELS: {PanelData} = {
 				Label = "HAUTS FAITS",
 				Layout = "List",
 				Entries = {
-					{ Title = "PREMIER PAS", Description = "Termine ta premiere run.", Value = "0 / 1", Symbol = "1" },
-					{ Title = "VAGUE DE FEU", Description = "Elimine 100 monstres dans une run.", Value = "0 / 100", Symbol = "F" },
-					{ Title = "CHASSE AU TRESOR", Description = "Ouvre des coffres pendant tes runs.", Value = "0 / 10", Symbol = "C" },
+					{ Title = "FONDATEUR", Description = "Achete le pass permanent Fondateur.", Value = "VERROUILLE", Symbol = "F" },
+					{ Title = "ON DEBUTE TOUS UN JOUR ..", Description = "Lance ta premiere run.", Value = "VERROUILLE", Symbol = "1" },
 				},
 			},
 			{
@@ -288,26 +303,8 @@ local PANELS: {PanelData} = {
 	},
 }
 
-local function addCorner(instance: Instance, radius: number): UICorner
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = instance
-	return corner
-end
-
-local function addStroke(
-	instance: Instance,
-	color: Color3,
-	transparency: number,
-	thickness: number
-): UIStroke
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Transparency = transparency
-	stroke.Thickness = thickness
-	stroke.Parent = instance
-	return stroke
-end
+local addCorner = UiTheme.AddCorner
+local addStroke = UiTheme.AddStroke
 
 local function createLabel(
 	parent: Instance,
@@ -404,6 +401,10 @@ local function createGridCard(
 	card.Parent = parent
 	addCorner(card, 8)
 	addStroke(card, accent, 0.22, 2)
+	UiTheme.AddSurfaceFinish(card, {
+		Accent = accent,
+		Intensity = 0.28,
+	})
 
 	local accentBar = Instance.new("Frame")
 	accentBar.Name = "Accent"
@@ -476,6 +477,10 @@ local function createListCard(
 	card.Parent = parent
 	addCorner(card, 7)
 	addStroke(card, accent, 0.32, 1)
+	UiTheme.AddSurfaceFinish(card, {
+		Accent = accent,
+		Intensity = 0.22,
+	})
 
 	local icon = Instance.new("Frame")
 	icon.Name = "PlaceholderIcon"
@@ -525,6 +530,10 @@ local function createProfileCard(
 	card.Parent = parent
 	addCorner(card, 8)
 	addStroke(card, accent, 0.24, 2)
+	UiTheme.AddSurfaceFinish(card, {
+		Accent = accent,
+		Intensity = 0.3,
+	})
 
 	local avatarPanel = Instance.new("Frame")
 	avatarPanel.Name = "AvatarPanel"
@@ -627,6 +636,182 @@ local function createProfileCard(
 	end)
 end
 
+local function createWeaponTab(content: ScrollingFrame, accent: Color3)
+	local split = Instance.new("Frame")
+	split.Name = "WeaponSplit"
+	split.Size = UDim2.new(1, 0, 0, 214)
+	split.BackgroundTransparency = 1
+	split.BorderSizePixel = 0
+	split.Parent = content
+
+	local weaponPanel = Instance.new("Frame")
+	weaponPanel.Name = "WeaponsPanel"
+	weaponPanel.Size = UDim2.new(0.58, -6, 1, 0)
+	weaponPanel.BackgroundColor3 = COLORS.Card
+	weaponPanel.BackgroundTransparency = 0.14
+	weaponPanel.BorderSizePixel = 0
+	weaponPanel.Parent = split
+	addCorner(weaponPanel, 8)
+	addStroke(weaponPanel, accent, 0.28, 2)
+	UiTheme.AddSurfaceFinish(weaponPanel, {
+		Accent = accent,
+		Intensity = 0.4,
+	})
+
+	local weaponTitle = createLabel(weaponPanel, "Title", "ARMES", Enum.Font.GothamBlack, 14, COLORS.Text)
+	weaponTitle.Position = UDim2.fromOffset(14, 12)
+	weaponTitle.Size = UDim2.new(1, -28, 0, 20)
+
+	local weaponCard = Instance.new("Frame")
+	weaponCard.Name = "FireballCard"
+	weaponCard.Position = UDim2.fromOffset(14, 42)
+	weaponCard.Size = UDim2.new(1, -28, 1, -56)
+	weaponCard.BackgroundColor3 = COLORS.Dark
+	weaponCard.BackgroundTransparency = 0.18
+	weaponCard.BorderSizePixel = 0
+	weaponCard.Parent = weaponPanel
+	addCorner(weaponCard, 7)
+	addStroke(weaponCard, Color3.fromRGB(82, 218, 255), 0.24, 1)
+
+	local weaponIcon = Instance.new("ImageLabel")
+	weaponIcon.Name = "WeaponIcon"
+	weaponIcon.Position = UDim2.fromOffset(16, 18)
+	weaponIcon.Size = UDim2.fromOffset(76, 76)
+	weaponIcon.BackgroundTransparency = 1
+	weaponIcon.Image = FIREBALL_WEAPON_ICON
+	weaponIcon.ScaleType = Enum.ScaleType.Fit
+	weaponIcon.Parent = weaponCard
+
+	local weaponName = createLabel(weaponCard, "Name", "FIREBALL", Enum.Font.GothamBlack, 20, COLORS.Text)
+	weaponName.Position = UDim2.fromOffset(106, 24)
+	weaponName.Size = UDim2.new(1, -120, 0, 26)
+
+	local weaponDescription = createLabel(
+		weaponCard,
+		"Description",
+		FIREBALL.Description,
+		Enum.Font.Gotham,
+		12,
+		COLORS.Muted
+	)
+	weaponDescription.Position = UDim2.fromOffset(106, 53)
+	weaponDescription.Size = UDim2.new(1, -122, 0, 32)
+	weaponDescription.TextWrapped = true
+
+	local weaponState = createLabel(weaponCard, "State", "EQUIPEE", Enum.Font.GothamBold, 11, Color3.fromRGB(104, 239, 145))
+	weaponState.Position = UDim2.fromOffset(16, 110)
+	weaponState.Size = UDim2.new(1, -32, 0, 18)
+
+	local skinsPanel = Instance.new("Frame")
+	skinsPanel.Name = "SkinsPanel"
+	skinsPanel.AnchorPoint = Vector2.new(1, 0)
+	skinsPanel.Position = UDim2.new(1, 0, 0, 0)
+	skinsPanel.Size = UDim2.new(0.42, -6, 1, 0)
+	skinsPanel.BackgroundColor3 = COLORS.Card
+	skinsPanel.BackgroundTransparency = 0.14
+	skinsPanel.BorderSizePixel = 0
+	skinsPanel.Parent = split
+	addCorner(skinsPanel, 8)
+	addStroke(skinsPanel, Color3.fromRGB(180, 91, 255), 0.28, 2)
+	UiTheme.AddSurfaceFinish(skinsPanel, {
+		Accent = Color3.fromRGB(180, 91, 255),
+		Intensity = 0.4,
+	})
+
+	local skinsTitle = createLabel(skinsPanel, "Title", "SKINS DE PROJECTILE", Enum.Font.GothamBlack, 12, COLORS.Text)
+	skinsTitle.Position = UDim2.fromOffset(12, 12)
+	skinsTitle.Size = UDim2.new(1, -24, 0, 18)
+
+	local selectedLabel = createLabel(skinsPanel, "Selected", "", Enum.Font.GothamBold, 10, Color3.fromRGB(224, 171, 255))
+	selectedLabel.Position = UDim2.fromOffset(12, 31)
+	selectedLabel.Size = UDim2.new(1, -24, 0, 16)
+	selectedLabel.TextTruncate = Enum.TextTruncate.AtEnd
+
+	local skinsList = Instance.new("Frame")
+	skinsList.Name = "SkinsList"
+	skinsList.Position = UDim2.fromOffset(12, 54)
+	skinsList.Size = UDim2.new(1, -24, 1, -66)
+	skinsList.BackgroundTransparency = 1
+	skinsList.BorderSizePixel = 0
+	skinsList.Parent = skinsPanel
+
+	local skinsLayout = Instance.new("UIListLayout")
+	skinsLayout.Padding = UDim.new(0, 7)
+	skinsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	skinsLayout.Parent = skinsList
+
+	local skinButtons: {[string]: TextButton} = {}
+
+	local function refreshSelection()
+		for _, skin in ipairs(FIREBALL_SKINS) do
+			local button = skinButtons[skin.Id]
+
+			if button ~= nil then
+				local isSelected = skin.Id == selectedFireballSkinId
+				button.BackgroundColor3 = if isSelected then Color3.fromRGB(55, 42, 76) else COLORS.Dark
+				button.BackgroundTransparency = if isSelected then 0.04 else 0.2
+			end
+		end
+
+		for _, skin in ipairs(FIREBALL_SKINS) do
+			if skin.Id == selectedFireballSkinId then
+				selectedLabel.Text = "ACTIF : " .. string.upper(skin.Name)
+				return
+			end
+		end
+	end
+
+	for index, skin in ipairs(FIREBALL_SKINS) do
+		local button = Instance.new("TextButton")
+		button.Name = skin.Id
+		button.LayoutOrder = index
+		button.Size = UDim2.new(1, 0, 0, 67)
+		button.BackgroundColor3 = COLORS.Dark
+		button.BackgroundTransparency = 0.2
+		button.BorderSizePixel = 0
+		button.AutoButtonColor = false
+		button.Text = ""
+		button.Parent = skinsList
+		addCorner(button, 6)
+		addStroke(button, Color3.fromRGB(180, 91, 255), 0.48, 1)
+
+		local icon = Instance.new("ImageLabel")
+		icon.Name = "Icon"
+		icon.Position = UDim2.fromOffset(8, 8)
+		icon.Size = UDim2.fromOffset(50, 50)
+		icon.BackgroundTransparency = 1
+		icon.Image = skin.Image
+		icon.ScaleType = Enum.ScaleType.Fit
+		icon.Parent = button
+
+		local name = createLabel(button, "Name", string.upper(skin.Name), Enum.Font.GothamBold, 11, COLORS.Text)
+		name.Position = UDim2.fromOffset(65, 10)
+		name.Size = UDim2.new(1, -74, 0, 16)
+		name.TextTruncate = Enum.TextTruncate.AtEnd
+
+		local description = createLabel(button, "Description", skin.Description, Enum.Font.Gotham, 9, COLORS.Muted)
+		description.Position = UDim2.fromOffset(65, 27)
+		description.Size = UDim2.new(1, -74, 0, 27)
+		description.TextWrapped = true
+		description.TextYAlignment = Enum.TextYAlignment.Top
+
+		button.Activated:Connect(function()
+			selectedFireballSkinId = skin.Id
+			refreshSelection()
+
+			local remote = selectFireballSkinRemote
+
+			if remote ~= nil then
+				remote:FireServer(skin.Id)
+			end
+		end)
+		skinButtons[skin.Id] = button
+	end
+
+	content.CanvasSize = UDim2.fromOffset(0, 220)
+	refreshSelection()
+end
+
 local function renderTab(
 	content: ScrollingFrame,
 	tab: TabData,
@@ -634,6 +819,11 @@ local function renderTab(
 ): UIGridLayout?
 	content:ClearAllChildren()
 	content.CanvasPosition = Vector2.zero
+
+	if tab.Id == "Weapons" then
+		createWeaponTab(content, accent)
+		return nil
+	end
 
 	if tab.Layout == "Grid" then
 		local layout = Instance.new("UIGridLayout")
@@ -705,6 +895,10 @@ local function createPanel(definition: PanelData)
 		NumberSequenceKeypoint.new(1, 0.34),
 	})
 	gradient.Parent = panel
+	UiTheme.AddSurfaceFinish(panel, {
+		Accent = definition.Accent,
+		Intensity = 0.7,
+	})
 
 	local sizeConstraint = Instance.new("UISizeConstraint")
 	sizeConstraint.MinSize = Vector2.new(320, 330)

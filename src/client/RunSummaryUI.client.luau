@@ -6,6 +6,8 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local BossConfig = require(Shared:WaitForChild("BossConfig"))
+local MetaProgressionConfig = require(Shared:WaitForChild("MetaProgressionConfig"))
+local UiTheme = require(Shared:WaitForChild("UiTheme"))
 
 local existingGui = playerGui:FindFirstChild("RunSummaryGui")
 
@@ -20,29 +22,11 @@ screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 180
 screenGui.Parent = playerGui
 
-local function addCorner(instance, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = instance
-end
-
-local function addStroke(instance, color, transparency, thickness)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Transparency = transparency
-	stroke.Thickness = thickness
-	stroke.Parent = instance
-end
+local addCorner = UiTheme.AddCorner
+local addStroke = UiTheme.AddStroke
 
 local function addGradient(instance, firstColor, secondColor)
-	local gradient = Instance.new("UIGradient")
-	gradient.Rotation = 90
-	gradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, firstColor),
-		ColorSequenceKeypoint.new(1, secondColor),
-	})
-	gradient.Parent = instance
-	return gradient
+	return UiTheme.AddGradient(instance, firstColor, secondColor, 90)
 end
 
 local function createLabel(parent, name, text, size, color, font)
@@ -50,7 +34,7 @@ local function createLabel(parent, name, text, size, color, font)
 	label.Name = name
 	label.BackgroundTransparency = 1
 	label.BorderSizePixel = 0
-	label.Font = font or Enum.Font.GothamBold
+	label.Font = font or UiTheme.Fonts.Bold
 	label.Text = text
 	label.TextColor3 = color
 	label.TextSize = size
@@ -76,7 +60,7 @@ local card = Instance.new("Frame")
 card.Name = "Card"
 card.AnchorPoint = Vector2.new(0.5, 0.5)
 card.Position = UDim2.fromScale(0.5, 0.5)
-card.Size = UDim2.new(0.36, 0, 0, 360)
+card.Size = UDim2.new(0.4, 0, 0, 520)
 card.BackgroundColor3 = Color3.fromRGB(37, 51, 70)
 card.BackgroundTransparency = 0.12
 card.BorderSizePixel = 0
@@ -85,10 +69,14 @@ card.Parent = overlay
 addCorner(card, 10)
 addStroke(card, Color3.fromRGB(93, 125, 161), 0.2, 2)
 addGradient(card, Color3.fromRGB(65, 88, 118), Color3.fromRGB(13, 22, 34))
+UiTheme.AddSurfaceFinish(card, {
+	Accent = UiTheme.Colors.Purple,
+	Intensity = 0.68,
+})
 
 local sizeConstraint = Instance.new("UISizeConstraint")
-sizeConstraint.MinSize = Vector2.new(300, 360)
-sizeConstraint.MaxSize = Vector2.new(460, 360)
+sizeConstraint.MinSize = Vector2.new(320, 520)
+sizeConstraint.MaxSize = Vector2.new(560, 520)
 sizeConstraint.Parent = card
 
 local inner = Instance.new("Frame")
@@ -142,23 +130,34 @@ divider.Parent = card
 local rowsFrame = Instance.new("Frame")
 rowsFrame.Name = "Rows"
 rowsFrame.Position = UDim2.fromOffset(28, 104)
-rowsFrame.Size = UDim2.new(1, -56, 0, 170)
+rowsFrame.Size = UDim2.new(1, -56, 0, 244)
 rowsFrame.BackgroundTransparency = 1
 rowsFrame.ZIndex = 203
 rowsFrame.Parent = card
 
 local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 8)
+layout.Padding = UDim.new(0, 4)
 layout.FillDirection = Enum.FillDirection.Vertical
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Parent = rowsFrame
 
 local statRows = {}
 
-for index, labelText in ipairs({ "Temps", "Kills", "Or de run", "Niveau", "XP gagnee", "Perks" }) do
+for index, labelText in ipairs({
+	"Temps",
+	"Kills",
+	"Elites",
+	"Boss",
+	"Or de run",
+	"XP gagnee",
+	"Niveau",
+	"Perks",
+	"Coffres",
+	"Jarres",
+}) do
 	local row = Instance.new("Frame")
 	row.Name = "Row" .. tostring(index)
-	row.Size = UDim2.new(1, 0, 0, 22)
+	row.Size = UDim2.new(1, 0, 0, 20)
 	row.BackgroundColor3 = Color3.fromRGB(24, 37, 54)
 	row.BackgroundTransparency = 0.12
 	row.BorderSizePixel = 0
@@ -170,7 +169,7 @@ for index, labelText in ipairs({ "Temps", "Kills", "Or de run", "Niveau", "XP ga
 
 	local rowAccent = Instance.new("Frame")
 	rowAccent.Name = "Accent"
-	rowAccent.Position = UDim2.fromOffset(0, 3)
+	rowAccent.Position = UDim2.fromOffset(0, 2)
 	rowAccent.Size = UDim2.fromOffset(2, 16)
 	rowAccent.BackgroundColor3 = if index % 2 == 0 then Color3.fromRGB(113, 232, 255) else Color3.fromRGB(190, 116, 255)
 	rowAccent.BackgroundTransparency = 0.1
@@ -192,9 +191,48 @@ for index, labelText in ipairs({ "Temps", "Kills", "Or de run", "Niveau", "XP ga
 	statRows[labelText] = value
 end
 
+local progressionFrame = Instance.new("Frame")
+progressionFrame.Name = "Progression"
+progressionFrame.Position = UDim2.fromOffset(28, 362)
+progressionFrame.Size = UDim2.new(1, -56, 0, 90)
+progressionFrame.BackgroundColor3 = Color3.fromRGB(20, 34, 48)
+progressionFrame.BackgroundTransparency = 0.2
+progressionFrame.BorderSizePixel = 0
+progressionFrame.ZIndex = 203
+progressionFrame.Parent = card
+addCorner(progressionFrame, 6)
+addStroke(progressionFrame, Color3.fromRGB(113, 232, 255), 0.68, 1)
+
+local progressionTitle = createLabel(
+	progressionFrame,
+	"Title",
+	"PROGRESSION DEBLOQUEE",
+	12,
+	Color3.fromRGB(113, 232, 255),
+	Enum.Font.GothamBold
+)
+progressionTitle.Position = UDim2.fromOffset(12, 8)
+progressionTitle.Size = UDim2.new(1, -24, 0, 16)
+progressionTitle.ZIndex = 204
+
+local progressionText = createLabel(
+	progressionFrame,
+	"Details",
+	"Aucune nouvelle progression.",
+	11,
+	Color3.fromRGB(224, 234, 247),
+	Enum.Font.Gotham
+)
+progressionText.Position = UDim2.fromOffset(12, 27)
+progressionText.Size = UDim2.new(1, -24, 1, -35)
+progressionText.TextWrapped = true
+progressionText.TextTruncate = Enum.TextTruncate.AtEnd
+progressionText.TextYAlignment = Enum.TextYAlignment.Top
+progressionText.ZIndex = 204
+
 local returnButton = Instance.new("TextButton")
 returnButton.Name = "ReturnToLobby"
-returnButton.Position = UDim2.new(0.5, 0, 1, -62)
+returnButton.Position = UDim2.new(0.5, 0, 1, -54)
 returnButton.AnchorPoint = Vector2.new(0.5, 0)
 returnButton.Size = UDim2.new(1, -56, 0, 40)
 returnButton.BackgroundColor3 = Color3.fromRGB(37, 51, 70)
@@ -219,6 +257,62 @@ local function formatNumber(value)
 	return string.format("%d", math.floor(tonumber(value) or 0))
 end
 
+local function findDefinition(definitions, id)
+	for _, definition in ipairs(definitions) do
+		if definition.Id == id then
+			return definition
+		end
+	end
+
+	return nil
+end
+
+local function formatProgression(payload)
+	if payload.ProgressionEligible ~= true then
+		return "Run de debug : statistiques, quetes et hauts faits non comptabilises."
+	end
+
+	local progression = payload.Progression or {}
+	local lines = {}
+
+	for _, unlock in ipairs(progression.NewUnlocks or {}) do
+		if unlock.Type == "Chapter" then
+			table.insert(lines, "Nouveau chapitre debloque : " .. tostring(unlock.Id))
+		end
+	end
+
+	for _, questId in ipairs(progression.CompletedQuestIds or {}) do
+		local definition = findDefinition(MetaProgressionConfig.Quests, questId)
+			or findDefinition(MetaProgressionConfig.DailyQuests, questId)
+
+		if definition ~= nil then
+			table.insert(lines, "Quete terminee : " .. definition.Label)
+		end
+	end
+
+	for _, achievementId in ipairs(progression.NewAchievementIds or {}) do
+		local definition = findDefinition(MetaProgressionConfig.Achievements, achievementId)
+
+		if definition ~= nil then
+			table.insert(lines, "Haut fait : " .. definition.Label)
+		end
+	end
+
+	for _, personalBest in ipairs(progression.PersonalBestChanges or {}) do
+		table.insert(lines, "Nouveau record : " .. tostring(personalBest.StatId))
+	end
+
+	if #lines == 0 then
+		if progression.Reason == "DataStoreFailure" or progression.Reason == "ProfileNotLoaded" then
+			return "Progression non sauvegardee : nouvelle tentative necessaire."
+		end
+
+		return "Aucune nouvelle progression cette fois."
+	end
+
+	return table.concat(lines, "\n")
+end
+
 local function showSummary(payload)
 	local reason = payload.Reason
 	local validated = payload.LevelValidated == true
@@ -233,10 +327,15 @@ local function showSummary(payload)
 
 	statRows["Temps"].Text = formatTime(payload.SurvivalSeconds)
 	statRows["Kills"].Text = formatNumber(payload.Kills)
+	statRows["Elites"].Text = formatNumber(payload.EliteKills)
+	statRows["Boss"].Text = formatNumber(payload.BossKills)
 	statRows["Or de run"].Text = formatNumber(payload.Coins)
 	statRows["Niveau"].Text = formatNumber(payload.Level)
 	statRows["XP gagnee"].Text = formatNumber(payload.TotalXp)
 	statRows["Perks"].Text = formatNumber(payload.PerkCount)
+	statRows["Coffres"].Text = formatNumber(payload.ChestsOpened)
+	statRows["Jarres"].Text = formatNumber(payload.JarsBroken)
+	progressionText.Text = formatProgression(payload)
 	overlay.Visible = true
 end
 

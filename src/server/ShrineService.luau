@@ -13,6 +13,7 @@ local CombatStateService = require(script.Parent:WaitForChild("CombatStateServic
 local HudMessageService = require(script.Parent:WaitForChild("HudMessageService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
 local XpService = require(script.Parent:WaitForChild("XpService"))
@@ -670,6 +671,7 @@ local function activateShrineFromPlayer(shrine, prompt, player)
 	playCompleteSound(shrineState, player)
 	setShrineInactive(shrine, prompt)
 	activateShrineEffect(player, shrineState.Definition, shrine)
+	RunAnalyticsService.RecordShrineActivated(player, shrineState.Definition.TypeId)
 	DebugLog.Info("Shrine", "Shrine validee", {
 		Player = player.Name,
 		Shrine = shrine,

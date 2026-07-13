@@ -5,6 +5,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AudioConfig = require(Shared:WaitForChild("AudioConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local PlayerPreferencesConfig = require(Shared:WaitForChild("PlayerPreferencesConfig"))
 
 local AudioController = {}
 
@@ -15,6 +16,8 @@ local activeMusic = nil
 local lastMusicTemplate = nil
 local settingsChanged = Instance.new("BindableEvent")
 local settings = {}
+local setAudioPreferencesRemote = nil
+local preferenceSaveSerial = 0
 
 for settingName, defaultValue in pairs(AudioConfig.DefaultVolumes) do
 	settings[settingName] = defaultValue
@@ -48,6 +51,72 @@ local function applyMix()
 	end
 
 	settingsChanged:Fire(AudioController.GetSettings())
+end
+
+local function applyAudioPreferences(rawAudio)
+	if typeof(rawAudio) ~= "table" then
+		return
+	end
+
+	for settingName, defaultValue in pairs(AudioConfig.DefaultVolumes) do
+		local value = tonumber(rawAudio[settingName])
+		settings[settingName] = math.clamp(value or defaultValue, 0, 1)
+	end
+end
+
+local function schedulePreferencesSave()
+	if setAudioPreferencesRemote == nil then
+		return
+	end
+
+	preferenceSaveSerial += 1
+	local scheduledSerial = preferenceSaveSerial
+
+	task.delay(PlayerPreferencesConfig.ClientAudioDebounceSeconds, function()
+		if scheduledSerial ~= preferenceSaveSerial or setAudioPreferencesRemote == nil then
+			return
+		end
+
+		setAudioPreferencesRemote:FireServer(AudioController.GetSettings())
+	end)
+end
+
+local function connectPreferences()
+	local updateRemote = ReplicatedStorage:WaitForChild(PlayerPreferencesConfig.UpdateRemoteName, 15)
+
+	if updateRemote ~= nil and updateRemote:IsA("RemoteEvent") then
+		updateRemote.OnClientEvent:Connect(function(payload)
+			if typeof(payload) == "table" and typeof(payload.Audio) == "table" then
+				applyAudioPreferences(payload.Audio)
+				applyMix()
+			end
+		end)
+	end
+
+	local setRemote = ReplicatedStorage:WaitForChild(PlayerPreferencesConfig.SetAudioRemoteName, 15)
+
+	if setRemote ~= nil and setRemote:IsA("RemoteEvent") then
+		setAudioPreferencesRemote = setRemote
+	end
+
+	local getRemote = ReplicatedStorage:WaitForChild(PlayerPreferencesConfig.GetStateRemoteName, 15)
+
+	if getRemote == nil or not getRemote:IsA("RemoteFunction") then
+		DebugLog.Warn("Preferences", "Remote de lecture preferences introuvable")
+		return
+	end
+
+	local success, payload = pcall(function()
+		return getRemote:InvokeServer()
+	end)
+
+	if success and typeof(payload) == "table" and typeof(payload.Audio) == "table" then
+		applyAudioPreferences(payload.Audio)
+	elseif not success then
+		DebugLog.Warn("Preferences", "Lecture preferences client impossible", {
+			Error = tostring(payload),
+		})
+	end
 end
 
 local function destroySound(sound)
@@ -258,6 +327,7 @@ function AudioController.SetVolume(settingName, value)
 
 	settings[settingName] = math.clamp(tonumber(value) or 0, 0, 1)
 	applyMix()
+	schedulePreferencesSave()
 end
 
 function AudioController.Start()
@@ -266,6 +336,7 @@ function AudioController.Start()
 	end
 
 	isStarted = true
+	connectPreferences()
 	applyMix()
 
 	task.spawn(connectAudioRemote)

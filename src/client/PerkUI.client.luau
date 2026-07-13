@@ -8,6 +8,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local PerkIconConfig = require(Shared:WaitForChild("PerkIconConfig"))
+local UiTheme = require(Shared:WaitForChild("UiTheme"))
 
 local showChoicesRemote = ReplicatedStorage:WaitForChild("Perk_ShowChoices")
 local hideChoicesRemote = ReplicatedStorage:WaitForChild("Perk_HideChoices")
@@ -20,19 +21,7 @@ if existingGui ~= nil then
 	existingGui:Destroy()
 end
 
-local COLORS = {
-	Overlay = Color3.fromRGB(4, 7, 12),
-	Panel = Color3.fromRGB(17, 27, 39),
-	PanelTop = Color3.fromRGB(37, 51, 70),
-	Card = Color3.fromRGB(20, 34, 48),
-	CardHover = Color3.fromRGB(32, 48, 66),
-	Text = Color3.fromRGB(245, 248, 255),
-	Muted = Color3.fromRGB(181, 194, 211),
-	Preview = Color3.fromRGB(221, 230, 241),
-	PreviewCurrent = Color3.fromRGB(163, 177, 195),
-	Purple = Color3.fromRGB(180, 91, 255),
-	PurpleLight = Color3.fromRGB(224, 171, 255),
-}
+local COLORS = UiTheme.Contexts.Perk
 
 local TWEEN_FAST = TweenInfo.new(0.13, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local TWEEN_HOVER = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -55,23 +44,8 @@ local function createLabel(parent, name, text, font, textSize, color)
 	return label
 end
 
-local function addCorner(instance, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = instance
-
-	return corner
-end
-
-local function addStroke(instance, color, transparency, thickness)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Transparency = transparency
-	stroke.Thickness = thickness
-	stroke.Parent = instance
-
-	return stroke
-end
+local addCorner = UiTheme.AddCorner
+local addStroke = UiTheme.AddStroke
 
 local function createGradient(parent)
 	local gradient = Instance.new("UIGradient")
@@ -126,6 +100,10 @@ panelGradient.Transparency = NumberSequence.new({
 	NumberSequenceKeypoint.new(1, 0.32),
 })
 panelGradient.Parent = panel
+UiTheme.AddSurfaceFinish(panel, {
+	Accent = COLORS.Purple,
+	Intensity = 0.7,
+})
 
 local panelSizeConstraint = Instance.new("UISizeConstraint")
 panelSizeConstraint.MinSize = Vector2.new(320, 340)
@@ -278,6 +256,10 @@ local function createOptionButton(index)
 
 	local gradient = createGradient(button)
 	local stroke = addStroke(button, Color3.fromRGB(255, 255, 255), 0.22, 2)
+	UiTheme.AddSurfaceFinish(button, {
+		Accent = COLORS.PurpleLight,
+		Intensity = 0.28,
+	})
 
 	local accent = Instance.new("Frame")
 	accent.Name = "Accent"

@@ -7,6 +7,7 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local UiTheme = require(Shared:WaitForChild("UiTheme"))
 
 local existingGui = playerGui:FindFirstChild("InteractionPromptGui")
 
@@ -14,47 +15,16 @@ if existingGui ~= nil then
 	existingGui:Destroy()
 end
 
-local COLORS = {
-	Text = Color3.fromRGB(248, 250, 255),
-	Muted = Color3.fromRGB(185, 199, 216),
-	MetalLight = Color3.fromRGB(93, 125, 161),
-	MetalDark = Color3.fromRGB(13, 22, 34),
-	GlassStroke = Color3.fromRGB(221, 240, 255),
-	Accent = Color3.fromRGB(113, 232, 255),
-	Progress = Color3.fromRGB(130, 255, 170),
-}
+local COLORS = UiTheme.Contexts.Interaction
 
 local viewsByPrompt = {}
 local PROMPT_VISUAL_MAX_DISTANCE = 300
 
-local function addCorner(instance, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = instance
-
-	return corner
-end
-
-local function addStroke(instance, color, transparency, thickness)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Transparency = transparency
-	stroke.Thickness = thickness
-	stroke.Parent = instance
-
-	return stroke
-end
+local addCorner = UiTheme.AddCorner
+local addStroke = UiTheme.AddStroke
 
 local function addGradient(instance, firstColor, secondColor)
-	local gradient = Instance.new("UIGradient")
-	gradient.Rotation = 90
-	gradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, firstColor),
-		ColorSequenceKeypoint.new(1, secondColor),
-	})
-	gradient.Parent = instance
-
-	return gradient
+	return UiTheme.AddGradient(instance, firstColor, secondColor, 90)
 end
 
 local function createLabel(parent, name, text, font, textSize, color)
@@ -164,6 +134,10 @@ local function createView(prompt, inputType)
 	addCorner(outer, 11)
 	addStroke(outer, COLORS.MetalLight, 0.22, 2)
 	addGradient(outer, Color3.fromRGB(65, 88, 118), COLORS.MetalDark)
+	UiTheme.AddSurfaceFinish(outer, {
+		Accent = COLORS.Accent,
+		Intensity = 0.55,
+	})
 
 	local inner = Instance.new("Frame")
 	inner.Name = "GlassInner"

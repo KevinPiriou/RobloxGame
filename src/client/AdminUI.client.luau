@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
+local UiTheme = require(Shared:WaitForChild("UiTheme"))
 
 if not FeatureFlags.AdminToolsEnabled then
 	DebugLog.Info("UI", "UI admin desactivee par FeatureFlags")
@@ -31,31 +32,11 @@ screenGui.DisplayOrder = 8
 screenGui.Enabled = false
 screenGui.Parent = playerGui
 
-local function addCorner(instance, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = instance
-	return corner
-end
-
-local function addStroke(instance, color, transparency, thickness)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Transparency = transparency
-	stroke.Thickness = thickness
-	stroke.Parent = instance
-	return stroke
-end
+local addCorner = UiTheme.AddCorner
+local addStroke = UiTheme.AddStroke
 
 local function addGradient(instance, firstColor, secondColor)
-	local gradient = Instance.new("UIGradient")
-	gradient.Rotation = 90
-	gradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, firstColor),
-		ColorSequenceKeypoint.new(1, secondColor),
-	})
-	gradient.Parent = instance
-	return gradient
+	return UiTheme.AddGradient(instance, firstColor, secondColor, 90)
 end
 
 local adminButton = Instance.new("TextButton")
@@ -75,6 +56,10 @@ adminButton.Parent = screenGui
 addCorner(adminButton, 8)
 addStroke(adminButton, Color3.fromRGB(93, 125, 161), 0.28, 1)
 addGradient(adminButton, Color3.fromRGB(65, 88, 118), Color3.fromRGB(13, 22, 34))
+UiTheme.AddSurfaceFinish(adminButton, {
+	Accent = UiTheme.Colors.Accent,
+	Intensity = 0.4,
+})
 
 local container = Instance.new("Frame")
 container.Name = "AdminPanel"
@@ -89,6 +74,10 @@ container.Parent = screenGui
 addCorner(container, 10)
 addStroke(container, Color3.fromRGB(93, 125, 161), 0.24, 2)
 addGradient(container, Color3.fromRGB(65, 88, 118), Color3.fromRGB(13, 22, 34))
+UiTheme.AddSurfaceFinish(container, {
+	Accent = UiTheme.Colors.Accent,
+	Intensity = 0.6,
+})
 
 local inner = Instance.new("Frame")
 inner.Name = "GlassInner"

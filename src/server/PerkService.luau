@@ -10,6 +10,7 @@ local Perks = require(Shared:WaitForChild("Perks"))
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local CommerceService = require(script.Parent:WaitForChild("CommerceService"))
 local JumpBonusService = require(script.Parent:WaitForChild("JumpBonusService"))
+local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 
 local PerkService = {}
 
@@ -513,6 +514,7 @@ local function applyChoice(player, option)
 
 	addStats(profile.Stats, option.Stats)
 	profile.StacksByPerkId[option.PerkId] = (profile.StacksByPerkId[option.PerkId] or 0) + 1
+	RunAnalyticsService.RecordPerkSelected(player)
 	DebugLog.Info("Perks", "Perk applique", {
 		Player = player.Name,
 		PerkId = option.PerkId,
@@ -724,6 +726,37 @@ function PerkService.GetRunPerkCount(player)
 	return count
 end
 
+function PerkService.GetRunBuild(player)
+	local profile = profilesByUserId[player.UserId]
+
+	if profile == nil then
+		return {
+			WeaponId = CombatConfig.FireballTemplateName,
+			Perks = {},
+			Stats = createEmptyStats(),
+		}
+	end
+
+	local perks = {}
+
+	for perkId, stacks in pairs(profile.StacksByPerkId) do
+		table.insert(perks, {
+			Id = tostring(perkId),
+			Stacks = math.max(0, math.floor(stacks or 0)),
+		})
+	end
+
+	table.sort(perks, function(left, right)
+		return left.Id < right.Id
+	end)
+
+	return {
+		WeaponId = CombatConfig.FireballTemplateName,
+		Perks = perks,
+		Stats = table.clone(profile.Stats),
+	}
+end
+
 function PerkService.GetProjectileCount(player)
 	local stats = PerkService.GetStats(player)
 
@@ -744,9 +777,24 @@ function PerkService.GetProjectileSpeed(player, baseSpeed)
 end
 
 function PerkService.GetAttackDuration(player, baseDuration)
+	return PerkService.GetEffectDuration(player, baseDuration)
+end
+
+function PerkService.GetEffectDuration(player, baseDuration)
 	local stats = PerkService.GetStats(player)
 
 	return baseDuration * (1 + (stats.EffectDurationPercent or 0))
+end
+
+function PerkService.ApplyRunItemStats(player, addedStats)
+	if player == nil or typeof(addedStats) ~= "table" then
+		return
+	end
+
+	local profile = getOrCreateProfile(player)
+	addStats(profile.Stats, addedStats)
+	applyMovementStats(player)
+	sendPerkStats(player)
 end
 
 function PerkService.GetBounceCount(player)
@@ -818,16 +866,17 @@ function PerkService.CalculateIncomingDamage(player, baseDamage)
 	local profile = getOrCreateProfile(player)
 	local armorPercent = math.clamp(profile.Stats.ArmorPercent or 0, 0, 0.8)
 	local damage = baseDamage * (1 - armorPercent)
+	local absorbed = 0
 
 	if profile.CurrentShield > 0 then
-		local absorbed = math.min(profile.CurrentShield, damage)
+		absorbed = math.min(profile.CurrentShield, damage)
 
 		profile.CurrentShield -= absorbed
 		damage -= absorbed
 		sendPerkStats(player)
 	end
 
-	return math.max(0, damage)
+	return math.max(0, damage), absorbed
 end
 
 function PerkService.ApplyLifeSteal(player, damageDealt)
@@ -845,8 +894,10 @@ function PerkService.ApplyLifeSteal(player, damageDealt)
 	end
 
 	local healAmount = damageDealt * lifeStealPercent
+	local previousHealth = humanoid.Health
 
 	humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + healAmount)
+	RunAnalyticsService.RecordHealing(player, humanoid.Health - previousHealth)
 end
 
 function PerkService.GetShieldState(player)

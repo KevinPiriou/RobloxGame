@@ -12,6 +12,7 @@ local CombatStateService = require(script.Parent:WaitForChild("CombatStateServic
 local ChestService = require(script.Parent:WaitForChild("ChestService"))
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
@@ -34,6 +35,7 @@ local monsterTickMaxSeconds = 0
 local elapsedSincePerfLog = 0
 local waveStartedAt = CombatStateService.GetTime()
 local monstersByInstance = {}
+local nextRuntimeMonsterId = 0
 local monsterSpatialGrid = {}
 local killsByUserId = {}
 local lastSpawnAtByUserId = {}
@@ -338,7 +340,7 @@ local function restoreMonsterPartColors(monsterState, flashId)
 	end
 end
 
-local function flashMonsterDamage(monsterState)
+local function flashMonsterDamage(monsterState, flashColor)
 	if monsterState.OriginalPartColors == nil then
 		return
 	end
@@ -347,7 +349,7 @@ local function flashMonsterDamage(monsterState)
 
 	local flashId = monsterState.DamageFlashId
 
-	setMonsterPartsColor(monsterState, CombatConfig.MonsterDamageFlashColor)
+	setMonsterPartsColor(monsterState, flashColor or CombatConfig.MonsterDamageFlashColor)
 
 	task.delay(CombatConfig.MonsterDamageFlashDuration, function()
 		restoreMonsterPartColors(monsterState, flashId)
@@ -753,6 +755,8 @@ local function releaseMonsterToPool(monsterState)
 	monster:SetAttribute("IsBoss", false)
 	monster:SetAttribute("BossName", nil)
 	monster:SetAttribute("ElitePackId", nil)
+	monster:SetAttribute("RuntimeMonsterId", nil)
+	monster:SetAttribute("PoisonStacks", 0)
 	monster:SetAttribute("MonsterHealth", 0)
 
 	resetMonsterAnimators(monster)
@@ -825,6 +829,7 @@ local function removeMonster(monsterState, killer)
 
 	if killer ~= nil and killer.Parent == Players then
 		killsByUserId[killer.UserId] = (killsByUserId[killer.UserId] or 0) + 1
+		RunAnalyticsService.RecordMonsterKill(killer, monsterState.Instance)
 
 		if deathPosition ~= nil and monsterState.DropLoot ~= false then
 			local lootMultiplier = getMonsterLootMultiplier(monsterState)
@@ -980,7 +985,9 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 	local useProceduralMotion = resolveProceduralMotion(monster, options.UseProceduralMotion)
 
 	monster.Name = templateName
+	nextRuntimeMonsterId += 1
 	monster:SetAttribute("RuntimeMonster", true)
+	monster:SetAttribute("RuntimeMonsterId", nextRuntimeMonsterId)
 	monster:SetAttribute("IsElite", isElite)
 	monster:SetAttribute("IsBoss", isBoss)
 	monster:SetAttribute("BossName", options.BossName)
@@ -1235,11 +1242,13 @@ local function updateMonsterDamage(monsterState, now)
 					monsterState.LastDamageByUserId[player.UserId] = now
 
 					local attackDamage = monsterState.AttackDamage or CombatConfig.MonsterAttackDamage
-					local finalDamage = PerkService.CalculateIncomingDamage(player, attackDamage)
+					local finalDamage, shieldAbsorbed = PerkService.CalculateIncomingDamage(player, attackDamage)
 
 					if finalDamage > 0 then
 						getCharacterHumanoid(player):TakeDamage(finalDamage)
 					end
+
+					RunAnalyticsService.RecordDamageTaken(player, finalDamage, shieldAbsorbed)
 
 					sendStats(player)
 				end
@@ -1911,7 +1920,7 @@ function MonsterService.IsMonsterAlive(monster)
 	return monsterState ~= nil and not monsterState.IsDead
 end
 
-function MonsterService.DamageMonster(monster, damage, attacker)
+function MonsterService.DamageMonster(monster, damage, attacker, options)
 	local monsterState = getMonsterStateFromInstance(monster)
 
 	if monsterState == nil or monsterState.IsDead then
@@ -1919,7 +1928,7 @@ function MonsterService.DamageMonster(monster, damage, attacker)
 	end
 
 	if damage > 0 then
-		flashMonsterDamage(monsterState)
+		flashMonsterDamage(monsterState, options and options.FlashColor)
 	end
 
 	if monsterState.Humanoid ~= nil then

@@ -28,6 +28,144 @@ local function createDefaultData()
 	}
 end
 
+local function copyCounterDictionary(rawDictionary)
+	local copied = {}
+
+	if typeof(rawDictionary) ~= "table" then
+		return copied
+	end
+
+	for key, value in pairs(rawDictionary) do
+		if typeof(key) == "string" then
+			copied[key] = math.max(0, math.floor(tonumber(value) or 0))
+		end
+	end
+
+	return copied
+end
+
+local function copyNumericDictionary(rawDictionary)
+	local copied = {}
+
+	if typeof(rawDictionary) ~= "table" then
+		return copied
+	end
+
+	for key, value in pairs(rawDictionary) do
+		local numberValue = tonumber(value)
+
+		if typeof(key) == "string" and numberValue ~= nil and numberValue == numberValue then
+			copied[key] = numberValue
+		end
+	end
+
+	return copied
+end
+
+local function copyPerkStacks(rawPerks)
+	local copied = {}
+
+	if typeof(rawPerks) ~= "table" then
+		return copied
+	end
+
+	for _, perk in ipairs(rawPerks) do
+		if typeof(perk) == "table" then
+			local perkId = tostring(perk.Id or "")
+
+			if perkId ~= "" then
+				table.insert(copied, {
+					Id = perkId,
+					Stacks = math.max(0, math.floor(tonumber(perk.Stacks) or 0)),
+				})
+			end
+		end
+	end
+
+	return copied
+end
+
+-- Cette archive ne contient que des primitives DataStore. Le recapitulatif UI peut contenir Color3 et icones.
+local function copyPersistentResultSummary(result)
+	if typeof(result) ~= "table" then
+		return nil
+	end
+
+	local context = if typeof(result.Context) == "table" then result.Context else {}
+	local lifecycle = if typeof(result.Lifecycle) == "table" then result.Lifecycle else {}
+	local progression = if typeof(result.ProgressionStats) == "table" then result.ProgressionStats else {}
+	local combat = if typeof(result.CombatStats) == "table" then result.CombatStats else {}
+	local interactions = if typeof(result.InteractionStats) == "table" then result.InteractionStats else {}
+	local items = if typeof(result.ItemStats) == "table" then result.ItemStats else {}
+	local build = if typeof(result.FinalBuild) == "table" then result.FinalBuild else {}
+	local eligibility = if typeof(result.Eligibility) == "table" then result.Eligibility else {}
+
+	return {
+		Version = math.max(1, math.floor(tonumber(result.Version) or 1)),
+		RunId = tostring(result.RunId or ""),
+		UserId = math.max(0, math.floor(tonumber(result.UserId) or 0)),
+		Context = {
+			ChapterId = math.max(0, math.floor(tonumber(context.ChapterId) or 0)),
+			MapId = tostring(context.MapId or ""),
+			Seed = math.max(0, math.floor(tonumber(context.Seed) or 0)),
+		},
+		Lifecycle = {
+			Status = tostring(lifecycle.Status or "Completed"),
+			Outcome = tostring(lifecycle.Outcome or "Unknown"),
+			EndReason = tostring(lifecycle.EndReason or "Unknown"),
+			CreatedAt = math.max(0, math.floor(tonumber(lifecycle.CreatedAt) or 0)),
+			StartedAt = math.max(0, math.floor(tonumber(lifecycle.StartedAt) or 0)),
+			EndedAt = math.max(0, math.floor(tonumber(lifecycle.EndedAt) or 0)),
+			ActiveDurationSeconds = math.max(0, math.floor(tonumber(lifecycle.ActiveDurationSeconds) or 0)),
+			PausedDurationSeconds = math.max(0, math.floor(tonumber(lifecycle.PausedDurationSeconds) or 0)),
+		},
+		ProgressionStats = {
+			FinalLevel = math.max(1, math.floor(tonumber(progression.FinalLevel) or 1)),
+			XpEarned = math.max(0, math.floor(tonumber(progression.XpEarned) or 0)),
+			CoinsEarned = math.max(0, math.floor(tonumber(progression.CoinsEarned) or 0)),
+			CoinsSpent = math.max(0, math.floor(tonumber(progression.CoinsSpent) or 0)),
+			CoinsRemaining = math.max(0, math.floor(tonumber(progression.CoinsRemaining) or 0)),
+			PerksSelected = math.max(0, math.floor(tonumber(progression.PerksSelected) or 0)),
+			MaxDifficultyPercent = math.max(0, math.floor(tonumber(progression.MaxDifficultyPercent) or 0)),
+		},
+		CombatStats = {
+			Kills = math.max(0, math.floor(tonumber(combat.Kills) or 0)),
+			EliteKills = math.max(0, math.floor(tonumber(combat.EliteKills) or 0)),
+			BossKills = math.max(0, math.floor(tonumber(combat.BossKills) or 0)),
+			DamageDealt = math.max(0, math.floor(tonumber(combat.DamageDealt) or 0)),
+			DamageTaken = math.max(0, math.floor(tonumber(combat.DamageTaken) or 0)),
+			ShieldDamageAbsorbed = math.max(0, math.floor(tonumber(combat.ShieldDamageAbsorbed) or 0)),
+			HealingReceived = math.max(0, math.floor(tonumber(combat.HealingReceived) or 0)),
+			KillsByEnemyId = copyCounterDictionary(combat.KillsByEnemyId),
+			DamageByWeaponId = copyCounterDictionary(combat.DamageByWeaponId),
+		},
+		InteractionStats = {
+			ChestsOpened = math.max(0, math.floor(tonumber(interactions.ChestsOpened) or 0)),
+			RewardChestsOpened = math.max(0, math.floor(tonumber(interactions.RewardChestsOpened) or 0)),
+			JarsBroken = math.max(0, math.floor(tonumber(interactions.JarsBroken) or 0)),
+			DifficultyTotemsActivated = math.max(0, math.floor(tonumber(interactions.DifficultyTotemsActivated) or 0)),
+			ShrinesActivated = copyCounterDictionary(interactions.ShrinesActivated),
+			EliteChallengesStarted = math.max(0, math.floor(tonumber(interactions.EliteChallengesStarted) or 0)),
+			PortalsActivated = math.max(0, math.floor(tonumber(interactions.PortalsActivated) or 0)),
+		},
+		ItemStats = {
+			RunItemsById = copyCounterDictionary(items.RunItemsById),
+		},
+		FinalBuild = {
+			WeaponId = tostring(build.WeaponId or ""),
+			Perks = copyPerkStacks(build.Perks),
+			Stats = copyNumericDictionary(build.Stats),
+		},
+		ChapterValidated = result.ChapterValidated == true,
+		NewlyUnlockedChapterId = math.max(0, math.floor(tonumber(result.NewlyUnlockedChapterId) or 0)),
+		Eligibility = {
+			ProgressionEligible = eligibility.ProgressionEligible ~= false,
+			LeaderboardEligible = eligibility.LeaderboardEligible ~= false,
+			AdminCommandsUsed = eligibility.AdminCommandsUsed == true,
+		},
+	}
+end
+
 local function copySession(session)
 	if typeof(session) ~= "table" then
 		return nil
@@ -42,11 +180,14 @@ local function copySession(session)
 		MapId = tostring(session.MapId or ""),
 		LifecycleStatus = tostring(session.LifecycleStatus or "Unknown"),
 		Outcome = session.Outcome and tostring(session.Outcome) or nil,
+		EndReason = session.EndReason and tostring(session.EndReason) or nil,
 		CreatedAt = math.floor(tonumber(session.CreatedAt) or 0),
 		StartedAt = session.StartedAt and math.floor(tonumber(session.StartedAt) or 0) or nil,
 		EndedAt = session.EndedAt and math.floor(tonumber(session.EndedAt) or 0) or nil,
 		DestroyedAt = session.DestroyedAt and math.floor(tonumber(session.DestroyedAt) or 0) or nil,
 		ChapterValidated = session.ChapterValidated == true,
+		NewlyUnlockedChapterId = math.floor(tonumber(session.NewlyUnlockedChapterId) or 0),
+		ResultSummary = copyPersistentResultSummary(session.ResultSummary),
 	}
 end
 
@@ -100,6 +241,7 @@ local function publishSession(player, session)
 	player:SetAttribute("RunSeed", session and session.Seed or nil)
 	player:SetAttribute("RunChapterId", session and session.ChapterId or nil)
 	player:SetAttribute("RunMapId", session and session.MapId or nil)
+	player:SetAttribute("RunCreatedAt", session and session.CreatedAt or nil)
 	player:SetAttribute("RunLifecycleStatus", session and session.LifecycleStatus or "Idle")
 end
 
@@ -155,7 +297,7 @@ local function transition(player, session, lifecycleStatus)
 	})
 end
 
-local function finalizeSession(player, outcome)
+local function finalizeSession(player, outcome, resultSummary)
 	local profile = profilesByUserId[player.UserId]
 	local session = profile and profile.Data.CurrentRun
 
@@ -164,6 +306,8 @@ local function finalizeSession(player, outcome)
 	end
 
 	session.Outcome = outcome or "Unknown"
+	session.EndReason = outcome or "Unknown"
+	session.ResultSummary = copyPersistentResultSummary(resultSummary)
 	session.EndedAt = os.time()
 	transition(player, session, "Saving")
 	saveProfile(player)
@@ -398,7 +542,11 @@ function RunSessionService.MarkChapterValidated(player)
 	session.ChapterValidated = true
 	profile.Dirty = true
 	publishSession(player, session)
-	ChapterProgressService.MarkChapterCompleted(player, session.ChapterId)
+	local marked, progression = ChapterProgressService.MarkChapterCompleted(player, session.ChapterId)
+
+	if marked and progression ~= nil then
+		session.NewlyUnlockedChapterId = progression.NewlyUnlockedChapterId
+	end
 	ChapterProgressService.SavePlayer(player)
 	saveProfile(player)
 	return true
@@ -407,6 +555,26 @@ end
 function RunSessionService.GetCurrentSession(player)
 	local profile = player and profilesByUserId[player.UserId]
 	return profile and profile.Data.CurrentRun or nil
+end
+
+function RunSessionService.GetHistory(player)
+	local profile = player and profilesByUserId[player.UserId]
+
+	if profile == nil then
+		return {}
+	end
+
+	local history = {}
+
+	for _, session in ipairs(profile.Data.History) do
+		table.insert(history, copySession(session))
+	end
+
+	return history
+end
+
+function RunSessionService.CompleteRun(player, endReason, resultSummary)
+	return finalizeSession(player, endReason, resultSummary)
 end
 
 function RunSessionService.RemovePlayer(player)
@@ -439,10 +607,6 @@ function RunSessionService.Start()
 	end
 
 	isStarted = true
-	RunStateService.RunEnded:Connect(function(player, reason)
-		finalizeSession(player, reason)
-	end)
-
 	RunStateService.LevelValidated:Connect(function(player)
 		RunSessionService.MarkChapterValidated(player)
 	end)

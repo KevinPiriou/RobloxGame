@@ -8,6 +8,7 @@ local TotemConfig = require(Shared:WaitForChild("TotemConfig"))
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local HudMessageService = require(script.Parent:WaitForChild("HudMessageService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
+local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
 
@@ -143,6 +144,8 @@ local function activateTotem(player, totem, prompt)
 	HudMessageService.Show(player, "DifficultyTotem", {
 		Message = ("LA DIFFICULTE AUGMENTE DE %d%%"):format(addedPercent),
 	})
+	RunAnalyticsService.RecordDifficultyTotemActivated(player)
+	RunAnalyticsService.RecordDifficultyPercent(player, totalDifficulty * 100)
 
 	DebugLog.Info("Totem", "DifficultTotem active", {
 		Player = player.Name,

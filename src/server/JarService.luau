@@ -6,6 +6,7 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local JarConfig = require(Shared:WaitForChild("JarConfig"))
 
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
+local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 local AudioService = require(script.Parent:WaitForChild("AudioService"))
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
@@ -287,6 +288,7 @@ local function breakJar(player, jar, prompt)
 		CoinCount = coinCount,
 		Position = jarPosition,
 	})
+	RunAnalyticsService.RecordJarBroken(player)
 
 	trackedJars[jar] = nil
 	jar:Destroy()

@@ -12,6 +12,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ChestConfig = require(Shared:WaitForChild("ChestConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local HudMessageConfig = require(Shared:WaitForChild("HudMessageConfig"))
+local UiTheme = require(Shared:WaitForChild("UiTheme"))
 
 local function setNativeHealthGuiEnabled(isEnabled)
 	task.spawn(function()
@@ -45,46 +46,9 @@ if existingGui ~= nil then
 	existingGui:Destroy()
 end
 
-local COLORS = {
-	Text = Color3.fromRGB(248, 250, 255),
-	Muted = Color3.fromRGB(183, 190, 206),
-	Shadow = Color3.fromRGB(0, 0, 0),
-	Track = Color3.fromRGB(7, 10, 17),
-	Health = Color3.fromRGB(69, 255, 118),
-	HealthDark = Color3.fromRGB(15, 128, 58),
-	Shield = Color3.fromRGB(25, 255, 218),
-	ShieldDark = Color3.fromRGB(0, 104, 156),
-	Arcane = Color3.fromRGB(149, 222, 255),
-	Kills = Color3.fromRGB(255, 43, 57),
-	Gold = Color3.fromRGB(255, 202, 48),
-	Green = Color3.fromRGB(105, 245, 100),
-	Xp = Color3.fromRGB(190, 86, 255),
-	XpDark = Color3.fromRGB(82, 35, 210),
-	DamageFlash = Color3.fromRGB(255, 24, 44),
-	Glass = Color3.fromRGB(232, 247, 255),
-	GlassTint = Color3.fromRGB(157, 212, 255),
-	GlassStroke = Color3.fromRGB(255, 255, 255),
-}
-
--- Remplacer les chaines vides par des ids du catalogue Roblox Studio si besoin.
-local ICON_IMAGES = {
-	ArcaneGem = "rbxassetid://137344039860332",
-	Kills = "rbxassetid://78565181494437",
-	Gold = "rbxassetid://137648994340847",
-	NextChest = "rbxassetid://75386927173068",
-	Timer = "rbxassetid://84807607704086",
-	Pause = "rbxassetid://99288878339871",
-	Play = "rbxassetid://111726051060051",
-	Health = "rbxassetid://107129416801939",
-	Shield = "rbxassetid://125061574107320",
-}
-
-local UI_FONTS = {
-	Regular = Enum.Font.Gotham,
-	Medium = Enum.Font.GothamMedium,
-	Bold = Enum.Font.GothamBold,
-	Heavy = Enum.Font.GothamBlack,
-}
+local COLORS = UiTheme.Contexts.Combat
+local ICON_IMAGES = UiTheme.Icons
+local UI_FONTS = UiTheme.Fonts
 
 local RUN_TIMER_SECONDS = 12 * 60
 local BAR_TWEEN = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -126,35 +90,9 @@ local state = {
 
 state.IsRunActive = player:GetAttribute("IsRunActive") == true
 
-local function addCorner(instance, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = instance
-
-	return corner
-end
-
-local function addStroke(instance, color, transparency, thickness)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Transparency = transparency or 0
-	stroke.Thickness = thickness or 1
-	stroke.Parent = instance
-
-	return stroke
-end
-
-local function addGradient(instance, firstColor, secondColor, rotation)
-	local gradient = Instance.new("UIGradient")
-	gradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, firstColor),
-		ColorSequenceKeypoint.new(1, secondColor),
-	})
-	gradient.Rotation = rotation or 0
-	gradient.Parent = instance
-
-	return gradient
-end
+local addCorner = UiTheme.AddCorner
+local addStroke = UiTheme.AddStroke
+local addGradient = UiTheme.AddGradient
 
 local function addTextSizeConstraint(textObject, minSize, maxSize)
 	local constraint = Instance.new("UITextSizeConstraint")
@@ -263,6 +201,10 @@ local function addRunGlassSurface(parent, name, position, size, radius, accent)
 	addStroke(surface, Color3.fromRGB(7, 12, 19), 0.16, 3)
 	addStroke(surface, accent, 0.56, 1)
 	addGradient(surface, Color3.fromRGB(47, 64, 86), Color3.fromRGB(12, 20, 31), 90)
+	UiTheme.AddSurfaceFinish(surface, {
+		Accent = accent,
+		Intensity = 0.5,
+	})
 
 	return surface
 end
@@ -291,6 +233,10 @@ local function addTopBarGlassSurface(parent, name, position, size, radius)
 	inner.Parent = surface
 	addCorner(inner, math.max(0, radius - 3))
 	addStroke(inner, COLORS.GlassStroke, 0.66, 1)
+	UiTheme.AddSurfaceFinish(surface, {
+		Accent = COLORS.GlassTint,
+		Intensity = 0.6,
+	})
 
 	return surface
 end
@@ -399,6 +345,10 @@ topFrame.Parent = topCluster
 addCorner(topFrame, 12)
 addStroke(topFrame, COLORS.GlassTint, 0.36, 2)
 addGradient(topFrame, Color3.fromRGB(61, 81, 108), Color3.fromRGB(17, 27, 39), 90)
+UiTheme.AddSurfaceFinish(topFrame, {
+	Accent = COLORS.GlassTint,
+	Intensity = 0.65,
+})
 
 local topInner = Instance.new("Frame")
 topInner.Name = "TopInner"

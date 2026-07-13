@@ -1,0 +1,53 @@
+return {
+	Weapons = {
+		fireball = {
+			Id = "fireball",
+			Name = "Fireball",
+			Description = "Arme automatique de depart.",
+			Icon = "rbxassetid://91848234123005",
+			DefaultSkinId = "fireball_default",
+			Skins = {
+				{
+					Id = "fireball_default",
+					Name = "Boule de feu classique",
+					Description = "Apparence de base du projectile.",
+					Image = "rbxassetid://91848234123005",
+					UnlockType = "Starter",
+					Visual = {
+						CoreColor = Color3.fromRGB(255, 118, 32),
+						AccentColor = Color3.fromRGB(255, 225, 112),
+						TrailColor = Color3.fromRGB(255, 76, 24),
+						SmokeColor = Color3.fromRGB(110, 42, 30),
+						CoreTransparency = 0.04,
+						LightBrightness = 2.4,
+						LightRange = 11,
+						TrailLifetime = 0.24,
+						FireRate = 32,
+						SmokeRate = 13,
+						SparkleRate = 20,
+					},
+				},
+				{
+					Id = "fireball_arcane",
+					Name = "Boule de feu arcanique",
+					Description = "Premier skin de projectile arcane.",
+					Image = "rbxassetid://71084954582713",
+					UnlockType = "Starter",
+					Visual = {
+						CoreColor = Color3.fromRGB(119, 72, 255),
+						AccentColor = Color3.fromRGB(107, 234, 255),
+						TrailColor = Color3.fromRGB(91, 54, 235),
+						SmokeColor = Color3.fromRGB(59, 35, 112),
+						CoreTransparency = 0.06,
+						LightBrightness = 2.7,
+						LightRange = 12,
+						TrailLifetime = 0.28,
+						FireRate = 34,
+						SmokeRate = 12,
+						SparkleRate = 24,
+					},
+				},
+			},
+		},
+	},
+}

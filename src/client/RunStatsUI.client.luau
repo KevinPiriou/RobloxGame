@@ -7,6 +7,8 @@ local playerGui = player:WaitForChild("PlayerGui")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local RunItemConfig = require(Shared:WaitForChild("RunItemConfig"))
+local UiTheme = require(Shared:WaitForChild("UiTheme"))
 
 local existingGui = playerGui:FindFirstChild("RunStatsGui")
 
@@ -14,19 +16,7 @@ if existingGui ~= nil then
 	existingGui:Destroy()
 end
 
-local COLORS = {
-	Panel = Color3.fromRGB(17, 27, 39),
-	Header = Color3.fromRGB(37, 51, 70),
-	Section = Color3.fromRGB(94, 224, 164),
-	Text = Color3.fromRGB(236, 242, 250),
-	Muted = Color3.fromRGB(171, 186, 204),
-	Value = Color3.fromRGB(255, 231, 154),
-	Stroke = Color3.fromRGB(169, 222, 255),
-	Cyan = Color3.fromRGB(41, 205, 255),
-	Survival = Color3.fromRGB(86, 236, 146),
-	Attack = Color3.fromRGB(255, 80, 91),
-	Mobility = Color3.fromRGB(43, 219, 255),
-}
+local COLORS = UiTheme.Contexts.RunStats
 
 local function createLabel(parent, name, text, font, size, color)
 	local label = Instance.new("TextLabel")
@@ -46,23 +36,8 @@ local function createLabel(parent, name, text, font, size, color)
 	return label
 end
 
-local function addCorner(instance, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = instance
-
-	return corner
-end
-
-local function addStroke(instance, color, transparency, thickness)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Transparency = transparency
-	stroke.Thickness = thickness
-	stroke.Parent = instance
-
-	return stroke
-end
+local addCorner = UiTheme.AddCorner
+local addStroke = UiTheme.AddStroke
 
 local function getDefaultDisplayStats()
 	return {
@@ -99,6 +74,7 @@ local state = {
 	CurrentShield = 0,
 	MaxShield = 0,
 	DisplayStats = getDefaultDisplayStats(),
+	RunItemStacks = {},
 }
 
 local screenGui = Instance.new("ScreenGui")
@@ -137,6 +113,10 @@ panelGradient.Transparency = NumberSequence.new({
 	NumberSequenceKeypoint.new(1, 0.36),
 })
 panelGradient.Parent = panel
+UiTheme.AddSurfaceFinish(panel, {
+	Accent = COLORS.Cyan,
+	Intensity = 0.62,
+})
 
 local header = Instance.new("Frame")
 header.Name = "Header"
@@ -290,6 +270,16 @@ createRow("GoldMultiplier", "Gain d'or")
 createRow("Luck", "Chance")
 createRow("EnemyMultiplier", "Plus d'ennemis")
 
+createSection("OBJETS DE RUN")
+
+for _, itemId in ipairs(RunItemConfig.ChestRewardIds) do
+	local definition = RunItemConfig.Definitions[itemId]
+
+	if definition ~= nil then
+		createRow("RunItem_" .. itemId, definition.Name)
+	end
+end
+
 local function getNumber(value, fallback)
 	if typeof(value) == "number" then
 		return value
@@ -358,6 +348,14 @@ local function refreshRows()
 	rows.GoldMultiplier.Text = formatMultiplier(stats.GoldMultiplier)
 	rows.Luck.Text = formatPercent(stats.Luck)
 	rows.EnemyMultiplier.Text = formatMultiplier(stats.EnemyMultiplier)
+
+	for _, itemId in ipairs(RunItemConfig.ChestRewardIds) do
+		local row = rows["RunItem_" .. itemId]
+
+		if row ~= nil then
+			row.Text = "x" .. formatInteger(state.RunItemStacks[itemId] or 0)
+		end
+	end
 end
 
 local function refreshVisibility()
@@ -445,10 +443,26 @@ local function onRunState(payload)
 	refreshVisibility()
 end
 
+local function onRunItems(payload)
+	payload = payload or {}
+	state.RunItemStacks = {}
+
+	if typeof(payload.Items) == "table" then
+		for _, item in ipairs(payload.Items) do
+			if typeof(item) == "table" and item.Id ~= nil then
+				state.RunItemStacks[tostring(item.Id)] = math.max(0, math.floor(getNumber(item.Stacks) or 0))
+			end
+		end
+	end
+
+	refreshRows()
+end
+
 ReplicatedStorage:WaitForChild("Perk_UpdateStats").OnClientEvent:Connect(onPerkStats)
 ReplicatedStorage:WaitForChild("Combat_UpdateStats").OnClientEvent:Connect(onCombatStats)
 ReplicatedStorage:WaitForChild("Combat_PauseState").OnClientEvent:Connect(onPauseState)
 ReplicatedStorage:WaitForChild("Run_StateUpdate").OnClientEvent:Connect(onRunState)
+ReplicatedStorage:WaitForChild(RunItemConfig.UpdateRemoteName).OnClientEvent:Connect(onRunItems)
 
 if Workspace.CurrentCamera ~= nil then
 	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateResponsiveLayout)

@@ -5,10 +5,13 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ChestConfig = require(Shared:WaitForChild("ChestConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local RunItemConfig = require(Shared:WaitForChild("RunItemConfig"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local AudioService = require(script.Parent:WaitForChild("AudioService"))
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
+local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
+local RunItemService = require(script.Parent:WaitForChild("RunItemService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
 
@@ -425,17 +428,17 @@ local function getPlayerRoot(player)
 end
 
 local function getRewardOptions()
-	if #ChestConfig.PlaceholderRewards > 0 then
-		return ChestConfig.PlaceholderRewards
+	local rewards = {}
+
+	for _, itemId in ipairs(RunItemConfig.ChestRewardIds) do
+		local definition = RunItemConfig.Definitions[itemId]
+
+		if definition ~= nil then
+			table.insert(rewards, definition)
+		end
 	end
 
-	return {
-		{
-			Id = "placeholder",
-			Name = "Objet mystere",
-			Description = "Objet a venir",
-		},
-	}
+	return rewards
 end
 
 local function pickReward()
@@ -447,6 +450,8 @@ local function pickReward()
 		Id = reward.Id,
 		Name = reward.Name,
 		Description = reward.Description,
+		Icon = reward.Icon,
+		Accent = reward.Accent,
 	}
 end
 
@@ -457,10 +462,14 @@ local function createSpinItems(finalReward)
 	for index = 1, 18 do
 		local reward = rewards[rng:NextInteger(1, #rewards)]
 
-		spinItems[index] = reward.Name
+		spinItems[index] = {
+			Id = reward.Id,
+			Name = reward.Name,
+			Icon = reward.Icon,
+		}
 	end
 
-	spinItems[#spinItems + 1] = finalReward.Name
+	spinItems[#spinItems + 1] = finalReward
 
 	return spinItems
 end
@@ -483,15 +492,28 @@ local function sendOpenFailed(player, reason)
 end
 
 local function applyReward(player, reward)
-	-- Les objets reels arriveront plus tard. Pour l'instant le serveur garde seulement le choix valide.
 	if reward == nil then
-		return
+		return nil
+	end
+
+	local added, result = RunItemService.AddItem(player, reward.Id)
+
+	if not added then
+		DebugLog.Warn("Chest", "Recompense coffre non appliquee", {
+			Player = player.Name,
+			Reward = reward.Name,
+			Reason = result,
+		})
+		return nil
 	end
 
 	DebugLog.Info("Chest", "Recompense coffre validee", {
 		Player = player.Name,
 		Reward = reward.Name,
+		Stacks = result.Stacks,
 	})
+
+	return result
 end
 
 local function disconnectRewardChestTouches(chest)
@@ -530,9 +552,7 @@ local function finishOpening(player, accepted)
 	profile.ActiveOpening = nil
 	CombatStateService.Resume(getPauseReason(player))
 
-	if accepted then
-		applyReward(player, activeOpening.Reward)
-	end
+	local itemResult = if accepted then applyReward(player, activeOpening.Reward) else nil
 
 	destroyChest(activeOpening.Chest)
 	DebugLog.Info("Chest", "Ouverture coffre terminee", {
@@ -544,6 +564,7 @@ local function finishOpening(player, accepted)
 	choiceResultRemote:FireClient(player, {
 		Accepted = accepted,
 		Reward = activeOpening.Reward,
+		ItemCount = itemResult and itemResult.Stacks or nil,
 		NextOpenCost = profile.NextOpenCost,
 	})
 end
@@ -610,6 +631,7 @@ onOpenRequested = function(player, chest)
 	chestState.Opened = true
 	chest:SetAttribute("ChestOpening", true)
 	chest:SetAttribute("ChestOpened", true)
+	RunAnalyticsService.RecordChestOpened(player, false)
 
 	if chestState.Prompt ~= nil then
 		chestState.Prompt.Enabled = false
@@ -716,6 +738,7 @@ local function startRewardChestOpening(player, chest)
 
 	chest:SetAttribute("ChestOpening", true)
 	chest:SetAttribute("ChestOpened", true)
+	RunAnalyticsService.RecordChestOpened(player, true)
 
 	local reward = pickReward()
 

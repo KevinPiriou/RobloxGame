@@ -7,6 +7,7 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local JumpBonusService = require(script.Parent:WaitForChild("JumpBonusService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
+local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 
 local AdminService = {}
 
@@ -69,6 +70,8 @@ local function runAdminAction(player, refusedWarning, callback)
 		sendAdminMessage(player, false, "Acces admin refuse")
 		return
 	end
+
+	RunAnalyticsService.RecordAdminCommand(player)
 
 	local success, message = pcall(callback)
 

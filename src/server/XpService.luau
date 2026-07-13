@@ -10,6 +10,7 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 
 local XpService = {}
@@ -378,6 +379,7 @@ local function awardXp(player, xpValue)
 
 	profile.Xp += finalXpValue
 	profile.TotalXp += finalXpValue
+	RunAnalyticsService.RecordXpEarned(player, finalXpValue)
 
 	local requiredXp = getRequiredXpForLevel(profile.Level)
 

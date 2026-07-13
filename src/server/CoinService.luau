@@ -11,6 +11,7 @@ local GameConfig = require(Shared:WaitForChild("GameConfig"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 
 local CoinService = {}
@@ -378,6 +379,7 @@ local function awardCoin(player, coinValue)
 	local finalCoinValue = PerkService.GetGoldAmount(player, coinValue or GameConfig.CoinsPerPickup)
 
 	profile.Coins += finalCoinValue
+	RunAnalyticsService.RecordCoinsEarned(player, finalCoinValue)
 	sendCoinCount(player)
 	saveProfile(player, true)
 	DebugLog.ThrottledInfo("Coin", "coin_award_" .. player.UserId, 0.5, "Coin attribue", {
@@ -641,6 +643,7 @@ function CoinService.TrySpendCoins(player, amount)
 	end
 
 	profile.Coins -= coinAmount
+	RunAnalyticsService.RecordCoinsSpent(player, coinAmount)
 	saveProfile(player, true)
 
 	DebugLog.Info("Coin", "Depense coins validee", {

@@ -8,6 +8,7 @@ local PortalConfig = require(Shared:WaitForChild("PortalConfig"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
 local BossService = require(script.Parent:WaitForChild("BossService"))
+local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 
 local PortalService = {}
 
@@ -123,6 +124,7 @@ local function setupPortalPrompt(portal)
 		})
 
 		if started then
+			RunAnalyticsService.RecordPortalActivated(player)
 			prompt.Enabled = false
 		end
 	end)

@@ -6,6 +6,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local BossConfig = require(Shared:WaitForChild("BossConfig"))
+local UiTheme = require(Shared:WaitForChild("UiTheme"))
 
 local existingGui = playerGui:FindFirstChild("BossGui")
 
@@ -20,26 +21,15 @@ screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 125
 screenGui.Parent = playerGui
 
-local function addCorner(instance, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = instance
-end
-
-local function addStroke(instance, color, transparency, thickness)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Transparency = transparency
-	stroke.Thickness = thickness
-	stroke.Parent = instance
-end
+local addCorner = UiTheme.AddCorner
+local addStroke = UiTheme.AddStroke
 
 local function createLabel(parent, name, text, size, color, font)
 	local label = Instance.new("TextLabel")
 	label.Name = name
 	label.BackgroundTransparency = 1
 	label.BorderSizePixel = 0
-	label.Font = font or Enum.Font.GothamBold
+	label.Font = font or UiTheme.Fonts.Bold
 	label.Text = text
 	label.TextColor3 = color
 	label.TextSize = size
@@ -63,6 +53,10 @@ bossBar.Visible = false
 bossBar.Parent = screenGui
 addCorner(bossBar, 8)
 addStroke(bossBar, Color3.fromRGB(255, 105, 80), 0.2, 1)
+UiTheme.AddSurfaceFinish(bossBar, {
+	Accent = Color3.fromRGB(255, 105, 80),
+	Intensity = 0.45,
+})
 
 local bossBarSize = Instance.new("UISizeConstraint")
 bossBarSize.MinSize = Vector2.new(280, 52)
@@ -120,6 +114,10 @@ decisionCard.ZIndex = 151
 decisionCard.Parent = decisionOverlay
 addCorner(decisionCard, 8)
 addStroke(decisionCard, Color3.fromRGB(255, 200, 74), 0.18, 1)
+UiTheme.AddSurfaceFinish(decisionCard, {
+	Accent = UiTheme.Colors.Gold,
+	Intensity = 0.55,
+})
 
 local decisionSize = Instance.new("UISizeConstraint")
 decisionSize.MinSize = Vector2.new(300, 184)

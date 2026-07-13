@@ -8,6 +8,8 @@ local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local UiTheme = require(Shared:WaitForChild("UiTheme"))
 local getChapterState = ReplicatedStorage:WaitForChild("Chapter_GetState") :: RemoteFunction
 local startRunRequest = ReplicatedStorage:WaitForChild("Run_StartRequest") :: RemoteFunction
 
@@ -17,41 +19,17 @@ if oldGui ~= nil then
 	oldGui:Destroy()
 end
 
-local COLORS = {
-	Panel = Color3.fromRGB(12, 20, 30),
-	PanelLight = Color3.fromRGB(25, 39, 55),
-	Card = Color3.fromRGB(18, 31, 45),
-	CardSelected = Color3.fromRGB(31, 52, 72),
-	Text = Color3.fromRGB(245, 248, 255),
-	Muted = Color3.fromRGB(158, 177, 198),
-	Cyan = Color3.fromRGB(76, 218, 255),
-	Purple = Color3.fromRGB(181, 93, 255),
-	Green = Color3.fromRGB(87, 232, 143),
-	Locked = Color3.fromRGB(99, 108, 122),
-	Danger = Color3.fromRGB(255, 104, 104),
-}
+local COLORS = UiTheme.Contexts.RunLauncher
 
-local function addCorner(parent: Instance, radius: number)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = parent
-end
-
-local function addStroke(parent: Instance, color: Color3, transparency: number, thickness: number)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Transparency = transparency
-	stroke.Thickness = thickness
-	stroke.Parent = parent
-	return stroke
-end
+local addCorner = UiTheme.AddCorner
+local addStroke = UiTheme.AddStroke
 
 local function createLabel(parent: Instance, name: string, text: string, size: number, color: Color3)
 	local label = Instance.new("TextLabel")
 	label.Name = name
 	label.BackgroundTransparency = 1
 	label.BorderSizePixel = 0
-	label.Font = Enum.Font.GothamBold
+	label.Font = UiTheme.Fonts.Bold
 	label.Text = text
 	label.TextColor3 = color
 	label.TextSize = size
@@ -84,6 +62,10 @@ openButton.TextSize = 16
 openButton.Parent = screenGui
 addCorner(openButton, 7)
 addStroke(openButton, COLORS.Cyan, 0.16, 2)
+UiTheme.AddSurfaceFinish(openButton, {
+	Accent = COLORS.Cyan,
+	Intensity = 0.44,
+})
 
 local overlay = Instance.new("Frame")
 overlay.Name = "Overlay"
@@ -114,6 +96,10 @@ panelGradient.Color = ColorSequence.new({
 })
 panelGradient.Rotation = 90
 panelGradient.Parent = panel
+UiTheme.AddSurfaceFinish(panel, {
+	Accent = COLORS.Cyan,
+	Intensity = 0.66,
+})
 
 local panelScale = Instance.new("UIScale")
 panelScale.Parent = panel
@@ -247,6 +233,10 @@ local function createChapterCard(data: ChapterPayload, layoutOrder: number)
 	button.Parent = cardsFrame
 	addCorner(button, 6)
 	local stroke = addStroke(button, if data.IsUnlocked then COLORS.Purple else COLORS.Locked, 0.42, 2)
+	UiTheme.AddSurfaceFinish(button, {
+		Accent = if data.IsUnlocked then COLORS.Purple else COLORS.Locked,
+		Intensity = 0.26,
+	})
 
 	local chapterNumber = createLabel(button, "Number", string.format("%02d", data.Id), 35, if data.IsUnlocked then COLORS.Cyan else COLORS.Locked)
 	chapterNumber.Position = UDim2.fromOffset(14, 16)

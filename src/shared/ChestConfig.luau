@@ -28,31 +28,5 @@ return {
 	SlotDuration = 2.4,
 	SlotMinInterval = 0.04,
 	SlotMaxInterval = 0.18,
-	PlaceholderRewards = {
-		{
-			Id = "fire_orb",
-			Name = "Orbe de feu",
-			Description = "Objet a venir",
-		},
-		{
-			Id = "swift_boots",
-			Name = "Bottes rapides",
-			Description = "Objet a venir",
-		},
-		{
-			Id = "golden_ring",
-			Name = "Anneau dore",
-			Description = "Objet a venir",
-		},
-		{
-			Id = "vital_charm",
-			Name = "Charme vital",
-			Description = "Objet a venir",
-		},
-		{
-			Id = "mystery_relic",
-			Name = "Relique mystere",
-			Description = "Objet a venir",
-		},
-	},
+	-- Les recompenses de coffre sont definies dans RunItemConfig.
 }

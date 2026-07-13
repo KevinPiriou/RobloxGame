@@ -11,8 +11,12 @@ local CombatStateService = require(script.Parent:WaitForChild("CombatStateServic
 local AudioService = require(script.Parent:WaitForChild("AudioService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
+local RunItemService = require(script.Parent:WaitForChild("RunItemService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
+local ProjectileVisualService = require(script.Parent:WaitForChild("ProjectileVisualService"))
+local WeaponSkinService = require(script.Parent:WaitForChild("WeaponSkinService"))
 
 local WeaponService = {}
 
@@ -26,6 +30,15 @@ local projectileTickTimeTotal = 0
 local projectileTickSampleCount = 0
 local cooldownsByUserId = {}
 local projectilesByInstance = {}
+local projectileSerial = 0
+
+-- Les profils donnent des tirs lisibles mais jamais parfaitement rectilignes.
+local FIREBALL_FLIGHT_PATTERNS = {
+	{ SideMultiplier = 1, VerticalMultiplier = 0.62, FrequencyMultiplier = 0.9 },
+	{ SideMultiplier = -0.86, VerticalMultiplier = 1, FrequencyMultiplier = 1.12 },
+	{ SideMultiplier = 0.7, VerticalMultiplier = -0.55, FrequencyMultiplier = 1.28 },
+	{ SideMultiplier = -1, VerticalMultiplier = 0.38, FrequencyMultiplier = 0.78 },
+}
 
 local function getOrCreateFolder(parent, folderName)
 	local folder = parent:FindFirstChild(folderName)
@@ -211,7 +224,7 @@ local function destroyProjectile(projectile)
 	releaseProjectileInstance(projectile)
 end
 
-local function createProjectile(player, spawnPosition, targetMonster, targetRoot, direction)
+local function createProjectile(player, spawnPosition, targetMonster, targetRoot, direction, pattern, phase)
 	local projectile, reusedFromPool = acquireProjectileInstance()
 
 	projectile.Name = CombatConfig.FireballTemplateName
@@ -227,7 +240,9 @@ local function createProjectile(player, spawnPosition, targetMonster, targetRoot
 		return
 	end
 
-	pivotInstance(projectile, CFrame.lookAt(spawnPosition, targetRoot.Position))
+	ProjectileVisualService.ApplyFireballSkin(projectile, projectileRoot, WeaponSkinService.GetSelectedFireballSkin(player))
+
+	pivotInstance(projectile, CFrame.lookAt(spawnPosition, spawnPosition + direction))
 
 	projectilesByInstance[projectile] = {
 		Instance = projectile,
@@ -238,6 +253,9 @@ local function createProjectile(player, spawnPosition, targetMonster, targetRoot
 		Age = 0,
 		Speed = PerkService.GetProjectileSpeed(player, CombatConfig.FireballSpeed),
 		Lifetime = PerkService.GetAttackDuration(player, CombatConfig.FireballLifetime),
+		FlightPattern = pattern,
+		FlightPhase = phase,
+		HomingDelay = CombatConfig.FireballHomingDelay,
 		BounceRemaining = PerkService.GetBounceCount(player),
 		HitMonsters = {},
 		ReusedFromPool = reusedFromPool,
@@ -257,6 +275,42 @@ local function rotateDirection(direction, radians)
 	return rotation:VectorToWorldSpace(direction).Unit
 end
 
+local function clampProjectileDirection(direction)
+	local minimumVerticalDirection = CombatConfig.FireballMinimumVerticalDirection or -0.05
+
+	if direction.Y >= minimumVerticalDirection then
+		return direction.Unit
+	end
+
+	return Vector3.new(direction.X, minimumVerticalDirection, direction.Z).Unit
+end
+
+local function createInitialProjectileDirection(targetDirection, projectileIndex)
+	projectileSerial += 1
+
+	local seed = (projectileSerial * 7919) + (projectileIndex * 104729)
+	local random = Random.new(seed)
+	local launchAngle = random:NextNumber(
+		-(CombatConfig.FireballLaunchAngleRadians or math.rad(90)),
+		CombatConfig.FireballLaunchAngleRadians or math.rad(90)
+	)
+	local upwardKick = random:NextNumber(0.06, 0.24)
+	local direction = rotateDirection(targetDirection.Unit, launchAngle) + Vector3.new(0, upwardKick, 0)
+	local patternIndex = ((projectileSerial - 1) % #FIREBALL_FLIGHT_PATTERNS) + 1
+
+	return clampProjectileDirection(direction), FIREBALL_FLIGHT_PATTERNS[patternIndex], random:NextNumber(0, math.pi * 2)
+end
+
+local function getTargetCandidates(position)
+	local targets = MonsterService.GetMonstersNear(position, CombatConfig.FireballRange)
+
+	table.sort(targets, function(first, second)
+		return first.DistanceSquared < second.DistanceSquared
+	end)
+
+	return targets
+end
+
 local function fireAtClosestMonster(player)
 	if fireballTemplate == nil or not isPlayerAlive(player) then
 		return
@@ -266,7 +320,10 @@ local function fireAtClosestMonster(player)
 	local spawnPosition = root.Position
 		+ (root.CFrame.LookVector * CombatConfig.FireballSpawnForwardOffset)
 		+ Vector3.new(0, CombatConfig.FireballSpawnHeightOffset, 0)
-	local targetMonster, targetRoot = MonsterService.GetClosestMonster(spawnPosition, CombatConfig.FireballRange)
+	local targets = getTargetCandidates(spawnPosition)
+	local firstTarget = targets[1]
+	local targetMonster = if firstTarget ~= nil then firstTarget.Monster else nil
+	local targetRoot = if firstTarget ~= nil then firstTarget.Root else nil
 
 	if targetMonster == nil or targetRoot == nil then
 		DebugLog.ThrottledInfo("Weapon", "no_target_" .. player.UserId, 3, "Aucune cible Fireball en portee", {
@@ -284,13 +341,16 @@ local function fireAtClosestMonster(player)
 	end
 
 	local projectileCount = PerkService.GetProjectileCount(player)
-	local spreadStep = math.rad(8)
 
 	for projectileIndex = 1, projectileCount do
-		local offsetFromCenter = projectileIndex - ((projectileCount + 1) / 2)
-		local projectileDirection = rotateDirection(direction.Unit, offsetFromCenter * spreadStep)
+		-- On couvre les cibles proches avant de repasser sur la premiere si les projectiles sont plus nombreux.
+		local targetData = targets[((projectileIndex - 1) % #targets) + 1]
+		local projectileDirection, pattern, phase = createInitialProjectileDirection(
+			(targetData.Root.Position - spawnPosition).Unit,
+			projectileIndex
+		)
 
-		createProjectile(player, spawnPosition, targetMonster, targetRoot, projectileDirection)
+		createProjectile(player, spawnPosition, targetData.Monster, targetData.Root, projectileDirection, pattern, phase)
 	end
 
 	AudioService.PlayForPlayer(player, "FireballCast")
@@ -333,8 +393,37 @@ local function updateProjectile(projectileState, deltaTime)
 		local desiredDirection = targetPosition - projectileState.Position
 
 		if desiredDirection.Magnitude > 0.1 then
-			local homingAlpha = math.clamp(deltaTime * CombatConfig.FireballHomingStrength, 0, 1)
-			projectileState.Direction = projectileState.Direction:Lerp(desiredDirection.Unit, homingAlpha).Unit
+			local targetDirection = desiredDirection.Unit
+			local sideDirection = Vector3.new(-targetDirection.Z, 0, targetDirection.X)
+
+			if sideDirection.Magnitude <= 0.001 then
+				sideDirection = Vector3.new(1, 0, 0)
+			else
+				sideDirection = sideDirection.Unit
+			end
+
+			local speedRatio = math.max(0.25, projectileState.Speed / math.max(1, CombatConfig.FireballSpeed))
+			local curveDuration = math.max(0.08, (CombatConfig.FireballCurveDuration or 1) / speedRatio)
+			local curveProgress = math.clamp((projectileState.Age - projectileState.HomingDelay) / curveDuration, 0, 1)
+			local curveWeight = (1 - curveProgress) * (CombatConfig.FireballCurveStrength or 0)
+			local pattern = projectileState.FlightPattern or FIREBALL_FLIGHT_PATTERNS[1]
+			local oscillation = projectileState.FlightPhase
+				+ (projectileState.Age * (CombatConfig.FireballCurveFrequency or 1) * pattern.FrequencyMultiplier)
+			local lateralCurve = math.sin(oscillation) * curveWeight * pattern.SideMultiplier
+			local verticalCurve = math.cos(oscillation * 0.82) * (CombatConfig.FireballVerticalCurveStrength or 0)
+				* curveWeight
+				* pattern.VerticalMultiplier
+			local curvedDirection = clampProjectileDirection(
+				targetDirection + (sideDirection * lateralCurve) + Vector3.new(0, verticalCurve, 0)
+			)
+			local steeringWeight = 0.2 + (0.8 * curveProgress)
+			local homingAlpha = math.clamp(
+				deltaTime * (CombatConfig.FireballHomingStrength or 1) * math.sqrt(speedRatio) * steeringWeight,
+				0,
+				1
+			)
+
+			projectileState.Direction = clampProjectileDirection(projectileState.Direction:Lerp(curvedDirection, homingAlpha))
 		end
 	end
 
@@ -347,6 +436,8 @@ local function updateProjectile(projectileState, deltaTime)
 
 	if hitMonster ~= nil then
 		projectileState.HitMonsters[hitMonster] = true
+		local impactPosition = MonsterService.GetMonsterPosition(hitMonster) or nextPosition
+		ProjectileVisualService.PlayFireballImpact(projectile, impactPosition, projectileFolder)
 		-- Le monstre peut retourner dans le pool pendant DamageMonster si ce coup est fatal.
 		-- On conserve donc son chemin avant les degats pour que le log reste lisible.
 		local targetPath = hitMonster:GetFullName()
@@ -356,6 +447,8 @@ local function updateProjectile(projectileState, deltaTime)
 
 		if didDamage then
 			PerkService.ApplyLifeSteal(projectileState.Owner, damageDealt or 0)
+			RunAnalyticsService.RecordDamageDealt(projectileState.Owner, damageDealt or 0, CombatConfig.FireballTemplateName)
+			RunItemService.TryApplyOnWeaponHit(projectileState.Owner, hitMonster, CombatConfig.FireballTemplateName)
 			DebugLog.ThrottledInfo("Weapon", "fireball_hit", 0.5, "Fireball touche un monstre", {
 				Player = projectileState.Owner.Name,
 				Damage = damage,
