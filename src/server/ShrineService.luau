@@ -188,6 +188,59 @@ local function findRoot(instance)
 	return findGroundingPart(instance)
 end
 
+local function getLowestWorldY(part)
+	local halfSize = part.Size * 0.5
+	local lowestY = math.huge
+
+	for _, xSign in ipairs({ -1, 1 }) do
+		for _, ySign in ipairs({ -1, 1 }) do
+			for _, zSign in ipairs({ -1, 1 }) do
+				local corner = part.CFrame:PointToWorldSpace(Vector3.new(
+					halfSize.X * xSign,
+					halfSize.Y * ySign,
+					halfSize.Z * zSign
+				))
+				lowestY = math.min(lowestY, corner.Y)
+			end
+		end
+	end
+
+	return lowestY
+end
+
+local function correctShrineGrounding(shrine, surfacePosition)
+	if not shrine:IsA("Model") then
+		return false, 0, 0
+	end
+
+	local lowestY = nil
+	local groundingPartCount = 0
+
+	for _, descendant in ipairs(shrine:GetDescendants()) do
+		if descendant:IsA("BasePart") and not isIgnoredForGrounding(descendant) then
+			groundingPartCount += 1
+			local partLowestY = getLowestWorldY(descendant)
+			lowestY = if lowestY == nil then partLowestY else math.min(lowestY, partLowestY)
+		end
+	end
+
+	if lowestY == nil then
+		DebugLog.Warn("Shrine", "Shrine sans corps 3D exploitable hors Bubble", {
+			Shrine = shrine,
+			SurfacePosition = surfacePosition,
+		})
+		return false, 0, groundingPartCount
+	end
+
+	local verticalCorrection = (surfacePosition.Y + ShrineConfig.SpawnSurfaceOffset) - lowestY
+
+	if math.abs(verticalCorrection) > 0.001 then
+		shrine:PivotTo(shrine:GetPivot() + Vector3.new(0, verticalCorrection, 0))
+	end
+
+	return true, verticalCorrection, groundingPartCount
+end
+
 local function findPromptPart(shrine)
 	local chargePart = shrine:FindFirstChild(ShrineConfig.ChargePartName, true)
 
@@ -904,6 +957,7 @@ local function spawnShrineAtSurface(definition, surfacePosition)
 	)
 
 	pivotInstance(shrine, WorldSpawnService.GetPivotCFrameAtPosition(shrine, pivotPosition))
+	local wasGrounded, verticalCorrection, groundingPartCount = correctShrineGrounding(shrine, surfacePosition)
 
 	nextAudioLoopId += 1
 	shrinesByInstance[shrine] = {
@@ -934,7 +988,10 @@ local function spawnShrineAtSurface(definition, surfacePosition)
 		Shrine = shrine,
 		TypeId = definition.TypeId,
 		SurfacePosition = surfacePosition,
-		PivotPosition = pivotPosition,
+		PivotPosition = shrine:GetPivot().Position,
+		Grounded = wasGrounded,
+		GroundingCorrection = verticalCorrection,
+		GroundingParts = groundingPartCount,
 		SpawnedCount = spawnedCountsByType[definition.TypeId],
 	})
 

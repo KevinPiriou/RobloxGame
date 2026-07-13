@@ -46,6 +46,21 @@ local elitePacksById = {}
 local nextElitePackId = 0
 local difficultyPercent = 0
 
+local function createSimulationLodCounts(playerTargetCount)
+	return {
+		Full = 0,
+		Reduced = 0,
+		Distant = 0,
+		Despawned = 0,
+		FullSteps = 0,
+		ReducedSteps = 0,
+		DistantSteps = 0,
+		PlayerTargets = playerTargetCount or 0,
+	}
+end
+
+local lastSimulationLodCounts = createSimulationLodCounts()
+
 local function getOrCreateRemote(remoteName)
 	local remote = ReplicatedStorage:FindFirstChild(remoteName)
 
@@ -884,21 +899,39 @@ getLootScatterOffset = function()
 	return Vector3.new(math.cos(angle) * distance, 1, math.sin(angle) * distance)
 end
 
-local function getClosestAlivePlayer(position)
+local function getAlivePlayerTargets()
+	local targets = {}
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if RunStateService.IsRunActive(player) then
+			local humanoid = getCharacterHumanoid(player)
+			local root = getCharacterRoot(player)
+
+			if humanoid ~= nil and root ~= nil and humanoid.Health > 0 then
+				table.insert(targets, {
+					Player = player,
+					Humanoid = humanoid,
+					Root = root,
+				})
+			end
+		end
+	end
+
+	return targets
+end
+
+local function getClosestAlivePlayer(position, playerTargets)
 	local closestPlayer = nil
 	local closestRoot = nil
 	local closestDistance = math.huge
 
-	for _, player in ipairs(Players:GetPlayers()) do
-		if isPlayerAlive(player) then
-			local root = getCharacterRoot(player)
-			local distance = (root.Position - position).Magnitude
+	for _, target in ipairs(playerTargets or getAlivePlayerTargets()) do
+		local distance = (target.Root.Position - position).Magnitude
 
-			if distance < closestDistance then
-				closestDistance = distance
-				closestPlayer = player
-				closestRoot = root
-			end
+		if distance < closestDistance then
+			closestDistance = distance
+			closestPlayer = target.Player
+			closestRoot = target.Root
 		end
 	end
 
@@ -1039,6 +1072,7 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 		AnimationTrack = playMonsterAnimation(monster),
 		AnimationTime = rng:NextNumber(0, 10),
 		LastDamageByUserId = {},
+		LastLodUpdateAt = CombatStateService.GetTime(),
 		OriginalPartColors = captureOriginalPartColors(monster),
 		DamageFlashId = 0,
 		IsDead = false,
@@ -1177,32 +1211,30 @@ local function getProceduralAnimationCFrame(monsterState, position, moveDirectio
 	return CFrame.lookAt(visualPosition, lookTarget) * CFrame.Angles(0, 0, sway) * pivotRotation
 end
 
-local function updateMonsterMovement(monsterState, deltaTime)
+local function updateMonsterMovement(monsterState, targetRoot, distance, deltaTime, useSeparation, useProceduralMotion)
 	local root = monsterState.Root
 
 	if root == nil then
 		removeMonster(monsterState, nil)
-		return
+		return false
 	end
 
-	local _, targetRoot, distance = getClosestAlivePlayer(root.Position)
-
 	if targetRoot == nil then
-		return
+		return true
 	end
 
 	if distance > CombatConfig.MonsterDespawnDistance then
 		removeMonster(monsterState, nil)
-		return
+		return false
 	end
 
-	local separation = getMonsterSeparation(monsterState)
+	local separation = if useSeparation then getMonsterSeparation(monsterState) else Vector3.zero
 
 	local basePosition = monsterState.BasePosition or root.Position
 	local moveDirection = getMoveDirection(basePosition, targetRoot.Position, separation)
 
 	if moveDirection.Magnitude <= 0.1 then
-		return
+		return true
 	end
 
 	local targetDistance = (Vector3.new(targetRoot.Position.X, 0, targetRoot.Position.Z) - Vector3.new(basePosition.X, 0, basePosition.Z)).Magnitude
@@ -1212,7 +1244,7 @@ local function updateMonsterMovement(monsterState, deltaTime)
 
 	monsterState.BasePosition = nextPosition
 
-	if monsterState.UseProceduralMotion ~= true then
+	if monsterState.UseProceduralMotion ~= true or useProceduralMotion ~= true then
 		local lookTarget = nextPosition + moveDirection
 		local pivotRotation = monsterState.PivotRotation or CFrame.new()
 		pivotInstance(monsterState.Instance, CFrame.lookAt(nextPosition, lookTarget) * pivotRotation)
@@ -1221,40 +1253,90 @@ local function updateMonsterMovement(monsterState, deltaTime)
 	end
 
 	updateMonsterSpatialCell(monsterState, nextPosition)
+	return true
 end
 
-local function updateMonsterDamage(monsterState, now)
+local function updateMonsterDamage(monsterState, now, playerTargets)
 	local root = monsterState.Root
 
 	if root == nil then
 		return
 	end
 
-	for _, player in ipairs(Players:GetPlayers()) do
-		if isPlayerAlive(player) then
-			local playerRoot = getCharacterRoot(player)
-			local distance = (playerRoot.Position - root.Position).Magnitude
+	for _, target in ipairs(playerTargets) do
+		local distance = (target.Root.Position - root.Position).Magnitude
 
-			if distance <= CombatConfig.MonsterAttackRange then
-				local lastDamageAt = monsterState.LastDamageByUserId[player.UserId] or 0
+		if distance <= CombatConfig.MonsterAttackRange then
+			local player = target.Player
+			local lastDamageAt = monsterState.LastDamageByUserId[player.UserId] or 0
 
-				if now - lastDamageAt >= CombatConfig.MonsterAttackCooldown then
-					monsterState.LastDamageByUserId[player.UserId] = now
+			if now - lastDamageAt >= CombatConfig.MonsterAttackCooldown then
+				monsterState.LastDamageByUserId[player.UserId] = now
 
-					local attackDamage = monsterState.AttackDamage or CombatConfig.MonsterAttackDamage
-					local finalDamage, shieldAbsorbed = PerkService.CalculateIncomingDamage(player, attackDamage)
+				local attackDamage = monsterState.AttackDamage or CombatConfig.MonsterAttackDamage
+				local finalDamage, shieldAbsorbed = PerkService.CalculateIncomingDamage(player, attackDamage)
 
-					if finalDamage > 0 then
-						getCharacterHumanoid(player):TakeDamage(finalDamage)
-					end
-
-					RunAnalyticsService.RecordDamageTaken(player, finalDamage, shieldAbsorbed)
-
-					sendStats(player)
+				if finalDamage > 0 then
+					target.Humanoid:TakeDamage(finalDamage)
 				end
+
+				RunAnalyticsService.RecordDamageTaken(player, finalDamage, shieldAbsorbed)
+				sendStats(player)
 			end
 		end
 	end
+end
+
+local function getMonsterSimulationLod(monsterState, distance)
+	if monsterState.IsBoss == true then
+		return "Full"
+	end
+
+	local fullDistance = math.max(0, CombatConfig.MonsterFullSimulationDistance or CombatConfig.FireballRange or 90)
+	local reducedDistance = math.max(
+		fullDistance,
+		CombatConfig.MonsterReducedSimulationDistance or CombatConfig.MonsterDespawnDistance
+	)
+
+	if distance <= fullDistance then
+		return "Full"
+	end
+
+	if distance <= reducedDistance then
+		return "Reduced"
+	end
+
+	return "Distant"
+end
+
+local function getLodInterval(lod)
+	if lod == "Reduced" then
+		return 1 / math.max(1, CombatConfig.MonsterReducedSimulationHz or 10)
+	end
+
+	if lod == "Distant" then
+		return 1 / math.max(1, CombatConfig.MonsterDistantSimulationHz or 2)
+	end
+
+	return 0
+end
+
+local function getLodStepDelta(monsterState, lod, now, frameDelta)
+	if lod == "Full" then
+		monsterState.LastLodUpdateAt = now
+		return frameDelta
+	end
+
+	local interval = getLodInterval(lod)
+	local lastUpdateAt = monsterState.LastLodUpdateAt or now
+	local elapsed = now - lastUpdateAt
+
+	if elapsed < interval then
+		return nil
+	end
+
+	monsterState.LastLodUpdateAt = now
+	return elapsed
 end
 
 local function updateSpawns(now)
@@ -1299,15 +1381,57 @@ end
 local function updateMonsterStep(deltaTime)
 	local now = CombatStateService.GetTime()
 	local startedAt = os.clock()
+	local playerTargets = getAlivePlayerTargets()
+	local lodCounts = createSimulationLodCounts(#playerTargets)
 
 	updateSpawns(now)
 
 	for _, monsterState in pairs(monstersByInstance) do
 		if not monsterState.IsDead then
-			updateMonsterMovement(monsterState, deltaTime)
-			updateMonsterDamage(monsterState, now)
+			local root = monsterState.Root
+
+			if root == nil then
+				removeMonster(monsterState, nil)
+				lodCounts.Despawned += 1
+				continue
+			end
+
+			local _, targetRoot, distance = getClosestAlivePlayer(root.Position, playerTargets)
+
+			if targetRoot == nil then
+				continue
+			end
+
+			if distance > CombatConfig.MonsterDespawnDistance then
+				removeMonster(monsterState, nil)
+				lodCounts.Despawned += 1
+				continue
+			end
+
+			local lod = getMonsterSimulationLod(monsterState, distance)
+			lodCounts[lod] += 1
+
+			local lodDeltaTime = getLodStepDelta(monsterState, lod, now, deltaTime)
+
+			if lodDeltaTime ~= nil then
+				lodCounts[lod .. "Steps"] += 1
+				local stillActive = updateMonsterMovement(
+					monsterState,
+					targetRoot,
+					distance,
+					lodDeltaTime,
+					lod == "Full",
+					lod == "Full"
+				)
+
+				if stillActive and lod == "Full" and not monsterState.IsDead then
+					updateMonsterDamage(monsterState, now, playerTargets)
+				end
+			end
 		end
 	end
+
+	lastSimulationLodCounts = lodCounts
 
 	local tickDuration = os.clock() - startedAt
 	monsterTickTimeTotal += tickDuration
@@ -1334,6 +1458,14 @@ local function updateMonsterStep(deltaTime)
 			Pool = getMonsterPoolSize(),
 			SimulationMode = if (CombatConfig.MonsterSimulationHz or 0) <= 0 then "Heartbeat" else "FixedHz",
 			SimulationHz = CombatConfig.MonsterSimulationHz,
+			LodFull = lastSimulationLodCounts.Full,
+			LodReduced = lastSimulationLodCounts.Reduced,
+			LodDistant = lastSimulationLodCounts.Distant,
+			LodDespawned = lastSimulationLodCounts.Despawned,
+			LodFullSteps = lastSimulationLodCounts.FullSteps,
+			LodReducedSteps = lastSimulationLodCounts.ReducedSteps,
+			LodDistantSteps = lastSimulationLodCounts.DistantSteps,
+			LodPlayerTargets = lastSimulationLodCounts.PlayerTargets,
 			AverageTickMs = averageTickMs,
 			MaxTickMs = monsterTickMaxSeconds * 1000,
 		})
@@ -1985,6 +2117,7 @@ function MonsterService.Start()
 		monsterTickSampleCount = 0
 		monsterTickMaxSeconds = 0
 		elapsedSincePerfLog = 0
+		lastSimulationLodCounts = createSimulationLodCounts()
 		groundedSinceByUserId[player.UserId] = nil
 		killsByUserId[player.UserId] = 0
 		difficultyPercent = 0
@@ -2005,6 +2138,7 @@ function MonsterService.Start()
 		monsterTickSampleCount = 0
 		monsterTickMaxSeconds = 0
 		elapsedSincePerfLog = 0
+		lastSimulationLodCounts = createSimulationLodCounts()
 		MonsterService.ClearAllMonsters(reason)
 		sendStats(player)
 		DebugLog.Info("Combat", "Combat run arrete pour joueur", {

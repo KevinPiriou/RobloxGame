@@ -63,3 +63,9 @@ Les valeurs restent bornees, serialisables et independantes de l'etat temporaire
 La persistance des cinq reglages audio est maintenant implementee dans `PlayerPreferencesService` et documentee dans `post_audit_2026-07-13_audio_preferences_persistence_v1.md`.
 
 Le restant de ce TODO concerne exclusivement les preferences graphiques MegaRoblox : profil visuel, intensite VFX, culling et distances d'animation. Cette partie reste volontairement en attente d'un audit des leviers graphiques existants.
+
+## Addendum - 2026-07-13 05:18 CEST - Preferences graphiques implementees
+
+Le chantier graphique V1 est termine et documente dans `post_audit_2026-07-13_graphics_preferences_v1.md`.
+
+Les reglages maintenant couverts sont le profil de culling/animation des collectibles, l'intensite locale des VFX et les ombres locales. Les distances d'animation NPC et les LOD de meshes restent hors perimetre : ce sont des sujets de rendu distincts qui devront etre abordes ensemble dans une passe dediee.

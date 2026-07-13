@@ -4,6 +4,7 @@ return {
 	Categories = {
 		Admin = true,
 		Audio = true,
+		Aura = true,
 		Chest = true,
 		Coin = true,
 		Combat = true,
@@ -19,6 +20,7 @@ return {
 		Templates = true,
 		Totem = true,
 		UI = true,
+		Vfx = true,
 		Weapon = true,
 		Xp = true,
 	},

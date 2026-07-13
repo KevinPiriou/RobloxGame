@@ -123,4 +123,50 @@ function DebugLog.ThrottledWarn(category, throttleKey, throttleSeconds, message,
 	warn(createLine("WARN", category, message, context))
 end
 
+function DebugLog.GetState()
+	local categories = {}
+
+	for category, isEnabled in pairs(DebugConfig.Categories or {}) do
+		categories[category] = isEnabled == true
+	end
+
+	return {
+		ConsoleEnabled = DebugConfig.ConsoleEnabled == true,
+		Categories = categories,
+	}
+end
+
+function DebugLog.ApplyState(state)
+	if typeof(state) ~= "table" then
+		return
+	end
+
+	if typeof(state.ConsoleEnabled) == "boolean" then
+		DebugConfig.ConsoleEnabled = state.ConsoleEnabled
+	end
+
+	if typeof(state.Categories) ~= "table" then
+		return
+	end
+
+	for category, isEnabled in pairs(state.Categories) do
+		if typeof(category) == "string" and category ~= "" and typeof(isEnabled) == "boolean" then
+			DebugConfig.Categories[category] = isEnabled
+		end
+	end
+end
+
+function DebugLog.SetConsoleEnabled(isEnabled)
+	DebugConfig.ConsoleEnabled = isEnabled == true
+end
+
+function DebugLog.SetCategoryEnabled(category, isEnabled)
+	if typeof(category) ~= "string" or category == "" then
+		return false
+	end
+
+	DebugConfig.Categories[category] = isEnabled == true
+	return true
+end
+
 return DebugLog

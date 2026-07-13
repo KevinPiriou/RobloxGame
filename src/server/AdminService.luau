@@ -1,3 +1,4 @@
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
@@ -28,10 +29,32 @@ local function getOrCreateRemote(remoteName)
 	return remote
 end
 
+local function getOrCreateRemoteFunction(remoteName)
+	local remote = ReplicatedStorage:FindFirstChild(remoteName)
+
+	if remote == nil then
+		remote = Instance.new("RemoteFunction")
+		remote.Name = remoteName
+		remote.Parent = ReplicatedStorage
+	end
+
+	assert(remote:IsA("RemoteFunction"), remoteName .. " doit etre un RemoteFunction.")
+
+	return remote
+end
+
 local resetPowerUpsRemote = getOrCreateRemote("Admin_ResetPowerUps")
 local spawnMonstersRemote = getOrCreateRemote("Admin_SpawnMonsters")
 local killMonstersRemote = getOrCreateRemote("Admin_KillMonsters")
 local adminMessageRemote = getOrCreateRemote("Admin_ShowMessage")
+local setDebugLogSettingRemote = getOrCreateRemote("Admin_SetDebugLogSetting")
+local debugLogStateRemote = getOrCreateRemote("Admin_DebugLogState")
+local getDebugLogStateRemote = getOrCreateRemoteFunction("Admin_GetDebugLogState")
+local debugCategoryIds = {}
+
+for _, category in ipairs(AdminConfig.DebugLogCategories) do
+	debugCategoryIds[category.Id] = true
+end
 
 local function isConfiguredAdmin(player)
 	for _, userId in ipairs(AdminConfig.AdminUserIds) do
@@ -62,7 +85,7 @@ local function sendAdminMessage(player, success, message)
 	})
 end
 
-local function runAdminAction(player, refusedWarning, callback)
+local function runAdminAction(player, refusedWarning, callback, shouldRecordAnalytics)
 	if not canUseAdminTools(player) then
 		DebugLog.Warn("Admin", refusedWarning .. " refuse", {
 			Player = player.Name,
@@ -71,7 +94,9 @@ local function runAdminAction(player, refusedWarning, callback)
 		return
 	end
 
-	RunAnalyticsService.RecordAdminCommand(player)
+	if shouldRecordAnalytics ~= false then
+		RunAnalyticsService.RecordAdminCommand(player)
+	end
 
 	local success, message = pcall(callback)
 
@@ -91,12 +116,21 @@ local function runAdminAction(player, refusedWarning, callback)
 	sendAdminMessage(player, true, message)
 end
 
+local function publishDebugLogState()
+	local state = DebugLog.GetState()
+
+	for _, targetPlayer in ipairs(Players:GetPlayers()) do
+		debugLogStateRemote:FireClient(targetPlayer, state)
+	end
+end
+
 function AdminService.SetupPlayer(player)
 	player:SetAttribute(ADMIN_ATTRIBUTE, canUseAdminTools(player))
 	DebugLog.Info("Admin", "Setup joueur admin", {
 		Player = player.Name,
 		CanUseAdminTools = player:GetAttribute(ADMIN_ATTRIBUTE),
 	})
+	debugLogStateRemote:FireClient(player, DebugLog.GetState())
 end
 
 function AdminService.RemovePlayer(player)
@@ -111,6 +145,14 @@ function AdminService.Start()
 
 	isStarted = true
 	DebugLog.Info("Admin", "AdminService demarre")
+
+	getDebugLogStateRemote.OnServerInvoke = function(player)
+		if not canUseAdminTools(player) then
+			return nil
+		end
+
+		return DebugLog.GetState()
+	end
 
 	resetPowerUpsRemote.OnServerEvent:Connect(function(player)
 		runAdminAction(player, "Reset admin", function()
@@ -135,6 +177,31 @@ function AdminService.Start()
 
 			return ("Debug : %d ennemis supprimes"):format(killedCount)
 		end)
+	end)
+
+	setDebugLogSettingRemote.OnServerEvent:Connect(function(player, payload)
+		runAdminAction(player, "Reglage logs admin", function()
+			if typeof(payload) ~= "table" or typeof(payload.Enabled) ~= "boolean" then
+				error("Payload de logs invalide")
+			end
+
+			if payload.Scope == "Console" then
+				DebugLog.SetConsoleEnabled(payload.Enabled)
+				publishDebugLogState()
+				return if payload.Enabled then "Console debug activee" else "Console debug desactivee"
+			end
+
+			if payload.Scope ~= "Category" or typeof(payload.Category) ~= "string"
+				or debugCategoryIds[payload.Category] ~= true
+			then
+				error("Categorie de logs invalide")
+			end
+
+			DebugLog.SetCategoryEnabled(payload.Category, payload.Enabled)
+			publishDebugLogState()
+
+			return ("Logs %s : %s"):format(payload.Category, payload.Enabled and "actifs" or "coupes")
+		end, false)
 	end)
 end
 

@@ -195,6 +195,11 @@ local function releaseProjectileInstance(projectile)
 
 	projectile.Name = CombatConfig.FireballTemplateName
 	projectile:SetAttribute("RuntimeProjectile", false)
+	projectile:SetAttribute("WeaponId", nil)
+	projectile:SetAttribute("VfxProfileId", nil)
+	projectile:SetAttribute("ProjectileSkinId", nil)
+	projectile:SetAttribute("ProjectileOwnerUserId", nil)
+	projectile:SetAttribute("ProjectileVisualSerial", nil)
 	projectile.Parent = projectilePoolFolder
 end
 
@@ -240,7 +245,18 @@ local function createProjectile(player, spawnPosition, targetMonster, targetRoot
 		return
 	end
 
-	ProjectileVisualService.ApplyFireballSkin(projectile, projectileRoot, WeaponSkinService.GetSelectedFireballSkin(player))
+	local vfxProfileId = ProjectileVisualService.PrepareFireball(
+		projectile,
+		projectileRoot,
+		player,
+		WeaponSkinService.GetSelectedFireballSkin(player),
+		projectileSerial
+	)
+
+	if vfxProfileId == nil then
+		releaseProjectileInstance(projectile)
+		return
+	end
 
 	pivotInstance(projectile, CFrame.lookAt(spawnPosition, spawnPosition + direction))
 
@@ -259,6 +275,8 @@ local function createProjectile(player, spawnPosition, targetMonster, targetRoot
 		BounceRemaining = PerkService.GetBounceCount(player),
 		HitMonsters = {},
 		ReusedFromPool = reusedFromPool,
+		VfxProfileId = vfxProfileId,
+		VisualSerial = projectileSerial,
 	}
 
 	DebugLog.ThrottledInfo("Weapon", "fireball_created_" .. player.UserId, 1, "Projectile cree", {
@@ -437,7 +455,12 @@ local function updateProjectile(projectileState, deltaTime)
 	if hitMonster ~= nil then
 		projectileState.HitMonsters[hitMonster] = true
 		local impactPosition = MonsterService.GetMonsterPosition(hitMonster) or nextPosition
-		ProjectileVisualService.PlayFireballImpact(projectile, impactPosition, projectileFolder)
+		ProjectileVisualService.PlayProjectileImpact(
+			projectileState.Owner,
+			projectileState.VfxProfileId,
+			impactPosition,
+			projectileState.VisualSerial
+		)
 		-- Le monstre peut retourner dans le pool pendant DamageMonster si ce coup est fatal.
 		-- On conserve donc son chemin avant les degats pour que le log reste lisible.
 		local targetPath = hitMonster:GetFullName()
@@ -566,7 +589,13 @@ function WeaponService.Start()
 			return
 		end
 
-		local simulationHz = math.max(1, CombatConfig.ProjectileSimulationHz or 30)
+		local simulationHz = CombatConfig.ProjectileSimulationHz or 0
+
+		if simulationHz <= 0 then
+			updateWeaponStep(deltaTime)
+			return
+		end
+
 		local fixedStep = 1 / simulationHz
 		local maxStepsPerHeartbeat = 4
 		local steps = 0

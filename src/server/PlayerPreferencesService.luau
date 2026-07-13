@@ -6,6 +6,7 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AudioConfig = require(Shared:WaitForChild("AudioConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local GraphicsConfig = require(Shared:WaitForChild("GraphicsConfig"))
 local PlayerPreferencesConfig = require(Shared:WaitForChild("PlayerPreferencesConfig"))
 
 local PlayerPreferencesService = {}
@@ -29,6 +30,7 @@ end
 
 local getStateRemote = getOrCreateRemote(PlayerPreferencesConfig.GetStateRemoteName, "RemoteFunction")
 local setAudioRemote = getOrCreateRemote(PlayerPreferencesConfig.SetAudioRemoteName, "RemoteEvent")
+local setGraphicsRemote = getOrCreateRemote(PlayerPreferencesConfig.SetGraphicsRemoteName, "RemoteEvent")
 local updateRemote = getOrCreateRemote(PlayerPreferencesConfig.UpdateRemoteName, "RemoteEvent")
 
 local function createDefaultAudio()
@@ -45,7 +47,29 @@ local function createDefaultData()
 	return {
 		Version = PlayerPreferencesConfig.DataVersion,
 		Audio = createDefaultAudio(),
+		Graphics = table.clone(GraphicsConfig.DefaultSettings),
 	}
+end
+
+local function normalizeGraphics(rawGraphics)
+	local graphics = table.clone(GraphicsConfig.DefaultSettings)
+
+	if typeof(rawGraphics) ~= "table" then
+		return graphics
+	end
+
+	if typeof(rawGraphics.Quality) == "string" and GraphicsConfig.QualityProfiles[rawGraphics.Quality] ~= nil then
+		graphics.Quality = rawGraphics.Quality
+	end
+
+	graphics.EffectsIntensity = math.clamp(
+		tonumber(rawGraphics.EffectsIntensity) or graphics.EffectsIntensity,
+		0,
+		1
+	)
+	graphics.ShadowsEnabled = rawGraphics.ShadowsEnabled ~= false
+
+	return graphics
 end
 
 local function normalizeAudio(rawAudio)
@@ -71,6 +95,7 @@ local function normalizeData(rawData)
 	end
 
 	data.Audio = normalizeAudio(rawData.Audio)
+	data.Graphics = normalizeGraphics(rawData.Graphics)
 	return data
 end
 
@@ -100,6 +125,7 @@ local function buildPublicState(profile)
 	return {
 		Loaded = profile.Loaded,
 		Audio = table.clone(profile.Data.Audio),
+		Graphics = table.clone(profile.Data.Graphics),
 	}
 end
 
@@ -116,10 +142,13 @@ local function saveProfile(player, profile)
 
 	local savedRevision = profile.Revision
 	local audioSnapshot = table.clone(profile.Data.Audio)
+	local graphicsSnapshot = table.clone(profile.Data.Graphics)
 	local success, result = pcall(function()
 		return preferencesDataStore:UpdateAsync(getDataStoreKey(player), function(rawData)
 			local data = normalizeData(rawData)
+			data.Version = PlayerPreferencesConfig.DataVersion
 			data.Audio = audioSnapshot
+			data.Graphics = graphicsSnapshot
 			return data
 		end)
 	end)
@@ -227,6 +256,37 @@ function PlayerPreferencesService.SetAudio(player, rawAudio)
 	return true
 end
 
+function PlayerPreferencesService.SetGraphics(player, rawGraphics)
+	if typeof(rawGraphics) ~= "table" then
+		return false
+	end
+
+	local profile = getOrCreateProfile(player)
+
+	if not profile.Loaded then
+		return false
+	end
+
+	local nextGraphics = normalizeGraphics(rawGraphics)
+	local currentGraphics = profile.Data.Graphics
+	local changed = currentGraphics.Quality ~= nextGraphics.Quality
+		or currentGraphics.EffectsIntensity ~= nextGraphics.EffectsIntensity
+		or currentGraphics.ShadowsEnabled ~= nextGraphics.ShadowsEnabled
+
+	if not changed then
+		return true
+	end
+
+	profile.Data.Graphics = nextGraphics
+	profile.Dirty = true
+	profile.Revision += 1
+
+	publishState(player, profile)
+	scheduleSave(player, profile)
+
+	return true
+end
+
 function PlayerPreferencesService.SavePlayer(player)
 	local profile = profilesByUserId[player.UserId]
 
@@ -252,6 +312,9 @@ function PlayerPreferencesService.Start()
 	end
 	setAudioRemote.OnServerEvent:Connect(function(player, rawAudio)
 		PlayerPreferencesService.SetAudio(player, rawAudio)
+	end)
+	setGraphicsRemote.OnServerEvent:Connect(function(player, rawGraphics)
+		PlayerPreferencesService.SetGraphics(player, rawGraphics)
 	end)
 
 	DebugLog.Info("Preferences", "PlayerPreferencesService demarre", {

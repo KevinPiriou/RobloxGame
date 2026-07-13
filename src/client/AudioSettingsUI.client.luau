@@ -19,6 +19,21 @@ end
 
 local COLORS = UiTheme.Contexts.Audio
 
+local function getSettingsPanelEvent()
+	local event = playerGui:FindFirstChild("SettingsPanelChanged")
+
+	if event == nil then
+		event = Instance.new("BindableEvent")
+		event.Name = "SettingsPanelChanged"
+		event.Parent = playerGui
+	end
+
+	assert(event:IsA("BindableEvent"), "SettingsPanelChanged doit etre un BindableEvent.")
+	return event
+end
+
+local settingsPanelEvent = getSettingsPanelEvent()
+
 local SETTINGS = {
 	{ Id = "Master", Label = "GENERAL", Color = Color3.fromRGB(242, 246, 255) },
 	{ Id = "Music", Label = "MUSIQUE", Color = Color3.fromRGB(190, 116, 255) },
@@ -238,9 +253,28 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 audioButton.Activated:Connect(function()
-	panel.Visible = not panel.Visible
+	local nextVisible = not panel.Visible
+
+	if nextVisible then
+		settingsPanelEvent:Fire("Audio")
+	else
+		settingsPanelEvent:Fire(nil)
+	end
+
+	panel.Visible = nextVisible
 	TweenService:Create(audioButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		BackgroundTransparency = if panel.Visible then 0.02 else 0.16,
+	}):Play()
+end)
+
+settingsPanelEvent.Event:Connect(function(openPanelName)
+	if openPanelName == "Audio" or not panel.Visible then
+		return
+	end
+
+	panel.Visible = false
+	TweenService:Create(audioButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		BackgroundTransparency = 0.16,
 	}):Play()
 end)
 

@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AdminConfig = require(Shared:WaitForChild("AdminConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
 local UiTheme = require(Shared:WaitForChild("UiTheme"))
@@ -17,6 +18,9 @@ local resetPowerUpsRemote = ReplicatedStorage:WaitForChild("Admin_ResetPowerUps"
 local spawnMonstersRemote = ReplicatedStorage:WaitForChild("Admin_SpawnMonsters")
 local killMonstersRemote = ReplicatedStorage:WaitForChild("Admin_KillMonsters")
 local adminMessageRemote = ReplicatedStorage:WaitForChild("Admin_ShowMessage")
+local setDebugLogSettingRemote = ReplicatedStorage:WaitForChild("Admin_SetDebugLogSetting")
+local debugLogStateRemote = ReplicatedStorage:WaitForChild("Admin_DebugLogState")
+local getDebugLogStateRemote = ReplicatedStorage:WaitForChild("Admin_GetDebugLogState")
 
 local existingGui = playerGui:FindFirstChild("AdminGui")
 
@@ -65,7 +69,7 @@ local container = Instance.new("Frame")
 container.Name = "AdminPanel"
 container.AnchorPoint = Vector2.new(1, 0)
 container.Position = UDim2.new(1, -92, 0, 58)
-container.Size = UDim2.fromOffset(310, 226)
+container.Size = UDim2.fromOffset(310, 480)
 container.BackgroundColor3 = Color3.fromRGB(37, 51, 70)
 container.BackgroundTransparency = 0.16
 container.BorderSizePixel = 0
@@ -165,7 +169,186 @@ statusLabel.TextXAlignment = Enum.TextXAlignment.Left
 statusLabel.LayoutOrder = 4
 statusLabel.Parent = content
 
+local debugSection = Instance.new("Frame")
+debugSection.Name = "DebugLogSection"
+debugSection.Size = UDim2.new(1, 0, 0, 266)
+debugSection.BackgroundTransparency = 1
+debugSection.BorderSizePixel = 0
+debugSection.LayoutOrder = 5
+debugSection.Parent = content
+
+local debugTitle = Instance.new("TextLabel")
+debugTitle.Name = "DebugLogTitle"
+debugTitle.Position = UDim2.fromOffset(0, 0)
+debugTitle.Size = UDim2.new(1, 0, 0, 18)
+debugTitle.BackgroundTransparency = 1
+debugTitle.Font = Enum.Font.GothamBold
+debugTitle.Text = "JOURNAUX DEBUG"
+debugTitle.TextColor3 = Color3.fromRGB(173, 211, 255)
+debugTitle.TextSize = 11
+debugTitle.TextXAlignment = Enum.TextXAlignment.Left
+debugTitle.Parent = debugSection
+
+local function createDebugToggle(parent, name, label, position)
+	local row = Instance.new("TextButton")
+	row.Name = name
+	row.Position = position or UDim2.new()
+	row.Size = UDim2.new(1, -4, 0, 24)
+	row.BackgroundColor3 = Color3.fromRGB(19, 33, 49)
+	row.BackgroundTransparency = 0.12
+	row.BorderSizePixel = 0
+	row.AutoButtonColor = false
+	row.Font = Enum.Font.GothamMedium
+	row.Text = ""
+	row.Parent = parent
+	addCorner(row, 4)
+	addStroke(row, Color3.fromRGB(123, 158, 196), 0.76, 1)
+
+	local indicator = Instance.new("TextLabel")
+	indicator.Name = "Indicator"
+	indicator.Position = UDim2.fromOffset(4, 3)
+	indicator.Size = UDim2.fromOffset(18, 18)
+	indicator.BackgroundColor3 = Color3.fromRGB(48, 68, 92)
+	indicator.BorderSizePixel = 0
+	indicator.Font = Enum.Font.GothamBlack
+	indicator.Text = ""
+	indicator.TextColor3 = Color3.fromRGB(255, 255, 255)
+	indicator.TextSize = 13
+	indicator.Parent = row
+	addCorner(indicator, 3)
+	addStroke(indicator, Color3.fromRGB(211, 235, 255), 0.74, 1)
+
+	local textLabel = Instance.new("TextLabel")
+	textLabel.Name = "Label"
+	textLabel.Position = UDim2.fromOffset(30, 0)
+	textLabel.Size = UDim2.new(1, -36, 1, 0)
+	textLabel.BackgroundTransparency = 1
+	textLabel.Font = Enum.Font.GothamMedium
+	textLabel.Text = label
+	textLabel.TextColor3 = Color3.fromRGB(226, 235, 246)
+	textLabel.TextSize = 11
+	textLabel.TextXAlignment = Enum.TextXAlignment.Left
+	textLabel.Parent = row
+
+	local function setSelected(isSelected)
+		indicator.Text = if isSelected then "X" else ""
+		indicator.BackgroundColor3 = if isSelected
+			then Color3.fromRGB(45, 159, 101)
+			else Color3.fromRGB(48, 68, 92)
+		row.BackgroundTransparency = if isSelected then 0.02 else 0.12
+	end
+
+	return row, setSelected
+end
+
+local consoleToggle, setConsoleSelected = createDebugToggle(
+	debugSection,
+	"ConsoleToggle",
+	"Console globale",
+	UDim2.fromOffset(0, 22)
+)
+
+local categoryList = Instance.new("ScrollingFrame")
+categoryList.Name = "CategoryList"
+categoryList.Position = UDim2.fromOffset(0, 52)
+categoryList.Size = UDim2.new(1, 0, 1, -52)
+categoryList.BackgroundColor3 = Color3.fromRGB(9, 17, 28)
+categoryList.BackgroundTransparency = 0.3
+categoryList.BorderSizePixel = 0
+categoryList.CanvasSize = UDim2.new()
+categoryList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+categoryList.ScrollBarImageColor3 = Color3.fromRGB(108, 185, 255)
+categoryList.ScrollBarThickness = 4
+categoryList.Parent = debugSection
+addCorner(categoryList, 4)
+addStroke(categoryList, Color3.fromRGB(123, 158, 196), 0.84, 1)
+
+local categoryLayout = Instance.new("UIListLayout")
+categoryLayout.Padding = UDim.new(0, 3)
+categoryLayout.SortOrder = Enum.SortOrder.LayoutOrder
+categoryLayout.Parent = categoryList
+
+local categoryPadding = Instance.new("UIPadding")
+categoryPadding.PaddingTop = UDim.new(0, 3)
+categoryPadding.PaddingLeft = UDim.new(0, 3)
+categoryPadding.PaddingRight = UDim.new(0, 3)
+categoryPadding.PaddingBottom = UDim.new(0, 3)
+categoryPadding.Parent = categoryList
+
+local debugCategoryRows = {}
+local debugLogState = {
+	ConsoleEnabled = true,
+	Categories = {},
+}
+
+for layoutOrder, category in ipairs(AdminConfig.DebugLogCategories) do
+	local row, setSelected = createDebugToggle(categoryList, "Debug_" .. category.Id, category.Label)
+	row.LayoutOrder = layoutOrder
+	debugCategoryRows[category.Id] = {
+		Row = row,
+		SetSelected = setSelected,
+	}
+end
+
 local activeButton = nil
+local debugStateRequestInFlight = false
+
+local function applyDebugLogState(payload)
+	if typeof(payload) ~= "table" or typeof(payload.Categories) ~= "table" then
+		return
+	end
+
+	debugLogState = {
+		ConsoleEnabled = payload.ConsoleEnabled == true,
+		Categories = payload.Categories,
+	}
+	DebugLog.ApplyState(debugLogState)
+	setConsoleSelected(debugLogState.ConsoleEnabled)
+
+	for categoryId, entry in pairs(debugCategoryRows) do
+		entry.SetSelected(debugLogState.Categories[categoryId] == true)
+	end
+end
+
+local function requestDebugLogState()
+	if debugStateRequestInFlight
+		or player:GetAttribute("CanUseAdminTools") ~= true
+		or not getDebugLogStateRemote:IsA("RemoteFunction")
+	then
+		return
+	end
+
+	debugStateRequestInFlight = true
+
+	task.spawn(function()
+		local success, payload = pcall(function()
+			return getDebugLogStateRemote:InvokeServer()
+		end)
+
+		debugStateRequestInFlight = false
+
+		if success then
+			applyDebugLogState(payload)
+		else
+			statusLabel.Text = "Etat des logs indisponible"
+			statusLabel.TextColor3 = Color3.fromRGB(255, 145, 145)
+		end
+	end)
+end
+
+local function sendDebugLogSetting(scope, categoryId, isEnabled)
+	if not setDebugLogSettingRemote:IsA("RemoteEvent") then
+		return
+	end
+
+	statusLabel.Text = "Mise a jour des logs..."
+	statusLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
+	setDebugLogSettingRemote:FireServer({
+		Scope = scope,
+		Category = categoryId,
+		Enabled = isEnabled,
+	})
+end
 
 local function updateVisibility()
 	local canUseAdminTools = player:GetAttribute("CanUseAdminTools") == true
@@ -173,7 +356,10 @@ local function updateVisibility()
 
 	if not canUseAdminTools then
 		container.Visible = false
+		return
 	end
+
+	requestDebugLogState()
 end
 
 local function resetActiveButton()
@@ -214,6 +400,17 @@ killButton.Activated:Connect(function()
 	fireAdminAction(killButton, killMonstersRemote, "Suppression...")
 end)
 
+consoleToggle.Activated:Connect(function()
+	sendDebugLogSetting("Console", nil, not debugLogState.ConsoleEnabled)
+end)
+
+for categoryId, entry in pairs(debugCategoryRows) do
+	entry.Row.Activated:Connect(function()
+		local isEnabled = debugLogState.Categories[categoryId] == true
+		sendDebugLogSetting("Category", categoryId, not isEnabled)
+	end)
+end
+
 adminButton.Activated:Connect(function()
 	container.Visible = not container.Visible
 	adminButton.BackgroundTransparency = if container.Visible then 0.02 else 0.16
@@ -229,6 +426,10 @@ adminMessageRemote.OnClientEvent:Connect(function(payload)
 	else
 		statusLabel.TextColor3 = Color3.fromRGB(255, 145, 145)
 	end
+end)
+
+debugLogStateRemote.OnClientEvent:Connect(function(payload)
+	applyDebugLogState(payload)
 end)
 
 player:GetAttributeChangedSignal("CanUseAdminTools"):Connect(updateVisibility)

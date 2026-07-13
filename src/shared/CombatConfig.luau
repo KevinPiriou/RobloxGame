@@ -10,7 +10,8 @@ return {
 
 	-- Zero utilise le Heartbeat directement pour que le visuel reste aligne aux hitboxes serveur.
 	MonsterSimulationHz = 0,
-	ProjectileSimulationHz = 30,
+	-- Zero utilise le Heartbeat directement pour que le projectile replique reste fluide pour son proprietaire.
+	ProjectileSimulationHz = 0,
 	MonsterSpatialCellSize = 8,
 	MonsterPoolPrewarm = 0,
 	ProjectilePoolPrewarm = 24,
@@ -66,6 +67,11 @@ return {
 	MonsterSpawnSurfaceOffset = 0,
 	MonsterGroundRaycastHeight = 80,
 	MonsterGroundRaycastDepth = 180,
+	-- Les ennemis hors portee de combat avancent encore, mais avec moins de calculs.
+	MonsterFullSimulationDistance = 100,
+	MonsterReducedSimulationDistance = 160,
+	MonsterReducedSimulationHz = 10,
+	MonsterDistantSimulationHz = 2,
 	MonsterDespawnDistance = 220,
 
 	XpGemTemplateName = "XpGem",

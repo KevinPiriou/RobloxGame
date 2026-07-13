@@ -7,6 +7,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
+local GraphicsController = require(script.Parent:WaitForChild("GraphicsController"))
 
 local player = Players.LocalPlayer
 local collectCoinRemote = ReplicatedStorage:WaitForChild("Coin_PlayCollect")
@@ -18,6 +19,8 @@ local activeCollectAnimations = {}
 local elapsedSinceCull = 0
 local elapsedSinceIdleAnimation = 0
 local activeCollectAnimationCount = 0
+
+GraphicsController.Start()
 
 local function isCoinName(name)
 	for _, coinName in ipairs(GameConfig.CoinTierNames or { "Coin" }) do
@@ -127,11 +130,13 @@ local function isInstanceVisibleToCamera(instance)
 
 	local distance = (currentCamera.CFrame.Position - cframe.Position).Magnitude
 
-	if distance > CombatConfig.CollectibleCullMaxDistance then
+	local collectibleSettings = GraphicsController.GetCollectibleSettings()
+
+	if distance > collectibleSettings.CullMaxDistance then
 		return false
 	end
 
-	local margin = CombatConfig.CollectibleCullViewportMargin
+	local margin = collectibleSettings.CullViewportMargin
 
 	return screenPosition.X >= -margin
 		and screenPosition.X <= viewportSize.X + margin
@@ -304,12 +309,14 @@ RunService.RenderStepped:Connect(function(deltaTime)
 	elapsedSinceCull += deltaTime
 	elapsedSinceIdleAnimation += deltaTime
 
-	if elapsedSinceCull >= CombatConfig.CollectibleCullInterval then
+	local collectibleSettings = GraphicsController.GetCollectibleSettings()
+
+	if elapsedSinceCull >= collectibleSettings.CullInterval then
 		elapsedSinceCull = 0
 		updateCollectibleCulling()
 	end
 
-	local idleAnimationHz = math.max(1, CombatConfig.CollectibleIdleAnimationHz or 30)
+	local idleAnimationHz = math.max(1, collectibleSettings.IdleAnimationHz)
 	local idleAnimationStep = 1 / idleAnimationHz
 
 	if elapsedSinceIdleAnimation >= idleAnimationStep then
