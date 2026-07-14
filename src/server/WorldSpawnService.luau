@@ -10,6 +10,7 @@ local WorldSpawnService = {}
 local rng = Random.new()
 local activeSurfaceRoot = nil
 local activeSurfaceCenter = nil
+local activeSurfaceBounds = nil
 local GOLDEN_ANGLE = math.pi * (3 - math.sqrt(5))
 
 local DEFAULT_RUNTIME_FOLDER_NAMES = {
@@ -85,6 +86,67 @@ end
 
 local function getHorizontalDistance(a, b)
 	return (Vector2.new(a.X, a.Z) - Vector2.new(b.X, b.Z)).Magnitude
+end
+
+local function getBoundsForInstance(instance)
+	if instance == nil then
+		return nil
+	end
+
+	if instance:IsA("BasePart") then
+		local halfSize = instance.Size * 0.5
+
+		return {
+			MinX = instance.Position.X - halfSize.X,
+			MaxX = instance.Position.X + halfSize.X,
+			MinZ = instance.Position.Z - halfSize.Z,
+			MaxZ = instance.Position.Z + halfSize.Z,
+		}
+	end
+
+	if instance:IsA("Model") then
+		local boundingCFrame, size = instance:GetBoundingBox()
+		local halfSize = size * 0.5
+
+		return {
+			MinX = boundingCFrame.Position.X - halfSize.X,
+			MaxX = boundingCFrame.Position.X + halfSize.X,
+			MinZ = boundingCFrame.Position.Z - halfSize.Z,
+			MaxZ = boundingCFrame.Position.Z + halfSize.Z,
+		}
+	end
+
+	local minimum = nil
+	local maximum = nil
+
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local halfSize = descendant.Size * 0.5
+			local partMinimum = descendant.Position - halfSize
+			local partMaximum = descendant.Position + halfSize
+			minimum = if minimum == nil then partMinimum else Vector3.new(
+				math.min(minimum.X, partMinimum.X),
+				math.min(minimum.Y, partMinimum.Y),
+				math.min(minimum.Z, partMinimum.Z)
+			)
+			maximum = if maximum == nil then partMaximum else Vector3.new(
+				math.max(maximum.X, partMaximum.X),
+				math.max(maximum.Y, partMaximum.Y),
+				math.max(maximum.Z, partMaximum.Z)
+			)
+		end
+	end
+
+	if minimum == nil or maximum == nil then
+		return nil
+	end
+
+	return {
+		MinX = minimum.X,
+		MaxX = maximum.X,
+		MinZ = minimum.Z,
+		MaxZ = maximum.Z,
+	}
 end
 
 local function isFarEnough(position, positions, minDistance)
@@ -166,7 +228,9 @@ function WorldSpawnService.GetPositionsFromFolder(folder)
 end
 
 function WorldSpawnService.FindSurfacePositionAtXZ(x, z, options)
-	local center = activeSurfaceCenter or options.Center or Vector3.new(0, 0, 0)
+	-- Les appels locaux, notamment autour du joueur, doivent dicter la hauteur du rayon.
+	-- Le centre global de la map peut etre remonte par ses murs et ne touche alors plus le sol.
+	local center = options.Center or activeSurfaceCenter or Vector3.new(0, 0, 0)
 	local raycastHeight = options.RaycastHeight or 240
 	local raycastDepth = options.RaycastDepth or 520
 	local rayOrigin = Vector3.new(x, center.Y + raycastHeight, z)
@@ -176,7 +240,9 @@ function WorldSpawnService.FindSurfacePositionAtXZ(x, z, options)
 	local includeInstances = options.IncludeInstances
 
 	if includeInstances == nil and activeSurfaceRoot ~= nil and activeSurfaceRoot.Parent ~= nil then
-		includeInstances = { activeSurfaceRoot }
+		-- Une map peut etre un modele clone alors que son sol est le Terrain global Roblox.
+		-- Les deux restent des surfaces autorisees pendant une run, sans inclure les runtimes.
+		includeInstances = { activeSurfaceRoot, Workspace.Terrain }
 	end
 
 	if includeInstances ~= nil and #includeInstances > 0 then
@@ -189,21 +255,56 @@ function WorldSpawnService.FindSurfacePositionAtXZ(x, z, options)
 
 	local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 
-	if not isSurfaceAllowed(result, options) then
-		return nil
+	if isSurfaceAllowed(result, options) then
+		return result.Position
 	end
 
-	return result.Position
+	-- Certaines maps gardent volontairement leur sol dans Workspace. Ce repli est
+	-- explicite afin de ne pas modifier le placement des autres interactables.
+	if options.AllowWorkspaceSurfaceFallback == true and includeInstances ~= nil then
+		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+		raycastParams.FilterDescendantsInstances = getDefaultExcludeInstances(options.ExcludeInstances)
+		local fallbackResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+
+		if isSurfaceAllowed(fallbackResult, options) then
+			return fallbackResult.Position
+		end
+	end
+
+	return nil
+end
+
+function WorldSpawnService.IsInsideActivePlayableBounds(position, edgeInset)
+	if activeSurfaceBounds == nil then
+		return true
+	end
+
+	local inset = math.max(0, edgeInset or 0)
+	local minimumX = activeSurfaceBounds.MinX + inset
+	local maximumX = activeSurfaceBounds.MaxX - inset
+	local minimumZ = activeSurfaceBounds.MinZ + inset
+	local maximumZ = activeSurfaceBounds.MaxZ - inset
+
+	if minimumX > maximumX or minimumZ > maximumZ then
+		return true
+	end
+
+	return position.X >= minimumX
+		and position.X <= maximumX
+		and position.Z >= minimumZ
+		and position.Z <= maximumZ
 end
 
 function WorldSpawnService.SetRunContext(surfaceRoot, seed, surfaceCenter)
 	activeSurfaceRoot = surfaceRoot
 	activeSurfaceCenter = surfaceCenter
+	activeSurfaceBounds = getBoundsForInstance(surfaceRoot)
 	rng = Random.new(math.floor(tonumber(seed) or 0))
 
 	DebugLog.Info("WorldSpawn", "Contexte de generation active", {
 		SurfaceRoot = surfaceRoot,
 		Center = surfaceCenter,
+		Bounds = activeSurfaceBounds,
 		Seed = seed,
 	})
 end
@@ -212,6 +313,7 @@ function WorldSpawnService.ClearRunContext(surfaceRoot)
 	if surfaceRoot == nil or activeSurfaceRoot == surfaceRoot then
 		activeSurfaceRoot = nil
 		activeSurfaceCenter = nil
+		activeSurfaceBounds = nil
 		rng = Random.new()
 	end
 end

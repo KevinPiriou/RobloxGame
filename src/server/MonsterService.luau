@@ -39,12 +39,28 @@ local nextRuntimeMonsterId = 0
 local monsterSpatialGrid = {}
 local killsByUserId = {}
 local lastSpawnAtByUserId = {}
+local lastRecycleCheckAtByUserId = {}
+local lastRecycleAtByUserId = {}
 local groundedSinceByUserId = {}
 local characterConnectionsByUserId = {}
 local healthConnectionsByUserId = {}
 local elitePacksById = {}
 local nextElitePackId = 0
 local difficultyPercent = 0
+
+local function createSpawnActivity()
+	return {
+		Batches = 0,
+		Requested = 0,
+		Spawned = 0,
+		Failed = 0,
+		Fallbacks = 0,
+		Recycled = 0,
+		RecycleCandidates = 0,
+	}
+end
+
+local spawnActivity = createSpawnActivity()
 
 local function createSimulationLodCounts(playerTargetCount)
 	return {
@@ -938,34 +954,98 @@ local function getClosestAlivePlayer(position, playerTargets)
 	return closestPlayer, closestRoot, closestDistance
 end
 
-local function getSpawnSurfacePositionNearPlayer(player)
+local function getPlayerForwardDirection(player, root)
+	local humanoid = getCharacterHumanoid(player)
+
+	if humanoid ~= nil then
+		local movementDirection = Vector3.new(humanoid.MoveDirection.X, 0, humanoid.MoveDirection.Z)
+
+		if movementDirection.Magnitude > 0.1 then
+			return movementDirection.Unit
+		end
+	end
+
+	local lookVector = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+
+	if lookVector.Magnitude > 0.1 then
+		return lookVector.Unit
+	end
+
+	return Vector3.new(0, 0, -1)
+end
+
+local function getDirectionInArc(forwardDirection, arcDegrees)
+	local arcRadians = math.rad(math.max(0, arcDegrees or 0))
+	local angle = rng:NextNumber(-arcRadians, arcRadians)
+	local sideDirection = Vector3.new(-forwardDirection.Z, 0, forwardDirection.X)
+
+	return ((forwardDirection * math.cos(angle)) + (sideDirection * math.sin(angle))).Unit
+end
+
+local function getSpawnSurfacePositionNearPlayer(player, options)
+	options = options or {}
+
 	local root = getCharacterRoot(player)
 
 	if root == nil then
 		return nil
 	end
 
-	local attempts = math.max(1, CombatConfig.MonsterSpawnSurfaceAttempts or 1)
+	local attempts = math.max(1, options.Attempts or CombatConfig.MonsterSpawnSurfaceAttempts or 1)
+	local minDistance = math.max(0, options.MinDistance or CombatConfig.MonsterMinSpawnDistance)
+	local maxDistance = math.max(minDistance, options.MaxDistance or CombatConfig.MonsterMaxSpawnDistance)
+	local forwardDirection = getPlayerForwardDirection(player, root)
+	local forwardBias = math.clamp(options.ForwardBias or CombatConfig.MonsterSpawnForwardBias or 0, 0, 1)
+	local shouldPreferForward = options.PreferForward == true
+	local forwardArcDegrees = options.ForwardArcDegrees or options.ArcDegrees or CombatConfig.MonsterSpawnForwardArcDegrees
 
-	for _ = 1, attempts do
-		local angle = rng:NextNumber(0, math.pi * 2)
-		local distance = rng:NextNumber(CombatConfig.MonsterMinSpawnDistance, CombatConfig.MonsterMaxSpawnDistance)
-		local horizontalOffset = Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
-		local rayOrigin = root.Position + horizontalOffset + Vector3.new(0, CombatConfig.MonsterGroundRaycastHeight, 0)
-		local rayDirection = Vector3.new(0, -CombatConfig.MonsterGroundRaycastDepth, 0)
-		local raycastParams = RaycastParams.new()
+	local function findSurfaceInRange(rangeMinDistance, rangeMaxDistance, rangeAttempts)
+		for _ = 1, rangeAttempts do
+			local useForwardDirection = shouldPreferForward or rng:NextNumber() <= forwardBias
+			local randomAngle = rng:NextNumber(0, math.pi * 2)
+			local direction = if useForwardDirection
+				then getDirectionInArc(forwardDirection, forwardArcDegrees)
+				else Vector3.new(math.cos(randomAngle), 0, math.sin(randomAngle))
+			local distance = rng:NextNumber(rangeMinDistance, rangeMaxDistance)
+			local samplePosition = root.Position + (direction * distance)
 
-		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-		raycastParams.FilterDescendantsInstances = { player.Character, runtimeFolder }
+			if not WorldSpawnService.IsInsideActivePlayableBounds(samplePosition, CombatConfig.MonsterSpawnMapEdgeInset) then
+				continue
+			end
 
-		local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+			local surfacePosition = WorldSpawnService.FindSurfacePositionAtXZ(samplePosition.X, samplePosition.Z, {
+				Center = root.Position,
+				RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
+				RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
+				MinSurfaceNormalY = 0.65,
+				ExcludeInstances = { player.Character, runtimeFolder },
+				AllowWorkspaceSurfaceFallback = true,
+			})
 
-		if result ~= nil then
-			return result.Position
+			if surfacePosition ~= nil then
+				return surfacePosition
+			end
 		end
+
+		return nil
 	end
 
-	return nil
+	local primarySurfacePosition = findSurfaceInRange(minDistance, maxDistance, attempts)
+
+	if primarySurfacePosition ~= nil then
+		return primarySurfacePosition, false
+	end
+
+	if options.AllowFallback == false then
+		return nil, false
+	end
+
+	local fallbackMinDistance = math.max(0, CombatConfig.MonsterSpawnFallbackMinDistance or 0)
+	local fallbackMaxDistance = math.max(fallbackMinDistance, CombatConfig.MonsterSpawnFallbackMaxDistance or fallbackMinDistance)
+	local fallbackAttempts = math.max(1, CombatConfig.MonsterSpawnFallbackAttempts or attempts)
+	local fallbackSurfacePosition = findSurfaceInRange(fallbackMinDistance, fallbackMaxDistance, fallbackAttempts)
+
+	return fallbackSurfacePosition, fallbackSurfacePosition ~= nil
 end
 
 local function getSurfacePivotPosition(monster, surfacePosition)
@@ -1045,13 +1125,16 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 		return false
 	end
 
-	local pivotRotation = WorldSpawnService.GetPivotRotation(monster)
-	local spawnPivotPosition = getSurfacePivotPosition(monster, surfacePosition)
+	-- Le pool conserve la derniere rotation runtime. Le template reste la source de verite
+	-- afin qu'un monstre reutilise ne cumule jamais son ancienne orientation.
+	local pivotRotation = WorldSpawnService.GetPivotRotation(template)
+	local spawnPivotPosition = getSurfacePivotPosition(template, surfacePosition)
 
-	pivotInstance(monster, WorldSpawnService.GetPivotCFrameAtPosition(monster, spawnPivotPosition))
+	pivotInstance(monster, WorldSpawnService.GetPivotCFrameAtPosition(template, spawnPivotPosition))
 
 	local monsterState = {
 		Instance = monster,
+		Template = template,
 		Humanoid = humanoid,
 		Root = root,
 		TemplateName = templateName,
@@ -1072,6 +1155,8 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 		AnimationTrack = playMonsterAnimation(monster),
 		AnimationTime = rng:NextNumber(0, 10),
 		LastDamageByUserId = {},
+		SpawnedAt = CombatStateService.GetTime(),
+		LastDamagedAt = CombatStateService.GetTime(),
 		LastLodUpdateAt = CombatStateService.GetTime(),
 		OriginalPartColors = captureOriginalPartColors(monster),
 		DamageFlashId = 0,
@@ -1098,7 +1183,7 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 	return true, monster, spawnPivotPosition, monsterState
 end
 
-local function spawnMonsterNearPlayer(player)
+local function spawnMonsterNearPlayer(player, spawnOptions)
 	if monsterTemplate == nil or not isPlayerAlive(player) then
 		DebugLog.ThrottledWarn("Combat", "mob_spawn_blocked_" .. player.UserId, 2, "Spawn mob bloque", {
 			Player = player.Name,
@@ -1108,7 +1193,7 @@ local function spawnMonsterNearPlayer(player)
 		return false
 	end
 
-	local spawnSurfacePosition = getSpawnSurfacePositionNearPlayer(player)
+	local spawnSurfacePosition, usedFallback = getSpawnSurfacePositionNearPlayer(player, spawnOptions)
 
 	if spawnSurfacePosition == nil then
 		DebugLog.ThrottledWarn("Combat", "mob_no_surface_" .. player.UserId, 2, "Aucune surface trouvee pour spawn mob", {
@@ -1116,9 +1201,13 @@ local function spawnMonsterNearPlayer(player)
 			Root = getCharacterRoot(player),
 			RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
 			RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
-			Attempts = CombatConfig.MonsterSpawnSurfaceAttempts,
+			Attempts = (spawnOptions and spawnOptions.Attempts) or CombatConfig.MonsterSpawnSurfaceAttempts,
 		})
 		return false
+	end
+
+	if usedFallback then
+		spawnActivity.Fallbacks += 1
 	end
 
 	local didSpawn, _, spawnPivotPosition = spawnMonsterAtSurface(spawnSurfacePosition, {
@@ -1339,20 +1428,158 @@ local function getLodStepDelta(monsterState, lod, now, frameDelta)
 	return elapsed
 end
 
+local function isMonsterAtFullHealth(monsterState)
+	if monsterState.Humanoid ~= nil then
+		return monsterState.Humanoid.Health >= monsterState.MaxHealth
+	end
+
+	return monsterState.Health >= monsterState.MaxHealth
+end
+
+local function getBehindMassCandidates(player, now)
+	local root = getCharacterRoot(player)
+
+	if root == nil then
+		return {}
+	end
+
+	local forwardDirection = getPlayerForwardDirection(player, root)
+	local minDistance = math.max(0, CombatConfig.MonsterRecycleMinBehindDistance or 0)
+	local maxDistance = math.max(minDistance, CombatConfig.MonsterRecycleMaxBehindDistance or minDistance)
+	local undamagedSeconds = math.max(0, CombatConfig.MonsterRecycleUndamagedSeconds or 0)
+	local behindDotThreshold = CombatConfig.MonsterRecycleBehindDotThreshold or -0.35
+	local candidates = {}
+
+	for _, monsterState in pairs(monstersByInstance) do
+		local monsterRoot = monsterState.Root
+
+		if
+			not monsterState.IsDead
+			and not monsterState.IsElite
+			and not monsterState.IsBoss
+			and monsterRoot ~= nil
+			and isMonsterAtFullHealth(monsterState)
+			and now - (monsterState.LastDamagedAt or monsterState.SpawnedAt or now) >= undamagedSeconds
+		then
+			local horizontalOffset = Vector3.new(
+				monsterRoot.Position.X - root.Position.X,
+				0,
+				monsterRoot.Position.Z - root.Position.Z
+			)
+			local distance = horizontalOffset.Magnitude
+
+			if distance >= minDistance and distance <= maxDistance then
+				local directionToMonster = horizontalOffset.Unit
+
+				if forwardDirection:Dot(directionToMonster) <= behindDotThreshold then
+					table.insert(candidates, {
+						State = monsterState,
+						Distance = distance,
+						BehindDot = forwardDirection:Dot(directionToMonster),
+					})
+				end
+			end
+		end
+	end
+
+	table.sort(candidates, function(a, b)
+		return a.Distance > b.Distance
+	end)
+
+	return candidates
+end
+
+local function recycleMonsterAhead(monsterState, surfacePosition, now)
+	local monster = monsterState.Instance
+	local template = monsterState.Template or monsterTemplate
+
+	if monster == nil or monster.Parent == nil or template == nil then
+		return false
+	end
+
+	local spawnPivotPosition = getSurfacePivotPosition(template, surfacePosition)
+
+	monsterState.BasePosition = spawnPivotPosition
+	monsterState.PivotRotation = WorldSpawnService.GetPivotRotation(template)
+	monsterState.LastDamagedAt = now
+	monsterState.LastRecycledAt = now
+	monsterState.LastLodUpdateAt = now
+	pivotInstance(monster, WorldSpawnService.GetPivotCFrameAtPosition(template, spawnPivotPosition))
+	updateMonsterSpatialCell(monsterState, spawnPivotPosition)
+
+	return true
+end
+
+local function tryRecycleBehindMass(player, now)
+	local userId = player.UserId
+	local checkInterval = math.max(0.1, CombatConfig.MonsterRecycleCheckInterval or 1.5)
+	local cooldown = math.max(0, CombatConfig.MonsterRecycleCooldown or 4)
+	local lastCheckAt = lastRecycleCheckAtByUserId[userId] or 0
+
+	if now - lastCheckAt < checkInterval then
+		return
+	end
+
+	lastRecycleCheckAtByUserId[userId] = now
+
+	if now - (lastRecycleAtByUserId[userId] or 0) < cooldown then
+		return
+	end
+
+	local candidates = getBehindMassCandidates(player, now)
+	local minimumCount = math.max(1, CombatConfig.MonsterRecycleMinimumBacklineCount or 1)
+
+	if #candidates < minimumCount then
+		return
+	end
+
+	spawnActivity.RecycleCandidates += #candidates
+
+	local maxToRecycle = math.min(#candidates, math.max(1, CombatConfig.MonsterRecycleBatchSize or 1))
+	local recycledCount = 0
+
+	for index = 1, maxToRecycle do
+		local surfacePosition = getSpawnSurfacePositionNearPlayer(player, {
+			PreferForward = true,
+			ForwardBias = 1,
+			MinDistance = CombatConfig.MonsterRecycleSpawnMinDistance,
+			MaxDistance = CombatConfig.MonsterRecycleSpawnMaxDistance,
+			ArcDegrees = CombatConfig.MonsterRecycleSpawnArcDegrees,
+			Attempts = CombatConfig.MonsterSpawnSurfaceAttempts,
+			AllowFallback = false,
+		})
+
+		if surfacePosition ~= nil and recycleMonsterAhead(candidates[index].State, surfacePosition, now) then
+			recycledCount += 1
+		end
+	end
+
+	if recycledCount <= 0 then
+		return
+	end
+
+	lastRecycleAtByUserId[userId] = now
+	spawnActivity.Recycled += recycledCount
+	DebugLog.ThrottledInfo("Combat", "rear_mass_recycled_" .. userId, cooldown, "Masse arriere recyclee devant le joueur", {
+		Player = player.Name,
+		Candidates = #candidates,
+		Recycled = recycledCount,
+		Wave = getCurrentWaveNumber(),
+	})
+end
+
 local function updateSpawns(now)
 	local maxAliveMonsters = getCurrentWaveMaxAlive()
 	local aliveMonsterCount = getAliveMonsterCount()
 
-	if aliveMonsterCount >= maxAliveMonsters then
-		return
-	end
-
 	for _, player in ipairs(Players:GetPlayers()) do
-		if aliveMonsterCount >= maxAliveMonsters then
-			return
-		end
-
 		if isPlayerAlive(player) and hasPlayerBeenGroundedLongEnough(player, now) then
+			tryRecycleBehindMass(player, now)
+
+			if aliveMonsterCount >= maxAliveMonsters then
+				continue
+			end
+
 			local lastSpawnAt = lastSpawnAtByUserId[player.UserId] or 0
 			local spawnInterval = getCurrentSpawnInterval()
 
@@ -1363,14 +1590,19 @@ local function updateSpawns(now)
 					1,
 					math.floor(getCurrentWaveSpawnBatch() * PerkService.GetEnemyCountMultiplier(player))
 				)
+				spawnActivity.Batches += 1
+				spawnActivity.Requested += spawnBatch
 
 				for _ = 1, spawnBatch do
 					if aliveMonsterCount >= maxAliveMonsters then
-						return
+						break
 					end
 
 					if spawnMonsterNearPlayer(player) then
 						aliveMonsterCount += 1
+						spawnActivity.Spawned += 1
+					else
+						spawnActivity.Failed += 1
 					end
 				end
 			end
@@ -1468,11 +1700,19 @@ local function updateMonsterStep(deltaTime)
 			LodPlayerTargets = lastSimulationLodCounts.PlayerTargets,
 			AverageTickMs = averageTickMs,
 			MaxTickMs = monsterTickMaxSeconds * 1000,
+			SpawnBatches = spawnActivity.Batches,
+			SpawnRequested = spawnActivity.Requested,
+			Spawned = spawnActivity.Spawned,
+			SpawnFailed = spawnActivity.Failed,
+			SpawnFallbacks = spawnActivity.Fallbacks,
+			Recycled = spawnActivity.Recycled,
+			RecycleCandidates = spawnActivity.RecycleCandidates,
 		})
 		elapsedSincePerfLog = 0
 		monsterTickTimeTotal = 0
 		monsterTickSampleCount = 0
 		monsterTickMaxSeconds = 0
+		spawnActivity = createSpawnActivity()
 	end
 end
 
@@ -1534,6 +1774,8 @@ function MonsterService.SetupPlayer(player)
 	killsByUserId[player.UserId] = killsByUserId[player.UserId] or 0
 	groundedSinceByUserId[player.UserId] = nil
 	lastSpawnAtByUserId[player.UserId] = os.clock() + CombatConfig.MonsterInitialSpawnDelay - CombatConfig.MonsterSpawnInterval
+	lastRecycleCheckAtByUserId[player.UserId] = nil
+	lastRecycleAtByUserId[player.UserId] = nil
 
 	if characterConnectionsByUserId[player.UserId] ~= nil then
 		characterConnectionsByUserId[player.UserId]:Disconnect()
@@ -1556,6 +1798,8 @@ function MonsterService.RemovePlayer(player)
 	lastSpawnAtByUserId[player.UserId] = nil
 	killsByUserId[player.UserId] = nil
 	groundedSinceByUserId[player.UserId] = nil
+	lastRecycleCheckAtByUserId[player.UserId] = nil
+	lastRecycleAtByUserId[player.UserId] = nil
 
 	if characterConnectionsByUserId[player.UserId] ~= nil then
 		characterConnectionsByUserId[player.UserId]:Disconnect()
@@ -2072,6 +2316,10 @@ function MonsterService.DamageMonster(monster, damage, attacker, options)
 
 		local damageDealt = math.max(0, previousHealth - monsterState.Humanoid.Health)
 
+		if damageDealt > 0 then
+			monsterState.LastDamagedAt = CombatStateService.GetTime()
+		end
+
 		if monsterState.OnHealthChanged ~= nil then
 			task.defer(monsterState.OnHealthChanged, monsterState.Instance, math.max(0, monsterState.Humanoid.Health), monsterState.MaxHealth)
 		end
@@ -2089,6 +2337,10 @@ function MonsterService.DamageMonster(monster, damage, attacker, options)
 	monsterState.Instance:SetAttribute("MonsterHealth", monsterState.Health)
 
 	local damageDealt = math.max(0, math.min(previousHealth, damage))
+
+	if damageDealt > 0 then
+		monsterState.LastDamagedAt = CombatStateService.GetTime()
+	end
 
 	if monsterState.OnHealthChanged ~= nil then
 		task.defer(monsterState.OnHealthChanged, monsterState.Instance, math.max(0, monsterState.Health), monsterState.MaxHealth)
@@ -2122,6 +2374,9 @@ function MonsterService.Start()
 		killsByUserId[player.UserId] = 0
 		difficultyPercent = 0
 		lastSpawnAtByUserId[player.UserId] = now + CombatConfig.MonsterInitialSpawnDelay - CombatConfig.MonsterSpawnInterval
+		lastRecycleCheckAtByUserId[player.UserId] = nil
+		lastRecycleAtByUserId[player.UserId] = nil
+		spawnActivity = createSpawnActivity()
 		sendStats(player)
 		DebugLog.Info("Combat", "Combat run demarre pour joueur", {
 			Player = player.Name,
@@ -2133,12 +2388,15 @@ function MonsterService.Start()
 	RunStateService.RunEnded:Connect(function(player, reason)
 		groundedSinceByUserId[player.UserId] = nil
 		lastSpawnAtByUserId[player.UserId] = nil
+		lastRecycleCheckAtByUserId[player.UserId] = nil
+		lastRecycleAtByUserId[player.UserId] = nil
 		simulationAccumulator = 0
 		monsterTickTimeTotal = 0
 		monsterTickSampleCount = 0
 		monsterTickMaxSeconds = 0
 		elapsedSincePerfLog = 0
 		lastSimulationLodCounts = createSimulationLodCounts()
+		spawnActivity = createSpawnActivity()
 		MonsterService.ClearAllMonsters(reason)
 		sendStats(player)
 		DebugLog.Info("Combat", "Combat run arrete pour joueur", {
