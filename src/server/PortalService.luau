@@ -6,6 +6,8 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local PortalConfig = require(Shared:WaitForChild("PortalConfig"))
 
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
+local ProceduralMapService = require(script.Parent:WaitForChild("ProceduralMapService"))
+local RunMapService = require(script.Parent:WaitForChild("RunMapService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
 local BossService = require(script.Parent:WaitForChild("BossService"))
 local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
@@ -136,12 +138,87 @@ local function pivotInstance(instance, cframe)
 	end
 end
 
-local function spawnPortalAtSurface(surfacePosition)
+local function clonePortalRuntimeModel()
 	if portalTemplate == nil then
 		return nil
 	end
 
 	local portal = portalTemplate:Clone()
+
+	if portal:IsA("Folder") then
+		-- Certains assets de portail arrivent comme Folder. Un Model est requis
+		-- pour disposer d'un pivot et garantir une pose correcte sur la surface.
+		local model = Instance.new("Model")
+
+		for _, child in ipairs(portal:GetChildren()) do
+			child.Parent = model
+		end
+
+		portal:Destroy()
+		portal = model
+	end
+
+	return portal
+end
+
+local function getLowestWorldY(part)
+	local halfSize = part.Size * 0.5
+	local lowestY = math.huge
+
+	for _, xSign in ipairs({ -1, 1 }) do
+		for _, ySign in ipairs({ -1, 1 }) do
+			for _, zSign in ipairs({ -1, 1 }) do
+				local corner = part.CFrame:PointToWorldSpace(Vector3.new(
+					halfSize.X * xSign,
+					halfSize.Y * ySign,
+					halfSize.Z * zSign
+				))
+				lowestY = math.min(lowestY, corner.Y)
+			end
+		end
+	end
+
+	return lowestY
+end
+
+local function correctPortalGrounding(portal, surfacePosition)
+	if not portal:IsA("Model") then
+		return 0
+	end
+
+	local lowestY = nil
+
+	for _, descendant in ipairs(portal:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local partLowestY = getLowestWorldY(descendant)
+			lowestY = if lowestY == nil then partLowestY else math.min(lowestY, partLowestY)
+		end
+	end
+
+	if lowestY == nil then
+		return 0
+	end
+
+	local correction = (surfacePosition.Y + PortalConfig.SpawnSurfaceOffset) - lowestY
+
+	if math.abs(correction) > 0.001 then
+		portal:PivotTo(portal:GetPivot() + Vector3.new(0, correction, 0))
+	end
+
+	return correction
+end
+
+local function spawnPortalAtSurface(surfacePosition)
+	if portalTemplate == nil then
+		return nil
+	end
+
+	local portal = clonePortalRuntimeModel()
+
+	if portal == nil then
+		return nil
+	end
+
 	portal.Name = PortalConfig.PortalTemplateName
 	portal.Parent = runtimeFolder
 	preparePortalInstance(portal)
@@ -153,6 +230,7 @@ local function spawnPortalAtSurface(surfacePosition)
 	)
 
 	pivotInstance(portal, WorldSpawnService.GetPivotCFrameAtPosition(portal, pivotPosition))
+	local groundingCorrection = correctPortalGrounding(portal, surfacePosition)
 	setupPortalPrompt(portal)
 	spawnedPortalCount += 1
 
@@ -160,13 +238,14 @@ local function spawnPortalAtSurface(surfacePosition)
 		Portal = portal,
 		SurfacePosition = surfacePosition,
 		PivotPosition = pivotPosition,
+		GroundingCorrection = groundingCorrection,
 		SpawnedCount = spawnedPortalCount,
 	})
 
 	return portal
 end
 
-local function spawnInitialPortal()
+local function spawnInitialPortal(generationOptions)
 	if portalTemplate == nil then
 		DebugLog.Warn("Portal", "Generation portail boss impossible, template absent")
 		return
@@ -181,27 +260,51 @@ local function spawnInitialPortal()
 		MaxRadius = PortalConfig.SpawnWorldMaxRadius,
 	})
 
-	local surfacePositions = WorldSpawnService.FindDistributedSurfacePositions({
-		Count = PortalConfig.InitialSpawnCount - spawnedPortalCount,
-		Center = PortalConfig.SpawnWorldCenter,
-		MinRadius = PortalConfig.SpawnWorldMinRadius,
-		MaxRadius = PortalConfig.SpawnWorldMaxRadius,
-		MinDistance = PortalConfig.SpawnWorldMinObjectDistance,
-		AttemptsPerPoint = PortalConfig.SpawnWorldAttemptsPerPortal,
-		JitterRadius = PortalConfig.SpawnWorldJitterRadius,
-		RaycastHeight = PortalConfig.SpawnRaycastHeight,
-		RaycastDepth = PortalConfig.SpawnRaycastDepth,
-		RejectedSurfaceNameContains = PortalConfig.RejectedSurfaceNameContains,
-		LogCategory = "Portal",
-		LogLabel = "portail boss",
-	})
+	local function findPortalSurface(clearance)
+		return WorldSpawnService.FindSurfacePositionInPlayableBounds({
+			MinRadius = PortalConfig.SpawnWorldMinRadius,
+			MaxRadius = PortalConfig.SpawnWorldMaxRadius,
+			EdgeInset = PortalConfig.SpawnWorldEdgeInset,
+			Attempts = PortalConfig.SpawnWorldAttemptsPerPortal,
+			RaycastHeight = PortalConfig.SpawnRaycastHeight,
+			RaycastDepth = PortalConfig.SpawnRaycastDepth,
+			RejectGeneratedTerrain = PortalConfig.RejectGeneratedTerrain,
+			RejectedSurfaceNameContains = PortalConfig.RejectedSurfaceNameContains,
+			PositionFilter = function(position, surfaceInstance)
+				return ProceduralMapService.IsAreaClear(RunMapService.GetActiveMap(), position, clearance, {
+					AllowSupportingTerrain = surfaceInstance ~= nil,
+				})
+			end,
+		})
+	end
 
-	for _, surfacePosition in ipairs(surfacePositions) do
-		if spawnedPortalCount >= PortalConfig.InitialSpawnCount then
+	while spawnedPortalCount < PortalConfig.InitialSpawnCount do
+		local surfacePosition = findPortalSurface(PortalConfig.GeneratedTerrainClearance)
+
+		if surfacePosition == nil then
+			surfacePosition = findPortalSurface(PortalConfig.GeneratedTerrainFallbackClearance)
+
+			if surfacePosition ~= nil then
+				DebugLog.Warn("Portal", "Portail place avec marge terrain reduite", {
+					Clearance = PortalConfig.GeneratedTerrainFallbackClearance,
+				})
+			end
+		end
+
+		if surfacePosition == nil then
+			DebugLog.Warn("Portal", "Aucune zone sure trouvee pour le portail", {
+				Attempts = PortalConfig.SpawnWorldAttemptsPerPortal * 2,
+				MinRadius = PortalConfig.SpawnWorldMinRadius,
+				MaxRadius = PortalConfig.SpawnWorldMaxRadius,
+			})
 			break
 		end
 
 		spawnPortalAtSurface(surfacePosition)
+	end
+
+	if generationOptions ~= nil and generationOptions.OnBatch ~= nil then
+		generationOptions.OnBatch(spawnedPortalCount, PortalConfig.InitialSpawnCount)
 	end
 
 	DebugLog.Info("Portal", "Generation portail boss terminee", {
@@ -220,9 +323,9 @@ function PortalService.ClearRunContent()
 	spawnedPortalCount = 0
 end
 
-function PortalService.GenerateForRun()
+function PortalService.GenerateForRun(_, generationOptions)
 	PortalService.ClearRunContent()
-	spawnInitialPortal()
+	spawnInitialPortal(generationOptions)
 	return spawnedPortalCount
 end
 

@@ -10,6 +10,7 @@ local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
 local JarConfig = require(Shared:WaitForChild("JarConfig"))
+local LobbyConfig = require(Shared:WaitForChild("LobbyConfig"))
 local PortalConfig = require(Shared:WaitForChild("PortalConfig"))
 local ShrineConfig = require(Shared:WaitForChild("ShrineConfig"))
 local TotemConfig = require(Shared:WaitForChild("TotemConfig"))
@@ -22,6 +23,7 @@ local SERVER_TEMPLATE_FOLDERS = {
 	ShrineConfig.TemplateFolderName,
 	PortalConfig.TemplateFolderName,
 	JarConfig.TemplateFolderName,
+	LobbyConfig.TemplateFolderName,
 	ChapterConfig.TemplateFolderName,
 	ChestConfig.TemplateFolderName,
 	TotemConfig.TemplateFolderName,

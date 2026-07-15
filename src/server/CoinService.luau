@@ -47,6 +47,7 @@ end
 
 local updateCoinsRemote = getOrCreateRemote("Coin_UpdateCount")
 local collectCoinRemote = getOrCreateRemote("Coin_PlayCollect")
+local pickupFeedbackRemote = getOrCreateRemote("PickupFeedback_Show")
 
 local function getOrCreateFolder(parent, folderName)
 	local folder = parent:FindFirstChild(folderName)
@@ -381,12 +382,13 @@ local function awardCoin(player, coinValue)
 	profile.Coins += finalCoinValue
 	RunAnalyticsService.RecordCoinsEarned(player, finalCoinValue)
 	sendCoinCount(player)
-	saveProfile(player, true)
 	DebugLog.ThrottledInfo("Coin", "coin_award_" .. player.UserId, 0.5, "Coin attribue", {
 		Player = player.Name,
 		Coins = profile.Coins,
 		Value = finalCoinValue,
 	})
+
+	return finalCoinValue
 end
 
 local function finishCoinCollection(player, coin, coinState, attractDuration)
@@ -397,6 +399,8 @@ local function finishCoinCollection(player, coin, coinState, attractDuration)
 		return
 	end
 
+	local arrivalTime = Workspace:GetServerTimeNow() + math.max(0, attractDuration)
+
 	collectCoinRemote:FireAllClients(coin, player.UserId, attractDuration)
 	DebugLog.ThrottledInfo("Coin", "coin_collect_" .. player.UserId, 0.5, "Coin collecte", {
 		Player = player.Name,
@@ -406,7 +410,16 @@ local function finishCoinCollection(player, coin, coinState, attractDuration)
 	})
 
 	task.spawn(function()
-		awardCoin(player, coinState.CoinValue or GameConfig.CoinsPerPickup)
+		local finalCoinValue = awardCoin(player, coinState.CoinValue or GameConfig.CoinsPerPickup)
+
+		pickupFeedbackRemote:FireClient(player, {
+			Kind = "Coin",
+			Amount = finalCoinValue,
+			ArrivalTime = arrivalTime,
+		})
+
+		-- La persistance ne doit pas retarder le retour visuel de la collecte.
+		saveProfile(player, true)
 	end)
 
 	task.delay(attractDuration + 0.1, function()

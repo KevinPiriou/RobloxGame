@@ -17,6 +17,7 @@ return {
 	SpawnWorldMinObjectDistance = 16,
 	SpawnWorldAttemptsPerChest = 28,
 	SpawnWorldJitterRadius = 18,
+	SpawnWorldEdgeInset = 14,
 	SpawnRaycastHeight = 240,
 	SpawnRaycastDepth = 520,
 	SpawnSurfaceOffset = 0,

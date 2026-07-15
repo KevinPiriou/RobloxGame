@@ -62,6 +62,26 @@ local function isNameRejected(instance, rejectedNameContains)
 	return false
 end
 
+local function getInheritedAttribute(instance, attributeName)
+	local current = instance
+
+	while current ~= nil and current ~= Workspace do
+		local value = current:GetAttribute(attributeName)
+
+		if value ~= nil then
+			return value
+		end
+
+		current = current.Parent
+	end
+
+	return nil
+end
+
+local function hasIgnoredSurfaceAttribute(instance)
+	return getInheritedAttribute(instance, "MegaRobloxIgnoreAsSpawnSurface") == true
+end
+
 local function isSurfaceAllowed(result, options)
 	if result == nil then
 		return false
@@ -70,6 +90,27 @@ local function isSurfaceAllowed(result, options)
 	local minSurfaceNormalY = options.MinSurfaceNormalY or 0.65
 
 	if result.Normal.Y < minSurfaceNormalY then
+		return false
+	end
+
+	if hasIgnoredSurfaceAttribute(result.Instance) then
+		return false
+	end
+
+	local isGeneratedTerrain = getInheritedAttribute(result.Instance, "MegaRobloxGeneratedTerrain") == true
+	local terrainKind = getInheritedAttribute(result.Instance, "MegaRobloxTerrainKind")
+
+	if options.RejectGeneratedTerrain == true and isGeneratedTerrain then
+		return false
+	end
+
+	-- Les volumes de terre ne sont jamais des sols de spawn. Les rampes restent
+	-- praticables pour les monstres en mouvement, mais pas pour les objets fixes.
+	if terrainKind == "Bottom" or terrainKind == "LinkBottom" or terrainKind == "BaseBottom" then
+		return false
+	end
+
+	if terrainKind == "Ramp" and options.AllowGeneratedRampSurface ~= true then
 		return false
 	end
 
@@ -105,6 +146,34 @@ local function getBoundsForInstance(instance)
 	end
 
 	if instance:IsA("Model") then
+		-- Une map contient souvent des murs ou limites plus grands que sa base
+		-- jouable. La plus grande surface horizontale est donc la reference utile
+		-- pour tous les placements runtime.
+		local largestSurfacePart = nil
+		local largestSurfaceArea = 0
+
+		for _, descendant in ipairs(instance:GetDescendants()) do
+			if descendant:IsA("BasePart") and descendant.CFrame.UpVector.Y >= 0.98 then
+				local horizontalArea = descendant.Size.X * descendant.Size.Z
+
+				if horizontalArea > largestSurfaceArea then
+					largestSurfaceArea = horizontalArea
+					largestSurfacePart = descendant
+				end
+			end
+		end
+
+		if largestSurfacePart ~= nil then
+			local halfSize = largestSurfacePart.Size * 0.5
+
+			return {
+				MinX = largestSurfacePart.Position.X - halfSize.X,
+				MaxX = largestSurfacePart.Position.X + halfSize.X,
+				MinZ = largestSurfacePart.Position.Z - halfSize.Z,
+				MaxZ = largestSurfacePart.Position.Z + halfSize.Z,
+			}
+		end
+
 		local boundingCFrame, size = instance:GetBoundingBox()
 		local halfSize = size * 0.5
 
@@ -256,7 +325,7 @@ function WorldSpawnService.FindSurfacePositionAtXZ(x, z, options)
 	local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 
 	if isSurfaceAllowed(result, options) then
-		return result.Position
+		return result.Position, result.Instance
 	end
 
 	-- Certaines maps gardent volontairement leur sol dans Workspace. Ce repli est
@@ -267,7 +336,7 @@ function WorldSpawnService.FindSurfacePositionAtXZ(x, z, options)
 		local fallbackResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 
 		if isSurfaceAllowed(fallbackResult, options) then
-			return fallbackResult.Position
+			return fallbackResult.Position, fallbackResult.Instance
 		end
 	end
 
@@ -293,6 +362,49 @@ function WorldSpawnService.IsInsideActivePlayableBounds(position, edgeInset)
 		and position.X <= maximumX
 		and position.Z >= minimumZ
 		and position.Z <= maximumZ
+end
+
+function WorldSpawnService.GetActivePlayableBounds()
+	return activeSurfaceBounds
+end
+
+function WorldSpawnService.FindSurfacePositionInPlayableBounds(options)
+	if activeSurfaceBounds == nil then
+		return nil
+	end
+
+	local edgeInset = math.max(0, options.EdgeInset or 0)
+	local minimumX = activeSurfaceBounds.MinX + edgeInset
+	local maximumX = activeSurfaceBounds.MaxX - edgeInset
+	local minimumZ = activeSurfaceBounds.MinZ + edgeInset
+	local maximumZ = activeSurfaceBounds.MaxZ - edgeInset
+
+	if minimumX >= maximumX or minimumZ >= maximumZ then
+		return nil
+	end
+
+	local center = options.Center or activeSurfaceCenter or Vector3.new(0, 0, 0)
+	local minRadius = math.max(0, options.MinRadius or 0)
+	local maxRadius = math.max(minRadius, options.MaxRadius or math.huge)
+	local attempts = math.max(1, options.Attempts or 48)
+
+	for _ = 1, attempts do
+		local sampleX = rng:NextNumber(minimumX, maximumX)
+		local sampleZ = rng:NextNumber(minimumZ, maximumZ)
+		local horizontalDistance = getHorizontalDistance(Vector3.new(sampleX, 0, sampleZ), center)
+
+		if horizontalDistance < minRadius or horizontalDistance > maxRadius then
+			continue
+		end
+
+		local surfacePosition, surfaceInstance = WorldSpawnService.FindSurfacePositionAtXZ(sampleX, sampleZ, options)
+
+		if surfacePosition ~= nil and (options.PositionFilter == nil or options.PositionFilter(surfacePosition, surfaceInstance) == true) then
+			return surfacePosition, surfaceInstance
+		end
+	end
+
+	return nil
 end
 
 function WorldSpawnService.SetRunContext(surfaceRoot, seed, surfaceCenter)
@@ -330,6 +442,27 @@ function WorldSpawnService.FindDistributedSurfacePositions(options)
 	local logLabel = options.LogLabel or "objets"
 	local positions = {}
 	local occupiedPositions = {}
+	local usePlayableBounds = options.UsePlayableBounds == true and activeSurfaceBounds ~= nil
+	local edgeInset = math.max(0, options.EdgeInset or 12)
+	local minimumX = nil
+	local maximumX = nil
+	local minimumZ = nil
+	local maximumZ = nil
+
+	if usePlayableBounds then
+		minimumX = activeSurfaceBounds.MinX + edgeInset
+		maximumX = activeSurfaceBounds.MaxX - edgeInset
+		minimumZ = activeSurfaceBounds.MinZ + edgeInset
+		maximumZ = activeSurfaceBounds.MaxZ - edgeInset
+
+		if minimumX >= maximumX or minimumZ >= maximumZ then
+			DebugLog.Warn(logCategory, "Surface jouable trop etroite pour le placement", {
+				Type = logLabel,
+				EdgeInset = edgeInset,
+			})
+			return positions
+		end
+	end
 
 	for _, position in ipairs(options.OccupiedPositions or {}) do
 		table.insert(occupiedPositions, position)
@@ -342,16 +475,32 @@ function WorldSpawnService.FindDistributedSurfacePositions(options)
 		local baseAngle = index * GOLDEN_ANGLE
 
 		for _ = 1, attemptsPerPoint do
-			local jitterAngle = rng:NextNumber(0, math.pi * 2)
-			local jitterDistance = rng:NextNumber(0, jitterRadius)
-			local angle = baseAngle + rng:NextNumber(-0.22, 0.22)
-			local sampleX = center.X + (math.cos(angle) * baseRadius) + (math.cos(jitterAngle) * jitterDistance)
-			local sampleZ = center.Z + (math.sin(angle) * baseRadius) + (math.sin(jitterAngle) * jitterDistance)
+			local sampleX = nil
+			local sampleZ = nil
+
+			if usePlayableBounds then
+				-- Les objets fixes couvrent la base rectangulaire, y compris ses coins.
+				sampleX = rng:NextNumber(minimumX, maximumX)
+				sampleZ = rng:NextNumber(minimumZ, maximumZ)
+			else
+				local jitterAngle = rng:NextNumber(0, math.pi * 2)
+				local jitterDistance = rng:NextNumber(0, jitterRadius)
+				local angle = baseAngle + rng:NextNumber(-0.22, 0.22)
+				sampleX = center.X + (math.cos(angle) * baseRadius) + (math.cos(jitterAngle) * jitterDistance)
+				sampleZ = center.Z + (math.sin(angle) * baseRadius) + (math.sin(jitterAngle) * jitterDistance)
+			end
+
+			if usePlayableBounds
+				and getHorizontalDistance(Vector3.new(sampleX, 0, sampleZ), center) < minRadius
+			then
+				continue
+			end
 			local surfacePosition = WorldSpawnService.FindSurfacePositionAtXZ(sampleX, sampleZ, options)
 
 			if surfacePosition ~= nil
 				and isFarEnough(surfacePosition, occupiedPositions, minDistance)
 				and isFarEnough(surfacePosition, positions, minDistance)
+				and (options.PositionFilter == nil or options.PositionFilter(surfacePosition) == true)
 			then
 				acceptedPosition = surfacePosition
 				break
@@ -370,6 +519,8 @@ function WorldSpawnService.FindDistributedSurfacePositions(options)
 			Placed = #positions,
 			MinDistance = minDistance,
 			MaxRadius = maxRadius,
+			UsePlayableBounds = usePlayableBounds,
+			EdgeInset = if usePlayableBounds then edgeInset else nil,
 		})
 	else
 		DebugLog.Info(logCategory, "Placement surface pret", {
@@ -381,6 +532,38 @@ function WorldSpawnService.FindDistributedSurfacePositions(options)
 	end
 
 	return positions
+end
+
+function WorldSpawnService.FindGeneratedTerrainBarrier(origin, direction, distance, options)
+	if activeSurfaceRoot == nil or activeSurfaceRoot.Parent == nil then
+		return nil
+	end
+
+	local horizontalDirection = Vector3.new(direction.X, 0, direction.Z)
+
+	if horizontalDirection.Magnitude <= 0.001 or distance <= 0 then
+		return nil
+	end
+
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Include
+	raycastParams.FilterDescendantsInstances = { activeSurfaceRoot }
+
+	local rayHeight = if options ~= nil and options.Height ~= nil then options.Height else 2
+	local rayOrigin = origin + Vector3.new(0, rayHeight, 0)
+	local result = Workspace:Raycast(rayOrigin, horizontalDirection.Unit * distance, raycastParams)
+
+	if result == nil then
+		return nil
+	end
+
+	local terrainKind = getInheritedAttribute(result.Instance, "MegaRobloxTerrainKind")
+
+	if terrainKind == "Bottom" or terrainKind == "LinkBottom" or terrainKind == "BaseBottom" then
+		return result
+	end
+
+	return nil
 end
 
 function WorldSpawnService.GetSurfacePivotPosition(instance, surfacePosition, surfaceOffset, shouldIgnorePart)

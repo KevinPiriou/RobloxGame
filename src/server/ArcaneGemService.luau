@@ -5,12 +5,29 @@ local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local PickupFeedbackConfig = require(Shared:WaitForChild("PickupFeedbackConfig"))
 local ProgressionConfig = require(Shared:WaitForChild("ProgressionConfig"))
 
 local ArcaneGemService = {}
 
 local progressionDataStore = DataStoreService:GetDataStore(ProgressionConfig.DataStoreName)
 local profilesByUserId = {}
+
+local function getOrCreateRemote(remoteName)
+	local remote = ReplicatedStorage:FindFirstChild(remoteName)
+
+	if remote == nil then
+		remote = Instance.new("RemoteEvent")
+		remote.Name = remoteName
+		remote.Parent = ReplicatedStorage
+	end
+
+	assert(remote:IsA("RemoteEvent"), remoteName .. " doit etre un RemoteEvent.")
+
+	return remote
+end
+
+local pickupFeedbackRemote = getOrCreateRemote(PickupFeedbackConfig.RemoteName)
 
 local function sanitizeAmount(value)
 	return math.max(0, math.floor(tonumber(value) or 0))
@@ -96,7 +113,7 @@ function ArcaneGemService.GetArcaneGems(player)
 	return getOrCreateProfile(player).Data.ArcaneGems
 end
 
-function ArcaneGemService.AwardArcaneGems(player, amount, source)
+function ArcaneGemService.AwardArcaneGems(player, amount, source, showFeedback)
 	if player == nil or player.Parent ~= Players then
 		return false, "InvalidPlayer"
 	end
@@ -115,6 +132,13 @@ function ArcaneGemService.AwardArcaneGems(player, amount, source)
 	profile.Data.ArcaneGems += sanitizedAmount
 	profile.Dirty = true
 	publishProfile(player, profile)
+
+	if showFeedback == true then
+		pickupFeedbackRemote:FireClient(player, {
+			Kind = "ArcaneGem",
+			Amount = sanitizedAmount,
+		})
+	end
 
 	DebugLog.Info("Progression", "Gemmes arcaniques attribuees", {
 		Player = player.Name,

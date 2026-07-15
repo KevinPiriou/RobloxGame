@@ -447,7 +447,7 @@ local function spawnJarAtSurface(surfacePosition)
 	return jar
 end
 
-local function spawnInitialJars()
+local function spawnInitialJars(generationOptions)
 	if jarTemplate == nil then
 		DebugLog.Warn("Jar", "Generation jarres impossible, template absent")
 		return
@@ -477,6 +477,8 @@ local function spawnInitialJars()
 		MinDistance = JarConfig.SpawnWorldMinObjectDistance,
 		AttemptsPerPoint = JarConfig.SpawnWorldAttemptsPerJar,
 		JitterRadius = JarConfig.SpawnWorldJitterRadius,
+		UsePlayableBounds = true,
+		EdgeInset = JarConfig.SpawnWorldEdgeInset,
 		RaycastHeight = JarConfig.SpawnRaycastHeight,
 		RaycastDepth = JarConfig.SpawnRaycastDepth,
 		RejectedSurfaceNameContains = JarConfig.RejectedSurfaceNameContains,
@@ -484,13 +486,25 @@ local function spawnInitialJars()
 		LogCategory = "Jar",
 		LogLabel = "jarres",
 	})
+	local batchSize = math.max(1, math.floor(tonumber(generationOptions and generationOptions.BatchSize) or #surfacePositions))
 
-	for _, surfacePosition in ipairs(surfacePositions) do
+	for index, surfacePosition in ipairs(surfacePositions) do
 		if spawnedJarCount >= JarConfig.InitialSpawnCount then
 			break
 		end
 
 		spawnJarAtSurface(surfacePosition)
+
+		if generationOptions ~= nil and index % batchSize == 0 and index < #surfacePositions then
+			if generationOptions.OnBatch ~= nil then
+				generationOptions.OnBatch(spawnedJarCount, JarConfig.InitialSpawnCount)
+			end
+			task.wait()
+		end
+	end
+
+	if generationOptions ~= nil and generationOptions.OnBatch ~= nil then
+		generationOptions.OnBatch(spawnedJarCount, JarConfig.InitialSpawnCount)
 	end
 
 	DebugLog.Info("Jar", "Generation jarres initiale terminee", {
@@ -510,10 +524,10 @@ function JarService.ClearRunContent()
 	spawnedJarCount = 0
 end
 
-function JarService.GenerateForRun(session)
+function JarService.GenerateForRun(session, generationOptions)
 	rng = Random.new((math.floor(tonumber(session and session.Seed) or 0) + 401) % 2147483647)
 	JarService.ClearRunContent()
-	spawnInitialJars()
+	spawnInitialJars(generationOptions)
 	return spawnedJarCount
 end
 

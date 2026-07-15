@@ -5,6 +5,7 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local MetaProgressionService = require(script.Parent:WaitForChild("MetaProgressionService"))
+local RunScoreService = require(script.Parent:WaitForChild("RunScoreService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 
 local RunAnalyticsService = {}
@@ -339,6 +340,7 @@ function RunAnalyticsService.BuildRunResult(player, reason, snapshot)
 				counters.MaxDifficultyPercent,
 				math.max(0, math.floor(tonumber(snapshot.DifficultyPercent) or 0))
 			),
+			RunScore = RunScoreService.GetScore(player),
 		},
 		CombatStats = {
 			Kills = counters.Kills,

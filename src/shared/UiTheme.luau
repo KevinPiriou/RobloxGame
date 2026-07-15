@@ -28,8 +28,11 @@ UiTheme.Colors = {
 	Shield = Color3.fromRGB(25, 255, 218),
 	ShieldDark = Color3.fromRGB(0, 104, 156),
 	Arcane = Color3.fromRGB(149, 222, 255),
+	RunScore = Color3.fromRGB(141, 232, 255),
 	Kills = Color3.fromRGB(255, 43, 57),
 	Gold = Color3.fromRGB(255, 202, 48),
+	Critical = Color3.fromRGB(255, 151, 70),
+	Poison = Color3.fromRGB(129, 228, 116),
 	Green = Color3.fromRGB(105, 245, 100),
 	Xp = Color3.fromRGB(190, 86, 255),
 	XpDark = Color3.fromRGB(82, 35, 210),
@@ -59,6 +62,8 @@ UiTheme.Icons = {
 	Play = "rbxassetid://111726051060051",
 	Health = "rbxassetid://107129416801939",
 	Shield = "rbxassetid://125061574107320",
+	-- L'icone finale est remplacee apres import Roblox. Le HUD dessine un fallback temporaire.
+	RunScore = "",
 }
 
 UiTheme.Rarities = {
@@ -81,6 +86,7 @@ UiTheme.Contexts = {
 		Shield = Color3.fromRGB(25, 255, 218),
 		ShieldDark = Color3.fromRGB(0, 104, 156),
 		Arcane = Color3.fromRGB(149, 222, 255),
+		RunScore = Color3.fromRGB(141, 232, 255),
 		Kills = Color3.fromRGB(255, 43, 57),
 		Gold = Color3.fromRGB(255, 202, 48),
 		Green = Color3.fromRGB(105, 245, 100),

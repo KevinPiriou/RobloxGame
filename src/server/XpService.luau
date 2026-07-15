@@ -43,6 +43,7 @@ end
 
 local updateXpRemote = getOrCreateRemote("Xp_UpdateCount")
 local collectXpRemote = getOrCreateRemote("Xp_PlayCollect")
+local pickupFeedbackRemote = getOrCreateRemote("PickupFeedback_Show")
 
 local function getOrCreateFolder(parent, folderName)
 	local folder = parent:FindFirstChild(folderName)
@@ -399,6 +400,8 @@ local function awardXp(player, xpValue)
 	getOrCreateXpValue(player).Value = profile.TotalXp
 	getOrCreateLevelValue(player).Value = profile.Level
 	sendXpCount(player)
+
+	return finalXpValue
 end
 
 local function finishGemCollection(player, gem, gemState, attractDuration)
@@ -409,6 +412,8 @@ local function finishGemCollection(player, gem, gemState, attractDuration)
 		return
 	end
 
+	local arrivalTime = Workspace:GetServerTimeNow() + math.max(0, attractDuration)
+
 	collectXpRemote:FireAllClients(gem, player.UserId, attractDuration)
 	DebugLog.ThrottledInfo("Xp", "xp_collect_" .. player.UserId, 0.5, "Gemme XP collectee", {
 		Player = player.Name,
@@ -416,7 +421,12 @@ local function finishGemCollection(player, gem, gemState, attractDuration)
 		Tier = gemState.Tier,
 		XpValue = gemState.XpValue,
 	})
-	awardXp(player, gemState.XpValue or CombatConfig.XpPerGem)
+	local finalXpValue = awardXp(player, gemState.XpValue or CombatConfig.XpPerGem)
+	pickupFeedbackRemote:FireClient(player, {
+		Kind = "Xp",
+		Amount = finalXpValue,
+		ArrivalTime = arrivalTime,
+	})
 
 	task.delay(attractDuration + 0.1, function()
 		if gem.Parent ~= nil then

@@ -2,6 +2,7 @@ local DataStoreService = game:GetService("DataStoreService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
 local GameConfig = require(Shared:WaitForChild("GameConfig"))
@@ -88,8 +89,8 @@ local function rememberBaseJump(player, humanoid)
 
 	baseJumpByUserId[player.UserId] = {
 		UseJumpPower = humanoid.UseJumpPower,
-		JumpPower = humanoid.JumpPower,
-		JumpHeight = humanoid.JumpHeight,
+		JumpPower = CombatConfig.PlayerBaseJumpPower,
+		JumpHeight = CombatConfig.PlayerBaseJumpHeight,
 	}
 end
 

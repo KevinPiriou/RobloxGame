@@ -83,6 +83,7 @@ local state = {
 	Xp = 0,
 	XpRequired = 6,
 	PerkCount = 0,
+	RunScore = 0,
 	IsRunActive = false,
 	IsUserPaused = false,
 	HasBlockingPause = false,
@@ -143,6 +144,38 @@ local function createIcon(parent, name, imageId, fallbackText, color, preserveIm
 		label.TextXAlignment = Enum.TextXAlignment.Center
 		label.TextYAlignment = Enum.TextYAlignment.Center
 		addTextSizeConstraint(label, 11, 18)
+	end
+
+	return holder
+end
+
+local function createRunScoreIcon(parent, name, color)
+	local imageId = ICON_IMAGES.RunScore
+
+	if imageId ~= nil and imageId ~= "" then
+		return createIcon(parent, name, imageId, "", color, true)
+	end
+
+	local holder = Instance.new("Frame")
+	holder.Name = name
+	holder.BackgroundTransparency = 1
+	holder.BorderSizePixel = 0
+	holder.Parent = parent
+
+	for index, definition in ipairs({
+		{ Position = UDim2.fromScale(0.16, 0.16), Rotation = -22 },
+		{ Position = UDim2.fromScale(0.48, 0.42), Rotation = 22 },
+	}) do
+		local footprint = Instance.new("Frame")
+		footprint.Name = "Footprint" .. tostring(index)
+		footprint.AnchorPoint = Vector2.new(0.5, 0.5)
+		footprint.Position = definition.Position
+		footprint.Size = UDim2.fromScale(0.32, 0.55)
+		footprint.BackgroundColor3 = color
+		footprint.BorderSizePixel = 0
+		footprint.Rotation = definition.Rotation
+		footprint.Parent = holder
+		addCorner(footprint, 8)
 	end
 
 	return holder
@@ -293,6 +326,10 @@ screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 6
 screenGui.Parent = playerGui
+
+local feedbackArrivalEvent = Instance.new("BindableEvent")
+feedbackArrivalEvent.Name = "FeedbackArrived"
+feedbackArrivalEvent.Parent = screenGui
 
 local damageFlash = Instance.new("Frame")
 damageFlash.Name = "DamageFlash"
@@ -454,7 +491,7 @@ local chestCostSlot = Instance.new("Frame")
 chestCostSlot.Name = "ChestCostSlot"
 chestCostSlot.AnchorPoint = Vector2.new(0, 0.5)
 chestCostSlot.Position = UDim2.fromOffset(560, 30)
-chestCostSlot.Size = UDim2.fromOffset(238, 28)
+chestCostSlot.Size = UDim2.fromOffset(104, 28)
 chestCostSlot.BackgroundTransparency = 1
 chestCostSlot.BorderSizePixel = 0
 chestCostSlot.Parent = topCluster
@@ -477,10 +514,32 @@ chestCostValue.TextScaled = true
 chestCostValue.TextXAlignment = Enum.TextXAlignment.Left
 addTextSizeConstraint(chestCostValue, 11, TOP_STAT_TEXT_SIZE)
 
-local topLevelValue = createLabel(chestCostSlot, "TopLevelValue", "LVL 1", UI_FONTS.Heavy, 18, COLORS.Text)
+local runScoreSlot = Instance.new("Frame")
+runScoreSlot.Name = "RunScoreSlot"
+runScoreSlot.AnchorPoint = Vector2.new(0, 0.5)
+runScoreSlot.Position = UDim2.fromOffset(680, 30)
+runScoreSlot.Size = UDim2.fromOffset(104, 28)
+runScoreSlot.BackgroundTransparency = 1
+runScoreSlot.BorderSizePixel = 0
+runScoreSlot.Parent = topCluster
+
+local runScoreIcon = createRunScoreIcon(runScoreSlot, "RunScoreIcon", COLORS.RunScore)
+runScoreIcon.AnchorPoint = Vector2.new(0, 0.5)
+runScoreIcon.Position = UDim2.fromOffset(0, 14)
+runScoreIcon.Size = UDim2.fromOffset(TOP_STAT_ICON_SIZE, TOP_STAT_ICON_SIZE)
+
+local runScoreValue = createLabel(runScoreSlot, "RunScoreValue", "0", UI_FONTS.Heavy, TOP_STAT_TEXT_SIZE, COLORS.RunScore)
+runScoreValue.AnchorPoint = Vector2.new(0, 0.5)
+runScoreValue.Position = UDim2.fromOffset(34, 14)
+runScoreValue.Size = UDim2.fromOffset(70, 28)
+runScoreValue.TextScaled = true
+runScoreValue.TextXAlignment = Enum.TextXAlignment.Left
+addTextSizeConstraint(runScoreValue, 11, TOP_STAT_TEXT_SIZE)
+
+local topLevelValue = createLabel(topCluster, "TopLevelValue", "LVL 1", UI_FONTS.Heavy, 18, COLORS.Text)
 topLevelValue.AnchorPoint = Vector2.new(0, 0.5)
-topLevelValue.Position = UDim2.fromOffset(116, 14)
-topLevelValue.Size = UDim2.fromOffset(96, 28)
+topLevelValue.Position = UDim2.fromOffset(804, 30)
+topLevelValue.Size = UDim2.fromOffset(116, 28)
 topLevelValue.TextScaled = true
 topLevelValue.TextXAlignment = Enum.TextXAlignment.Left
 addTextSizeConstraint(topLevelValue, 12, 18)
@@ -758,6 +817,90 @@ centerGem.Parent = centerGemOuter
 addCorner(centerGem, 3)
 addStroke(centerGem, Color3.fromRGB(238, 246, 255), 0.42, 1)
 
+local function getFeedbackTarget(targetId)
+	if targetId == "Health" then
+		return hpGroup, hpFill, COLORS.Health
+	end
+
+	if targetId == "Shield" then
+		return shieldGroup, shieldFill, COLORS.Shield
+	end
+
+	if targetId == "Xp" then
+		return xpPanel, xpFill, COLORS.Xp
+	end
+
+	if targetId == "ArcaneGem" then
+		return arcaneSlot, nil, COLORS.Arcane
+	end
+
+	if targetId == "Kill" then
+		return killsSlot, nil, COLORS.Kills
+	end
+
+	if targetId == "Coin" then
+		return goldSlot, nil, COLORS.Gold
+	end
+
+	if targetId == "RunScore" then
+		return runScoreSlot, nil, COLORS.RunScore
+	end
+
+	return nil, nil, nil
+end
+
+local pulseTokens = {}
+
+local function playHudFeedbackPulse(targetId)
+	local target, fill, accent = getFeedbackTarget(targetId)
+
+	if target == nil then
+		return
+	end
+
+	local token = (pulseTokens[targetId] or 0) + 1
+	pulseTokens[targetId] = token
+
+	local scale = target:FindFirstChild("FeedbackPulseScale")
+
+	if scale == nil then
+		scale = Instance.new("UIScale")
+		scale.Name = "FeedbackPulseScale"
+		scale.Parent = target
+	end
+
+	if not scale:IsA("UIScale") then
+		return
+	end
+
+	scale.Scale = 1
+	TweenService:Create(scale, TweenInfo.new(0.11, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = 1.06,
+	}):Play()
+
+	if fill ~= nil then
+		local originalColor = fill.BackgroundColor3
+		fill.BackgroundColor3 = accent:Lerp(Color3.new(1, 1, 1), 0.22)
+		task.delay(0.14, function()
+			if pulseTokens[targetId] == token and fill.Parent ~= nil then
+				TweenService:Create(fill, QUICK_TWEEN, {
+					BackgroundColor3 = originalColor,
+				}):Play()
+			end
+		end)
+	end
+
+	task.delay(0.13, function()
+		if pulseTokens[targetId] == token and scale.Parent ~= nil then
+			TweenService:Create(scale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Scale = 1,
+			}):Play()
+		end
+	end)
+end
+
+feedbackArrivalEvent.Event:Connect(playHudFeedbackPulse)
+
 local function updateResponsiveLayout()
 	local viewportSize = getViewportSize()
 	local function getTopScale(targetScale)
@@ -842,6 +985,10 @@ end
 
 local function refreshChestCost()
 	chestCostValue.Text = formatTopStatNumber(state.NextChestCost)
+end
+
+local function refreshRunScore()
+	runScoreValue.Text = formatTopStatNumber(state.RunScore)
 end
 
 local function refreshTimer()
@@ -1014,6 +1161,12 @@ local function onChestPricePayload(payload)
 	end
 end
 
+local function onRunScorePayload(payload)
+	payload = payload or {}
+	state.RunScore = math.max(0, math.floor(tonumber(payload.Score) or state.RunScore))
+	refreshRunScore()
+end
+
 local function onPerksPayload(payload)
 	payload = payload or {}
 
@@ -1051,6 +1204,8 @@ local function onRunStatePayload(payload)
 
 	if state.IsRunActive and not wasRunActive then
 		timerRemaining = RUN_TIMER_SECONDS
+		state.RunScore = 0
+		refreshRunScore()
 	elseif not state.IsRunActive then
 		timerRemaining = RUN_TIMER_SECONDS
 	end
@@ -1095,6 +1250,7 @@ bindRemote("Combat_UpdateStats", onStatsPayload)
 bindRemote("Xp_UpdateCount", onXpPayload)
 bindRemote("Coin_UpdateCount", onCoinsPayload)
 bindRemote("Chest_PriceUpdate", onChestPricePayload)
+bindRemote("RunScore_Update", onRunScorePayload)
 bindRemote("Perk_UpdateStats", onPerksPayload)
 bindRemote("Combat_PauseState", onPausePayload)
 bindRemote("Run_StateUpdate", onRunStatePayload)

@@ -3,6 +3,8 @@ return {
 	AdminUserIds = {},
 	DebugSpawnMonsterCount = 100,
 	DebugLogCategories = {
+		{ Id = "LobbyWorld", Label = "Lobby runtime" },
+		{ Id = "Environment", Label = "Ambiance" },
 		{ Id = "Perf", Label = "Performance" },
 		{ Id = "Vfx", Label = "VFX" },
 		{ Id = "Aura", Label = "Auras" },

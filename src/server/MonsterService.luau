@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local PickupFeedbackConfig = require(Shared:WaitForChild("PickupFeedbackConfig"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local ChestService = require(script.Parent:WaitForChild("ChestService"))
@@ -92,6 +93,7 @@ local function getOrCreateRemote(remoteName)
 end
 
 local statsRemote = getOrCreateRemote("Combat_UpdateStats")
+local pickupFeedbackRemote = getOrCreateRemote(PickupFeedbackConfig.RemoteName)
 
 local function getOrCreateFolder(parent, folderName)
 	local folder = parent:FindFirstChild(folderName)
@@ -861,6 +863,10 @@ local function removeMonster(monsterState, killer)
 	if killer ~= nil and killer.Parent == Players then
 		killsByUserId[killer.UserId] = (killsByUserId[killer.UserId] or 0) + 1
 		RunAnalyticsService.RecordMonsterKill(killer, monsterState.Instance)
+		pickupFeedbackRemote:FireClient(killer, {
+			Kind = "Kill",
+			Amount = 1,
+		})
 
 		if deathPosition ~= nil and monsterState.DropLoot ~= false then
 			local lootMultiplier = getMonsterLootMultiplier(monsterState)
@@ -1065,6 +1071,42 @@ local function getSurfacePivotPosition(monster, surfacePosition)
 	)
 end
 
+local function getHorizontalDistance(firstPosition, secondPosition)
+	return (Vector2.new(firstPosition.X, firstPosition.Z) - Vector2.new(secondPosition.X, secondPosition.Z)).Magnitude
+end
+
+local function getGroundedMonsterPosition(monsterState, candidatePosition, now)
+	local lastSamplePosition = monsterState.LastGroundSamplePosition
+	local lastSampleAt = monsterState.LastGroundSampleAt or 0
+	local sampleDistance = math.max(0.25, CombatConfig.MonsterGroundFollowSampleDistance or 1)
+	local sampleInterval = math.max(0.03, CombatConfig.MonsterGroundFollowMaxInterval or 0.1)
+
+	if lastSamplePosition ~= nil
+		and getHorizontalDistance(candidatePosition, lastSamplePosition) < sampleDistance
+		and now - lastSampleAt < sampleInterval
+	then
+		return Vector3.new(candidatePosition.X, monsterState.BasePosition.Y, candidatePosition.Z)
+	end
+
+	local surfacePosition = WorldSpawnService.FindSurfacePositionAtXZ(candidatePosition.X, candidatePosition.Z, {
+		Center = candidatePosition,
+		RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
+		RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
+		MinSurfaceNormalY = CombatConfig.MonsterGroundFollowMinNormalY,
+		AllowGeneratedRampSurface = true,
+		ExcludeInstances = { monsterFolder },
+		AllowWorkspaceSurfaceFallback = true,
+	})
+
+	if surfacePosition == nil then
+		return nil
+	end
+
+	monsterState.LastGroundSamplePosition = surfacePosition
+	monsterState.LastGroundSampleAt = now
+	return getSurfacePivotPosition(monsterState.Template, surfacePosition)
+end
+
 local function spawnMonsterAtSurface(surfacePosition, options)
 	options = options or {}
 
@@ -1139,6 +1181,8 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 		Root = root,
 		TemplateName = templateName,
 		BasePosition = spawnPivotPosition,
+		LastGroundSamplePosition = surfacePosition,
+		LastGroundSampleAt = CombatStateService.GetTime(),
 		PivotRotation = pivotRotation,
 		Health = maxHealth,
 		AttackDamage = attackDamage,
@@ -1288,6 +1332,46 @@ local function getMoveDirection(fromPosition, targetPosition, separation)
 	return desiredDirection.Unit
 end
 
+local function getTerrainMoveDirection(monsterState, position, requestedDirection, targetPosition, step, now)
+	if CombatConfig.MonsterTerrainAvoidanceEnabled ~= true then
+		return requestedDirection
+	end
+
+	local interval = math.max(0.03, CombatConfig.MonsterTerrainAvoidanceInterval or 0.1)
+	local shouldSample = now - (monsterState.LastTerrainAvoidanceAt or 0) >= interval
+
+	if shouldSample then
+		monsterState.LastTerrainAvoidanceAt = now
+		local barrier = WorldSpawnService.FindGeneratedTerrainBarrier(
+			position,
+			requestedDirection,
+			step + math.max(0, CombatConfig.MonsterTerrainAvoidanceLookahead or 0),
+			{ Height = CombatConfig.MonsterTerrainAvoidanceHeight }
+		)
+
+		if barrier == nil then
+			monsterState.TerrainAvoidanceDirection = nil
+		else
+			local tangent = Vector3.new(-barrier.Normal.Z, 0, barrier.Normal.X)
+			local targetOffset = Vector3.new(targetPosition.X - position.X, 0, targetPosition.Z - position.Z)
+
+			if tangent.Magnitude > 0.01 and targetOffset.Magnitude > 0.01 then
+				tangent = tangent.Unit
+
+				if tangent:Dot(targetOffset.Unit) < 0 then
+					tangent = -tangent
+				end
+
+				monsterState.TerrainAvoidanceDirection = tangent
+			else
+				monsterState.TerrainAvoidanceDirection = nil
+			end
+		end
+	end
+
+	return monsterState.TerrainAvoidanceDirection or requestedDirection
+end
+
 local function getProceduralAnimationCFrame(monsterState, position, moveDirection, deltaTime)
 	monsterState.AnimationTime += deltaTime
 
@@ -1300,7 +1384,7 @@ local function getProceduralAnimationCFrame(monsterState, position, moveDirectio
 	return CFrame.lookAt(visualPosition, lookTarget) * CFrame.Angles(0, 0, sway) * pivotRotation
 end
 
-local function updateMonsterMovement(monsterState, targetRoot, distance, deltaTime, useSeparation, useProceduralMotion)
+local function updateMonsterMovement(monsterState, targetRoot, distance, deltaTime, useSeparation, useProceduralMotion, now)
 	local root = monsterState.Root
 
 	if root == nil then
@@ -1329,7 +1413,14 @@ local function updateMonsterMovement(monsterState, targetRoot, distance, deltaTi
 	local targetDistance = (Vector3.new(targetRoot.Position.X, 0, targetRoot.Position.Z) - Vector3.new(basePosition.X, 0, basePosition.Z)).Magnitude
 	local speedMultiplier = monsterState.SpeedMultiplier or 1
 	local step = math.min(targetDistance, CombatConfig.MonsterDirectMoveSpeed * speedMultiplier * deltaTime)
-	local nextPosition = basePosition + (moveDirection * step)
+	moveDirection = getTerrainMoveDirection(monsterState, basePosition, moveDirection, targetRoot.Position, step, now)
+	local horizontalCandidate = basePosition + (moveDirection * step)
+	local nextPosition = getGroundedMonsterPosition(monsterState, horizontalCandidate, now)
+
+	if nextPosition == nil then
+		-- Sans sol valide, le monstre s'arrete plutot que de traverser un volume ou le vide.
+		return true
+	end
 
 	monsterState.BasePosition = nextPosition
 
@@ -1652,9 +1743,10 @@ local function updateMonsterStep(deltaTime)
 					targetRoot,
 					distance,
 					lodDeltaTime,
-					lod == "Full",
-					lod == "Full"
-				)
+				lod == "Full",
+				lod == "Full",
+				now
+			)
 
 				if stillActive and lod == "Full" and not monsterState.IsDead then
 					updateMonsterDamage(monsterState, now, playerTargets)

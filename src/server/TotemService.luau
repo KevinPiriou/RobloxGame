@@ -313,7 +313,7 @@ local function spawnTotemAtSurface(surfacePosition)
 	return totem
 end
 
-local function spawnInitialTotems()
+local function spawnInitialTotems(generationOptions)
 	if totemTemplate == nil then
 		DebugLog.Warn("Totem", "Generation DifficultTotem impossible, template absent")
 		return
@@ -343,6 +343,8 @@ local function spawnInitialTotems()
 		MinDistance = TotemConfig.SpawnWorldMinObjectDistance,
 		AttemptsPerPoint = TotemConfig.SpawnWorldAttemptsPerTotem,
 		JitterRadius = TotemConfig.SpawnWorldJitterRadius,
+		UsePlayableBounds = true,
+		EdgeInset = TotemConfig.SpawnWorldEdgeInset,
 		RaycastHeight = TotemConfig.SpawnRaycastHeight,
 		RaycastDepth = TotemConfig.SpawnRaycastDepth,
 		RejectedSurfaceNameContains = TotemConfig.RejectedSurfaceNameContains,
@@ -350,13 +352,25 @@ local function spawnInitialTotems()
 		LogCategory = "Totem",
 		LogLabel = "DifficultTotem",
 	})
+	local batchSize = math.max(1, math.floor(tonumber(generationOptions and generationOptions.BatchSize) or #surfacePositions))
 
-	for _, surfacePosition in ipairs(surfacePositions) do
+	for index, surfacePosition in ipairs(surfacePositions) do
 		if spawnedTotemCount >= TotemConfig.InitialSpawnCount then
 			break
 		end
 
 		spawnTotemAtSurface(surfacePosition)
+
+		if generationOptions ~= nil and index % batchSize == 0 and index < #surfacePositions then
+			if generationOptions.OnBatch ~= nil then
+				generationOptions.OnBatch(spawnedTotemCount, TotemConfig.InitialSpawnCount)
+			end
+			task.wait()
+		end
+	end
+
+	if generationOptions ~= nil and generationOptions.OnBatch ~= nil then
+		generationOptions.OnBatch(spawnedTotemCount, TotemConfig.InitialSpawnCount)
 	end
 
 	DebugLog.Info("Totem", "Generation DifficultTotem initiale terminee", {
@@ -376,10 +390,10 @@ function TotemService.ClearRunContent()
 	spawnedTotemCount = 0
 end
 
-function TotemService.GenerateForRun(session)
+function TotemService.GenerateForRun(session, generationOptions)
 	rng = Random.new((math.floor(tonumber(session and session.Seed) or 0) + 301) % 2147483647)
 	TotemService.ClearRunContent()
-	spawnInitialTotems()
+	spawnInitialTotems(generationOptions)
 	return spawnedTotemCount
 end
 

@@ -340,7 +340,7 @@ local function spawnChestAtSurface(surfacePosition)
 	return chest
 end
 
-local function spawnInitialChests()
+local function spawnInitialChests(generationOptions)
 	if chestTemplate == nil then
 		DebugLog.Warn("Chest", "Generation coffres impossible, template absent")
 		return
@@ -370,6 +370,8 @@ local function spawnInitialChests()
 		MinDistance = ChestConfig.SpawnWorldMinObjectDistance,
 		AttemptsPerPoint = ChestConfig.SpawnWorldAttemptsPerChest,
 		JitterRadius = ChestConfig.SpawnWorldJitterRadius,
+		UsePlayableBounds = true,
+		EdgeInset = ChestConfig.SpawnWorldEdgeInset,
 		RaycastHeight = ChestConfig.SpawnRaycastHeight,
 		RaycastDepth = ChestConfig.SpawnRaycastDepth,
 		RejectedSurfaceNameContains = ChestConfig.RejectedSurfaceNameContains,
@@ -377,13 +379,25 @@ local function spawnInitialChests()
 		LogCategory = "Chest",
 		LogLabel = "coffres",
 	})
+	local batchSize = math.max(1, math.floor(tonumber(generationOptions and generationOptions.BatchSize) or #surfacePositions))
 
-	for _, surfacePosition in ipairs(surfacePositions) do
+	for index, surfacePosition in ipairs(surfacePositions) do
 		if spawnedChestCount >= ChestConfig.InitialSpawnCount then
 			break
 		end
 
 		spawnChestAtSurface(surfacePosition)
+
+		if generationOptions ~= nil and index % batchSize == 0 and index < #surfacePositions then
+			if generationOptions.OnBatch ~= nil then
+				generationOptions.OnBatch(spawnedChestCount, ChestConfig.InitialSpawnCount)
+			end
+			task.wait()
+		end
+	end
+
+	if generationOptions ~= nil and generationOptions.OnBatch ~= nil then
+		generationOptions.OnBatch(spawnedChestCount, ChestConfig.InitialSpawnCount)
 	end
 
 	DebugLog.Info("Chest", "Generation coffres initiale terminee", {
@@ -410,10 +424,10 @@ function ChestService.ClearRunContent()
 	spawnedChestCount = 0
 end
 
-function ChestService.GenerateForRun(session)
+function ChestService.GenerateForRun(session, generationOptions)
 	rng = Random.new((math.floor(tonumber(session and session.Seed) or 0) + 201) % 2147483647)
 	ChestService.ClearRunContent()
-	spawnInitialChests()
+	spawnInitialChests(generationOptions)
 	return spawnedChestCount
 end
 

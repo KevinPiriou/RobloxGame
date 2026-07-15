@@ -211,8 +211,11 @@ local function sendPauseState(player)
 		return
 	end
 
+	local isPaused = CombatStateService.IsPaused()
+	player:SetAttribute("IsCombatPaused", isPaused)
+
 	pauseStateRemote:FireClient(player, {
-		IsPaused = CombatStateService.IsPaused(),
+		IsPaused = isPaused,
 		IsUserPaused = pauseReasons[getUserPauseReason(player)] == true,
 		HasBlockingPause = hasBlockingPauseForPlayer(player),
 		ReasonCount = getReasonCount(),

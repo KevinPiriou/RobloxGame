@@ -356,18 +356,29 @@ function RunTeleportService.StartSoloRun(player, trigger, explicitChapterId)
 				generatedArrival
 			)
 		end
+		local started = false
+
+		if moved then
+			started, moveReason = RunSessionService.StartGeneratedRun(
+				player,
+				sessionOrReason.RunId,
+				"StudioTeleport"
+			)
+			moved = started
+		end
 		local arrivalDestroyed = false
 
 		teleportingByUserId[player.UserId] = nil
 		if moved then
 			arrivalDestroyed = destroyArrivalInstance(arrival)
 		elseif activated then
-			RunStateService.EndRun(player, "ArrivalFailed")
+			RunSessionService.CancelPreparedRun(player, "ArrivalFailed")
 		end
 		DebugLog.Warn("RunTeleport", "Teleport reserve simule en Studio", {
 			Player = player.Name,
 			ArrivalPartName = RunTeleportConfig.ArrivalPartName,
 			Moved = moved,
+			Started = started,
 			Reason = moveReason,
 			ArrivalDestroyed = arrivalDestroyed,
 		})
@@ -606,18 +617,29 @@ function RunTeleportService.SetupPlayer(player)
 		if activated then
 			moved, reason, arrival = movePlayerToArrival(player, arrivalPartName, generatedArrival)
 		end
+		local started = false
+
+		if moved then
+			started, reason = RunSessionService.StartGeneratedRun(
+				player,
+				soloTeleportData.runId,
+				"TeleportArrival"
+			)
+			moved = started
+		end
 		local arrivalDestroyed = false
 
 		if moved then
 			arrivalDestroyed = destroyArrivalInstance(arrival)
 		elseif activated then
-			RunStateService.EndRun(player, "ArrivalFailed")
+			RunSessionService.CancelPreparedRun(player, "ArrivalFailed")
 		end
 
 		DebugLog.Info("RunTeleport", "Placement joueur apres teleport", {
 			Player = player.Name,
 			ArrivalPartName = arrivalPartName,
 			Moved = moved,
+			Started = started,
 			Reason = reason,
 			ArrivalDestroyed = arrivalDestroyed,
 		})

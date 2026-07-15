@@ -1036,6 +1036,8 @@ local function findSurfacePositionsForDefinition(definition, neededCount)
 		MinDistance = definition.SpawnMinDistance,
 		AttemptsPerPoint = ShrineConfig.SpawnWorldAttemptsPerShrine,
 		JitterRadius = ShrineConfig.SpawnWorldJitterRadius,
+		UsePlayableBounds = true,
+		EdgeInset = ShrineConfig.SpawnWorldEdgeInset,
 		RaycastHeight = ShrineConfig.SpawnRaycastHeight,
 		RaycastDepth = ShrineConfig.SpawnRaycastDepth,
 		RejectedSurfaceNameContains = ShrineConfig.RejectedSurfaceNameContains,
@@ -1071,6 +1073,8 @@ local function findSurfacePositionsForDefinition(definition, neededCount)
 		MinDistance = definition.RelaxedSpawnMinDistance,
 		AttemptsPerPoint = ShrineConfig.SpawnWorldAttemptsPerShrine * (definition.RelaxedSpawnAttemptsMultiplier or 2),
 		JitterRadius = ShrineConfig.SpawnWorldJitterRadius,
+		UsePlayableBounds = true,
+		EdgeInset = ShrineConfig.SpawnWorldEdgeInset,
 		RaycastHeight = ShrineConfig.SpawnRaycastHeight,
 		RaycastDepth = ShrineConfig.SpawnRaycastDepth,
 		RejectedSurfaceNameContains = ShrineConfig.RejectedSurfaceNameContains,
@@ -1086,7 +1090,7 @@ local function findSurfacePositionsForDefinition(definition, neededCount)
 	return surfacePositions
 end
 
-local function spawnInitialShrinesForDefinition(definition)
+local function spawnInitialShrinesForDefinition(definition, generationOptions)
 	if shrineTemplatesByType[definition.TypeId] == nil then
 		DebugLog.Warn("Shrine", "Generation shrine impossible, template absent", {
 			TypeId = definition.TypeId,
@@ -1115,13 +1119,33 @@ local function spawnInitialShrinesForDefinition(definition)
 	})
 
 	local surfacePositions = findSurfacePositionsForDefinition(definition, neededCount)
+	local batchSize = math.max(1, math.floor(tonumber(generationOptions and generationOptions.BatchSize) or #surfacePositions))
 
-	for _, surfacePosition in ipairs(surfacePositions) do
+	for index, surfacePosition in ipairs(surfacePositions) do
 		if (spawnedCountsByType[definition.TypeId] or 0) >= definition.InitialSpawnCount then
 			break
 		end
 
 		spawnShrineAtSurface(definition, surfacePosition)
+
+		if generationOptions ~= nil and index % batchSize == 0 and index < #surfacePositions then
+			if generationOptions.OnBatch ~= nil then
+				generationOptions.OnBatch(
+					spawnedCountsByType[definition.TypeId] or 0,
+					definition.InitialSpawnCount,
+					definition.TypeId
+				)
+			end
+			task.wait()
+		end
+	end
+
+	if generationOptions ~= nil and generationOptions.OnBatch ~= nil then
+		generationOptions.OnBatch(
+			spawnedCountsByType[definition.TypeId] or 0,
+			definition.InitialSpawnCount,
+			definition.TypeId
+		)
 	end
 
 	DebugLog.Info("Shrine", "Generation shrine initiale terminee", {
@@ -1147,9 +1171,9 @@ local function loadTemplates()
 	end
 end
 
-local function spawnInitialShrines()
+local function spawnInitialShrines(generationOptions)
 	for _, definition in ipairs(SHRINE_DEFINITIONS) do
-		spawnInitialShrinesForDefinition(definition)
+		spawnInitialShrinesForDefinition(definition, generationOptions)
 	end
 end
 
@@ -1164,9 +1188,9 @@ function ShrineService.ClearRunContent()
 	spawnedCountsByType = {}
 end
 
-function ShrineService.GenerateForRun()
+function ShrineService.GenerateForRun(_, generationOptions)
 	ShrineService.ClearRunContent()
-	spawnInitialShrines()
+	spawnInitialShrines(generationOptions)
 
 	local total = 0
 	for _, count in pairs(spawnedCountsByType) do

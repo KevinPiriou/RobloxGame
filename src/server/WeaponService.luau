@@ -9,6 +9,7 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local AudioService = require(script.Parent:WaitForChild("AudioService"))
+local GameplayFeedbackService = require(script.Parent:WaitForChild("GameplayFeedbackService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
 local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
@@ -465,11 +466,15 @@ local function updateProjectile(projectileState, deltaTime)
 		-- On conserve donc son chemin avant les degats pour que le log reste lisible.
 		local targetPath = hitMonster:GetFullName()
 
-		local damage = PerkService.CalculateOutgoingDamage(projectileState.Owner, CombatConfig.FireballDamage, hitMonster)
+		local damage, isCritical = PerkService.CalculateOutgoingDamage(projectileState.Owner, CombatConfig.FireballDamage, hitMonster)
 		local didDamage, damageDealt = MonsterService.DamageMonster(hitMonster, damage, projectileState.Owner)
 
 		if didDamage then
-			PerkService.ApplyLifeSteal(projectileState.Owner, damageDealt or 0)
+			if isCritical then
+				GameplayFeedbackService.Queue(projectileState.Owner, "Critical", damageDealt or 0)
+			end
+
+			PerkService.ApplyLifeSteal(projectileState.Owner, damageDealt or 0, "Hit")
 			RunAnalyticsService.RecordDamageDealt(projectileState.Owner, damageDealt or 0, CombatConfig.FireballTemplateName)
 			RunItemService.TryApplyOnWeaponHit(projectileState.Owner, hitMonster, CombatConfig.FireballTemplateName)
 			DebugLog.ThrottledInfo("Weapon", "fireball_hit", 0.5, "Fireball touche un monstre", {

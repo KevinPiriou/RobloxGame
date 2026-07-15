@@ -9,6 +9,7 @@ local Perks = require(Shared:WaitForChild("Perks"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local CommerceService = require(script.Parent:WaitForChild("CommerceService"))
+local GameplayFeedbackService = require(script.Parent:WaitForChild("GameplayFeedbackService"))
 local JumpBonusService = require(script.Parent:WaitForChild("JumpBonusService"))
 local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 
@@ -122,7 +123,7 @@ local function applyMovementStats(player)
 	end
 
 	if baseWalkSpeedByUserId[player.UserId] == nil then
-		baseWalkSpeedByUserId[player.UserId] = humanoid.WalkSpeed
+		baseWalkSpeedByUserId[player.UserId] = CombatConfig.PlayerBaseWalkSpeed
 	end
 
 	local profile = getOrCreateProfile(player)
@@ -147,9 +148,11 @@ local function getDisplayStatsSnapshot(player, profile)
 
 	return {
 		MaxHealth = if humanoid ~= nil then humanoid.MaxHealth else 100,
-		MoveSpeed = if humanoid ~= nil then humanoid.WalkSpeed else 16,
+		MoveSpeed = if humanoid ~= nil then humanoid.WalkSpeed else CombatConfig.PlayerBaseWalkSpeed,
 		JumpMode = if humanoid == nil or humanoid.UseJumpPower then "Power" else "Height",
-		JumpValue = if humanoid ~= nil then (if humanoid.UseJumpPower then humanoid.JumpPower else humanoid.JumpHeight) else 50,
+		JumpValue = if humanoid ~= nil
+			then (if humanoid.UseJumpPower then humanoid.JumpPower else humanoid.JumpHeight)
+			else CombatConfig.PlayerBaseJumpPower,
 		CurrentShield = profile.CurrentShield,
 		MaxShield = stats.Shield or 0,
 		HealthRegen = stats.HealthRegen or 0,
@@ -184,6 +187,25 @@ local function sendPerkStats(player)
 	})
 end
 
+local function applyHealing(player, amount, feedbackKind)
+	local humanoid = getHumanoid(player)
+
+	if humanoid == nil or humanoid.Health <= 0 then
+		return 0
+	end
+
+	local previousHealth = humanoid.Health
+	humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + math.max(0, amount))
+	local healedAmount = humanoid.Health - previousHealth
+
+	if healedAmount > 0 then
+		RunAnalyticsService.RecordHealing(player, healedAmount)
+		GameplayFeedbackService.Queue(player, feedbackKind, healedAmount)
+	end
+
+	return healedAmount
+end
+
 local function applyHealthRegen(player, deltaTime)
 	local profile = profilesByUserId[player.UserId]
 
@@ -203,7 +225,7 @@ local function applyHealthRegen(player, deltaTime)
 		return
 	end
 
-	humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + (healthRegen * deltaTime))
+	applyHealing(player, healthRegen * deltaTime, "HealRegen")
 end
 
 local function getDefinitionById(perkId)
@@ -524,7 +546,12 @@ local function applyChoice(player, option)
 	})
 
 	if option.Stats.Shield ~= nil then
-		profile.CurrentShield += option.Stats.Shield
+		local shieldGained = math.max(0, option.Stats.Shield)
+		profile.CurrentShield += shieldGained
+
+		if shieldGained > 0 then
+			GameplayFeedbackService.Queue(player, "Shield", shieldGained)
+		end
 	end
 
 	applyMovementStats(player)
@@ -855,11 +882,13 @@ function PerkService.CalculateOutgoingDamage(player, baseDamage, monster)
 
 	local critChance = math.clamp(stats.CritChance or 0, 0, 1)
 
-	if critChance > 0 and rng:NextNumber() <= critChance then
+	local isCritical = critChance > 0 and rng:NextNumber() <= critChance
+
+	if isCritical then
 		damage *= 1.5 + (stats.CritMultiplierBonus or 0)
 	end
 
-	return damage
+	return damage, isCritical
 end
 
 function PerkService.CalculateIncomingDamage(player, baseDamage)
@@ -879,7 +908,26 @@ function PerkService.CalculateIncomingDamage(player, baseDamage)
 	return math.max(0, damage), absorbed
 end
 
-function PerkService.ApplyLifeSteal(player, damageDealt)
+function PerkService.ApplyInstantHeal(player, amount)
+	return applyHealing(player, amount, "HealInstant")
+end
+
+function PerkService.GrantMaxHealth(player, amount)
+	local humanoid = getHumanoid(player)
+	local addedAmount = math.max(0, amount)
+
+	if humanoid == nil or addedAmount <= 0 then
+		return 0
+	end
+
+	humanoid.MaxHealth += addedAmount
+	sendPerkStats(player)
+	GameplayFeedbackService.Queue(player, "MaxHealth", addedAmount)
+
+	return addedAmount
+end
+
+function PerkService.ApplyLifeSteal(player, damageDealt, source)
 	local stats = PerkService.GetStats(player)
 	local lifeStealPercent = stats.LifeStealPercent or 0
 
@@ -887,17 +935,8 @@ function PerkService.ApplyLifeSteal(player, damageDealt)
 		return
 	end
 
-	local humanoid = getHumanoid(player)
-
-	if humanoid == nil or humanoid.Health <= 0 then
-		return
-	end
-
 	local healAmount = damageDealt * lifeStealPercent
-	local previousHealth = humanoid.Health
-
-	humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + healAmount)
-	RunAnalyticsService.RecordHealing(player, humanoid.Health - previousHealth)
+	return applyHealing(player, healAmount, if source == "Dot" then "LifeStealDot" else "LifeStealHit")
 end
 
 function PerkService.GetShieldState(player)

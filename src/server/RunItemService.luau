@@ -7,6 +7,7 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local RunItemConfig = require(Shared:WaitForChild("RunItemConfig"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
+local GameplayFeedbackService = require(script.Parent:WaitForChild("GameplayFeedbackService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
 local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
@@ -250,6 +251,7 @@ function RunItemService.TryApplyOnWeaponHit(player, monster, weaponId)
 		SourceWeaponId = weaponId,
 	})
 	updatePoisonStackAttribute(monster, effects)
+	GameplayFeedbackService.Queue(player, "Poison", 1)
 
 	DebugLog.ThrottledInfo("RunItems", "poison_applied_" .. player.UserId, 0.5, "Poison applique", {
 		Player = player.Name,
@@ -289,7 +291,7 @@ local function updatePoisonEffects(deltaTime)
 						break
 					end
 
-					PerkService.ApplyLifeSteal(effect.Player, damageDealt or 0)
+					PerkService.ApplyLifeSteal(effect.Player, damageDealt or 0, "Dot")
 					RunAnalyticsService.RecordDamageDealt(effect.Player, damageDealt or 0, "CamembertPoison")
 				end
 			end

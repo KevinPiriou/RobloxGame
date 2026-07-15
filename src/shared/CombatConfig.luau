@@ -8,6 +8,12 @@ return {
 	ProjectileFolderName = "Projectiles",
 	LootFolderName = "Loot",
 
+	-- Socle de sensation joueur avant perks et objets de run.
+	-- La hausse de saut compense la marche legerement ralentie pour conserver une portee de saut positive.
+	PlayerBaseWalkSpeed = 15,
+	PlayerBaseJumpPower = 55,
+	PlayerBaseJumpHeight = 8,
+
 	-- Zero utilise le Heartbeat directement pour que le visuel reste aligne aux hitboxes serveur.
 	MonsterSimulationHz = 0,
 	-- Zero utilise le Heartbeat directement pour que le projectile replique reste fluide pour son proprietaire.
@@ -38,7 +44,7 @@ return {
 	MonsterMinSpawnDistance = 42,
 	-- Reste sous le rayon de despawn pour eviter les spawns immediatement recycles.
 	MonsterMaxSpawnDistance = 76,
-	MonsterSpawnMapEdgeInset = 60,
+	MonsterSpawnMapEdgeInset = 24,
 	MonsterSpawnSurfaceAttempts = 18,
 	-- Repli uniquement lorsque le grand anneau sort de la surface jouable de la map.
 	MonsterSpawnFallbackMinDistance = 26,
@@ -86,8 +92,17 @@ return {
 	MonsterProceduralBobHeight = 0.2,
 	MonsterProceduralSwayDegrees = 5,
 	MonsterSpawnSurfaceOffset = 0,
-	MonsterGroundRaycastHeight = 80,
-	MonsterGroundRaycastDepth = 180,
+	-- Les monstres sont pilotes de facon cinematique : ces rayons les calent sur
+	-- le relief sans activer la physique couteuse d'une horde complete.
+	MonsterGroundRaycastHeight = 260,
+	MonsterGroundRaycastDepth = 520,
+	MonsterGroundFollowMinNormalY = 0.35,
+	MonsterGroundFollowSampleDistance = 1.5,
+	MonsterGroundFollowMaxInterval = 0.12,
+	MonsterTerrainAvoidanceEnabled = true,
+	MonsterTerrainAvoidanceLookahead = 4,
+	MonsterTerrainAvoidanceHeight = 2,
+	MonsterTerrainAvoidanceInterval = 0.12,
 	-- Le danger visible reste fluide, y compris pour les ennemis generes au loin.
 	MonsterFullSimulationDistance = 115,
 	MonsterReducedSimulationDistance = 150,

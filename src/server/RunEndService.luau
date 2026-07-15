@@ -128,6 +128,7 @@ local function buildSummary(player, reason)
 		Coins = CoinService.GetCoins(player),
 		CoinsEarned = progressionStats.CoinsEarned or 0,
 		CoinsSpent = progressionStats.CoinsSpent or 0,
+		RunScore = progressionStats.RunScore or 0,
 		Level = xpStats.Level,
 		TotalXp = xpStats.TotalXp,
 		PerkCount = PerkService.GetRunPerkCount(player),

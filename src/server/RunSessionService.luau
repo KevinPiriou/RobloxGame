@@ -9,7 +9,9 @@ local ChapterConfig = require(Shared:WaitForChild("ChapterConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local ChapterProgressService = require(script.Parent:WaitForChild("ChapterProgressService"))
+local ProceduralMapService = require(script.Parent:WaitForChild("ProceduralMapService"))
 local RunMapService = require(script.Parent:WaitForChild("RunMapService"))
+local RunLoadingService = require(script.Parent:WaitForChild("RunLoadingService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 
 local RunSessionService = {}
@@ -127,6 +129,7 @@ local function copyPersistentResultSummary(result)
 			CoinsRemaining = math.max(0, math.floor(tonumber(progression.CoinsRemaining) or 0)),
 			PerksSelected = math.max(0, math.floor(tonumber(progression.PerksSelected) or 0)),
 			MaxDifficultyPercent = math.max(0, math.floor(tonumber(progression.MaxDifficultyPercent) or 0)),
+			RunScore = math.max(0, math.floor(tonumber(progression.RunScore) or 0)),
 		},
 		CombatStats = {
 			Kills = math.max(0, math.floor(tonumber(combat.Kills) or 0)),
@@ -305,6 +308,8 @@ local function finalizeSession(player, outcome, resultSummary)
 		return false
 	end
 
+	RunLoadingService.Cancel(player, outcome)
+
 	session.Outcome = outcome or "Unknown"
 	session.EndReason = outcome or "Unknown"
 	session.ResultSummary = copyPersistentResultSummary(resultSummary)
@@ -446,6 +451,8 @@ function RunSessionService.ActivatePreparedRun(player, expectedRunId, reason)
 	profile.Transferring = false
 	transition(player, session, "Generating")
 	saveProfile(player)
+	RunLoadingService.Begin(player)
+	RunLoadingService.Update(player, "Map")
 
 	local mapGenerated, arrivalOrReason = RunMapService.Generate(session)
 
@@ -454,24 +461,63 @@ function RunSessionService.ActivatePreparedRun(player, expectedRunId, reason)
 		return false, arrivalOrReason, nil
 	end
 
+	local terrainGenerated, terrainReason = ProceduralMapService.Generate(
+		session,
+		RunMapService.GetActiveMap(),
+		arrivalOrReason,
+		function(stage, detail)
+			RunLoadingService.Update(player, stage, detail)
+		end
+	)
+
+	if not terrainGenerated then
+		finalizeSession(player, tostring(terrainReason))
+		return false, terrainReason, nil
+	end
+
 	if runWorldService == nil then
 		finalizeSession(player, "WorldServiceMissing")
 		return false, "WorldServiceMissing", nil
 	end
 
-	local worldGenerated, worldReason = runWorldService.Generate(session)
+	local worldGenerated, worldReason = runWorldService.Generate(session, function(stage, detail)
+		RunLoadingService.Update(player, stage, detail)
+	end)
 
 	if not worldGenerated then
 		finalizeSession(player, tostring(worldReason))
 		return false, worldReason, nil
 	end
 
+	transition(player, session, "Ready")
+	saveProfile(player)
+
+	return true, "Ok", arrivalOrReason
+end
+
+function RunSessionService.StartGeneratedRun(player, expectedRunId, reason)
+	local profile = getOrCreateProfile(player)
+	local session = profile.Data.CurrentRun
+
+	if session == nil or (expectedRunId ~= nil and session.RunId ~= expectedRunId) then
+		return false, "RunSessionMissing"
+	end
+
+	if session.LifecycleStatus ~= "Ready" then
+		return false, "RunNotReady"
+	end
+
 	session.StartedAt = os.time()
 	transition(player, session, "Active")
 	saveProfile(player)
-	RunStateService.StartRun(player, reason or "RunSessionActive")
 
-	return true, "Ok", arrivalOrReason
+	if not RunStateService.StartRun(player, reason or "RunSessionActive") then
+		finalizeSession(player, "RunStateRejected")
+		return false, "RunStateRejected"
+	end
+
+	RunLoadingService.Complete(player)
+	return true, "Ok"
 end
 
 function RunSessionService.ResolveArrival(player, teleportData)

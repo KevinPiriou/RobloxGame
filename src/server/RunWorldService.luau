@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local RunLoadingConfig = require(Shared:WaitForChild("RunLoadingConfig"))
 
 local ChestService = require(script.Parent:WaitForChild("ChestService"))
 local JarService = require(script.Parent:WaitForChild("JarService"))
@@ -29,18 +30,86 @@ function RunWorldService.WaitUntilReady(timeoutSeconds)
 	return isReady
 end
 
-function RunWorldService.Generate(session)
+local GENERATION_STEPS = {
+	{
+		CountKey = "Portals",
+		Stage = "Portal",
+		Label = "Portail boss",
+		BatchSize = RunLoadingConfig.BatchSizes.Portal,
+		Generate = function(session, options)
+			return PortalService.GenerateForRun(session, options)
+		end,
+	},
+	{
+		CountKey = "Shrines",
+		Stage = "Shrines",
+		Label = "Autels",
+		BatchSize = RunLoadingConfig.BatchSizes.Shrines,
+		Generate = function(session, options)
+			return ShrineService.GenerateForRun(session, options)
+		end,
+	},
+	{
+		CountKey = "Chests",
+		Stage = "Chests",
+		Label = "Coffres",
+		BatchSize = RunLoadingConfig.BatchSizes.Chests,
+		Generate = function(session, options)
+			return ChestService.GenerateForRun(session, options)
+		end,
+	},
+	{
+		CountKey = "Totems",
+		Stage = "Totems",
+		Label = "Totems",
+		BatchSize = RunLoadingConfig.BatchSizes.Totems,
+		Generate = function(session, options)
+			return TotemService.GenerateForRun(session, options)
+		end,
+	},
+	{
+		CountKey = "Jars",
+		Stage = "Jars",
+		Label = "Jarres",
+		BatchSize = RunLoadingConfig.BatchSizes.Jars,
+		Generate = function(session, options)
+			return JarService.GenerateForRun(session, options)
+		end,
+	},
+}
+
+function RunWorldService.Generate(session, onProgress)
 	if not RunWorldService.WaitUntilReady(10) then
 		return false, "GeneratorsNotReady"
 	end
 
-	local counts = {
-		Portals = PortalService.GenerateForRun(session),
-		Shrines = ShrineService.GenerateForRun(session),
-		Chests = ChestService.GenerateForRun(session),
-		Totems = TotemService.GenerateForRun(session),
-		Jars = JarService.GenerateForRun(session),
-	}
+	local counts = {}
+
+	for _, step in ipairs(GENERATION_STEPS) do
+		if onProgress ~= nil then
+			onProgress(step.Stage, step.Label)
+		end
+
+		counts[step.CountKey] = step.Generate(session, {
+			BatchSize = step.BatchSize,
+			OnBatch = function(placed, requested, typeId)
+				if onProgress == nil then
+					return
+				end
+
+				local detailLabel = step.Label
+
+				if typeId ~= nil then
+					detailLabel ..= " " .. tostring(typeId)
+				end
+
+				onProgress(step.Stage, ("%s : %d / %d"):format(detailLabel, placed, requested))
+			end,
+		})
+
+		-- Laisse au serveur et au client le temps de respirer entre deux familles lourdes.
+		task.wait()
+	end
 
 	if counts.Portals < 1 then
 		RunWorldService.Clear()
