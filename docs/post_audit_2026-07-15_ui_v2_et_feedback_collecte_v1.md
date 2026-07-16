@@ -587,3 +587,119 @@ futures variantes grace au theme `CentralPanel.PerkChoice`. Le rollback est
 borne : retirer `PerkAscensionRim`, `PerkAscensionMaterial` et les quatre tokens
 de matiere par rarete, puis restaurer le controleur precedent. Le HUD runtime
 reste hors de ce chemin.
+
+---
+
+## 2026-07-15 20:16:27 +02:00 - Actions du brouillon PerkChoiceDock
+
+### Perimetre
+
+Cette passe concerne exclusivement
+`StarterGui/MegaRobloxUIV_RunLayoutDraft`. Le HUD runtime, le service de perks,
+les consommables persistants et le serveur de run ne sont pas modifies.
+
+L'ancien bouton unique `RELANCER (3)` a ete remplace dans le brouillon par une
+ligne responsive `ActionRow`, placee sous les cartes sans modifier la taille ni
+la position de `PerkChoiceDock`. Elle contient trois boutons de largeur egale :
+
+- `RAFRAICHIR`, bouton primaire avec trois charges de prototype ;
+- `PASSER`, bouton secondaire a usage unique de prototype ;
+- `BANNIR`, bouton annulation a usage unique de prototype.
+
+Les boutons utilisent Montserrat `Heavy`. Roblox expose ce poids dans
+`Enum.FontWeight`, mais pas le poids `Black` demande initialement. `Heavy` est
+donc le mapping visuel le plus dense disponible pour ce brouillon.
+
+### Contrat d'interaction du brouillon
+
+`PerkChoiceActionsController` reste entierement local au `ScreenGui` de
+developpement : il ne contacte aucun RemoteEvent et ne consomme aucune ressource
+de la vraie run.
+
+- Rafraichir fait tourner les cartes de test et retire une charge locale.
+- Passer consomme son unique charge et affiche un retour temporaire dans le
+  titre du panneau.
+- Bannir desactive temporairement les deux autres actions, affiche un contour
+  rouge sur la carte survolee, puis marque la carte choisie comme bannie pour la
+  session de brouillon.
+
+Trois etats sont prevus par `DesignContract/Buttons/States` sans labels
+supplementaires : actif (couleur et pips pleins), desactive (surface grissee) et
+consomme (surface desaturee, pips eteints). La texture materielle reste confinee
+au bouton afin de ne pas polluer les cartes ou le fond du panneau.
+
+### Verification et angles morts
+
+- structure inspectee : `ActionRow` contient un `UIGridLayout`, un padding et
+  les trois boutons ;
+- capture en mode Edition validee apres reduction de la texture decorative ;
+- `PerkChoiceDock` conserve ses dimensions et son ancrage existants ;
+- aucune session Play n'a ete lancee par Codex, conformement a la regle de test
+  manuel du projet.
+
+- [Juste] le layout exploite l'espace restant sous les offres sans ajouter de
+  positionnement absolu par bouton.
+- [Simplification] les actions restent une simulation locale tant que le
+  contrat de consommables de run n'est pas explicitement raccorde.
+- [Angle mort] le vrai reroll, le vrai skip et la persistance du bannissement
+  ne sont pas encore relies a `PerkService` ni a l'etat de run.
+- [Angle mort] le smoke manuel bloque encore la cloture visuelle : verifier en
+  Play le hover, les pips, le bannissement d'une carte et la lisibilite aux
+  resolutions ciblees.
+
+La passe ajoute une petite complexite locale, isolee dans un seul controller et
+un contrat de trois etats. Le rollback conceptuel consiste a retirer `ActionRow`
+et `PerkChoiceActionsController`, puis a restaurer un bouton unique dans le
+contenu du dock.
+
+---
+
+## 2026-07-15 22:53:51 +02:00 - Consolidation du DesignContract du kit de dev
+
+### Perimetre
+
+Le contrat concerne exclusivement
+`StarterGui/MegaRobloxUIV_RunLayoutDraft`. Le HUD runtime actuel, son style et
+ses controleurs ne sont pas modifies. Le smoke Play manuel confirme le bon
+fonctionnement des actions du brouillon apres le regroupement des boutons dans
+`ActionRow/ButtonRow`.
+
+`DesignContract` passe en version 3 et devient la source explicite des tokens
+et recettes reutilisables du brouillon :
+
+- typographies Montserrat `Display`, `MetricValue`, `MetricLabel` et
+  `ActionLabel` ;
+- surfaces `Central`, `Compact`, `InnerGlass` et `Metric` ;
+- variantes de boutons primaire, secondaire, confirmation et annulation avec
+  leurs couleurs, surface glass, contour, glow et typographie ;
+- recettes `ActionButton`, `MetricStack`, `StatTrack` et `Toast` ;
+- pistes de statistiques vie, bouclier et experience ;
+- ancres de layout pour la top bar, la future bottom bar et la pile de toasts.
+
+`PerkHoverController` lit deja les contrats de rarete, de verre, de mouvement
+et de panneau central. `PerkChoiceActionsController` lit maintenant la variante
+`Button.*` attachee a chaque action ainsi que les etats partages du contrat.
+Les composants et sous-couches decoratives identifies par un `ContractRole`
+sont tous alignes sur `DesignContractVersion = 3`.
+
+### Validation et angles morts
+
+- verification statique : aucune divergence de version parmi les composants
+  roles du brouillon ;
+- smoke Play manuel valide : les actions restent interactives apres la nouvelle
+  hierarchie `ButtonRow` ;
+- aucune session Play n'a ete lancee par Codex ;
+- aucun changement apporte au HUD runtime.
+
+- [Juste] les futures barres et toasts peuvent reutiliser les memes recettes au
+  lieu de recopier couleurs, coins, epaisseurs et polices.
+- [Simplification] le contrat decrit des primitives et des recettes. Il ne
+  devient pas un moteur universel qui construirait tous les panneaux par code.
+- [Angle mort] les recettes `StatTrack` et `Toast` sont pretes mais ne sont pas
+  encore validees dans une vraie composition de bottom bar. Ce sera le smoke
+  canonique du prochain palier.
+
+Le chantier ajoute une couche declarative legere, mais retire la duplication
+future de style. Le rollback reste direct : les controleurs conservent des
+valeurs de repli locales et le brouillon peut revenir aux attributs visuels
+existants sans affecter le HUD de jeu.
