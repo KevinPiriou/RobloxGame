@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AdminConfig = require(Shared:WaitForChild("AdminConfig"))
@@ -25,6 +26,7 @@ local getDebugLogStateRemote = ReplicatedStorage:WaitForChild("Admin_GetDebugLog
 local toggleDevKitPreviewRemote = ReplicatedStorage:WaitForChild("Admin_ToggleDevKitPreview")
 local performanceBenchmarkRemote = ReplicatedStorage:WaitForChild(PerformanceBaselineConfig.AdminRemoteName)
 local performanceBenchmarkStatusRemote = ReplicatedStorage:WaitForChild(PerformanceBaselineConfig.StatusRemoteName)
+local physicsAuditRemote = ReplicatedStorage:WaitForChild("Admin_RunPhysicsAudit")
 
 local DEV_KIT_PREVIEW_ATTRIBUTE = "DevKitPreviewEnabled"
 
@@ -170,6 +172,7 @@ local devKitPreviewButton = createButton("DevKitPreviewButton", "Kit UI demo : a
 local benchmarkScenarioButton = createButton("BenchmarkScenarioButton", "P0 : scenario", Color3.fromRGB(64, 109, 142), 5)
 local benchmarkStartButton = createButton("BenchmarkStartButton", "P0 : lancer", Color3.fromRGB(47, 137, 91), 6)
 local benchmarkStopButton = createButton("BenchmarkStopButton", "P0 : arreter", Color3.fromRGB(143, 70, 70), 7)
+local physicsAuditButton = createButton("PhysicsAuditButton", "P1 : inventaire physique", Color3.fromRGB(94, 91, 143), 8)
 
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Name = "StatusLabel"
@@ -181,7 +184,7 @@ statusLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
 statusLabel.TextSize = 11
 statusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-statusLabel.LayoutOrder = 9
+statusLabel.LayoutOrder = 10
 statusLabel.Parent = content
 
 local benchmarkStatusLabel = Instance.new("TextLabel")
@@ -194,7 +197,7 @@ benchmarkStatusLabel.TextColor3 = Color3.fromRGB(154, 212, 255)
 benchmarkStatusLabel.TextSize = 11
 benchmarkStatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 benchmarkStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-benchmarkStatusLabel.LayoutOrder = 8
+benchmarkStatusLabel.LayoutOrder = 9
 benchmarkStatusLabel.Parent = content
 
 local debugSection = Instance.new("Frame")
@@ -202,7 +205,7 @@ debugSection.Name = "DebugLogSection"
 debugSection.Size = UDim2.new(1, 0, 0, 266)
 debugSection.BackgroundTransparency = 1
 debugSection.BorderSizePixel = 0
-debugSection.LayoutOrder = 10
+debugSection.LayoutOrder = 11
 debugSection.Parent = content
 
 local debugTitle = Instance.new("TextLabel")
@@ -322,22 +325,116 @@ local activeButton = nil
 local debugStateRequestInFlight = false
 local benchmarkScenarioIndex = 1
 local benchmarkIsActive = false
+local benchmarkPhase = "Idle"
+local benchmarkScenarioLabel = "P0"
+local benchmarkElapsedAtStatus = 0
+local benchmarkStatusReceivedAt = 0
+local benchmarkCampaignLabel = nil
+local benchmarkCampaignIndex = nil
+local benchmarkCampaignTotal = nil
+local benchmarkStatusRefreshElapsed = 0
 
-local function getSelectedBenchmarkScenario()
-	return PerformanceBaselineConfig.Scenarios[benchmarkScenarioIndex]
+local function getBenchmarkPhaseDuration(phase)
+	if phase == "Warmup" then
+		return PerformanceBaselineConfig.WarmupSeconds
+	elseif phase == "Measuring" then
+		return PerformanceBaselineConfig.MeasurementSeconds
+	elseif phase == "Cleanup" then
+		return PerformanceBaselineConfig.CleanupSeconds
+	elseif phase == "IdleObservation" then
+		return PerformanceBaselineConfig.IdleObservationSeconds
+	end
+
+	return 0
+end
+
+local function getBenchmarkPhaseElapsed(totalElapsed)
+	if benchmarkPhase == "Measuring" then
+		return math.max(0, totalElapsed - PerformanceBaselineConfig.WarmupSeconds)
+	elseif benchmarkPhase == "Cleanup" then
+		return math.max(0, totalElapsed - PerformanceBaselineConfig.WarmupSeconds - PerformanceBaselineConfig.MeasurementSeconds)
+	elseif benchmarkPhase == "IdleObservation" then
+		return math.max(
+			0,
+			totalElapsed
+				- PerformanceBaselineConfig.WarmupSeconds
+				- PerformanceBaselineConfig.MeasurementSeconds
+				- PerformanceBaselineConfig.CleanupSeconds
+		)
+	end
+
+	return totalElapsed
+end
+
+local function refreshBenchmarkStatusLabel()
+	local elapsedSeconds = math.max(0, math.floor(benchmarkElapsedAtStatus + (os.clock() - benchmarkStatusReceivedAt)))
+	local phaseElapsed = getBenchmarkPhaseElapsed(elapsedSeconds)
+	local phaseDuration = getBenchmarkPhaseDuration(benchmarkPhase)
+	local phaseLabel = if benchmarkPhase == "Warmup"
+		then "chauffe"
+		elseif benchmarkPhase == "Measuring"
+			then "mesure"
+			elseif benchmarkPhase == "Cleanup"
+				then "nettoyage"
+				elseif benchmarkPhase == "IdleObservation"
+					then "repos mesure"
+				elseif benchmarkPhase == "CampaignTransition"
+					then "scenario suivant"
+				else string.lower(benchmarkPhase)
+	local benchmarkLabel = if benchmarkCampaignLabel ~= nil and benchmarkCampaignIndex ~= nil and benchmarkCampaignTotal ~= nil
+		then ("%s %d/%d | %s"):format(
+			benchmarkCampaignLabel,
+			benchmarkCampaignIndex,
+			benchmarkCampaignTotal,
+			benchmarkScenarioLabel
+		)
+		else benchmarkScenarioLabel
+
+	if benchmarkIsActive and phaseDuration > 0 then
+		benchmarkStatusLabel.Text = ("%s | %s %ds / %ds"):format(
+			benchmarkLabel,
+			phaseLabel,
+			math.min(phaseElapsed, phaseDuration),
+			phaseDuration
+		)
+	elseif benchmarkIsActive then
+		benchmarkStatusLabel.Text = ("%s | %s"):format(benchmarkLabel, phaseLabel)
+	else
+		benchmarkStatusLabel.Text = ("%s | %s"):format(
+			benchmarkScenarioLabel,
+			phaseLabel
+		)
+	end
+end
+
+local function getBenchmarkSelections()
+	return PerformanceBaselineConfig.GetSelections()
+end
+
+local function selectDefaultBenchmark()
+	for index, selection in ipairs(getBenchmarkSelections()) do
+		if selection.Id == PerformanceBaselineConfig.DefaultSelectionId then
+			benchmarkScenarioIndex = index
+			return
+		end
+	end
+end
+
+local function getSelectedBenchmarkSelection()
+	return getBenchmarkSelections()[benchmarkScenarioIndex]
 end
 
 local function refreshBenchmarkControls()
-	local scenario = getSelectedBenchmarkScenario()
+	local selection = getSelectedBenchmarkSelection()
 
-	if scenario == nil then
-		benchmarkScenarioButton.Text = "P0 : aucun scenario"
+	if selection == nil then
+		benchmarkScenarioButton.Text = "P0 : aucune selection"
 		benchmarkStartButton.Active = false
 		benchmarkStopButton.Active = false
 		return
 	end
 
-	benchmarkScenarioButton.Text = scenario.Label
+	benchmarkScenarioButton.Text = selection.Label
 	benchmarkStartButton.Active = not benchmarkIsActive
 	benchmarkStartButton.AutoButtonColor = not benchmarkIsActive
 	benchmarkStartButton.Text = if benchmarkIsActive then "P0 : en cours" else "P0 : lancer"
@@ -476,13 +573,14 @@ benchmarkScenarioButton.Activated:Connect(function()
 		return
 	end
 
-	benchmarkScenarioIndex = (benchmarkScenarioIndex % #PerformanceBaselineConfig.Scenarios) + 1
+	local selections = getBenchmarkSelections()
+	benchmarkScenarioIndex = (benchmarkScenarioIndex % #selections) + 1
 	refreshBenchmarkControls()
 end)
 
 benchmarkStartButton.Activated:Connect(function()
-	local scenario = getSelectedBenchmarkScenario()
-	if scenario == nil or benchmarkIsActive or not performanceBenchmarkRemote:IsA("RemoteEvent") then
+	local selection = getSelectedBenchmarkSelection()
+	if selection == nil or benchmarkIsActive or not performanceBenchmarkRemote:IsA("RemoteEvent") then
 		return
 	end
 
@@ -490,7 +588,7 @@ benchmarkStartButton.Activated:Connect(function()
 	benchmarkStatusLabel.TextColor3 = Color3.fromRGB(214, 230, 255)
 	performanceBenchmarkRemote:FireServer({
 		Action = "Start",
-		ScenarioId = scenario.Id,
+		SelectionId = selection.Id,
 	})
 end)
 
@@ -504,6 +602,14 @@ benchmarkStopButton.Activated:Connect(function()
 	performanceBenchmarkRemote:FireServer({
 		Action = "Stop",
 	})
+end)
+
+physicsAuditButton.Activated:Connect(function()
+	if not physicsAuditRemote:IsA("RemoteEvent") then
+		return
+	end
+
+	fireAdminAction(physicsAuditButton, physicsAuditRemote, "Audit P1...")
 end)
 
 consoleToggle.Activated:Connect(function()
@@ -540,16 +646,33 @@ performanceBenchmarkStatusRemote.OnClientEvent:Connect(function(payload)
 	end
 
 	benchmarkIsActive = payload.Active == true
-	local phase = if typeof(payload.Phase) == "string" then payload.Phase else "Inconnu"
-	local scenarioLabel = if typeof(payload.ScenarioLabel) == "string" then payload.ScenarioLabel else "P0"
-	local elapsedSeconds = math.max(0, math.floor(tonumber(payload.ElapsedSeconds) or 0))
-	benchmarkStatusLabel.Text = ("%s | %s | %ds"):format(scenarioLabel, phase, elapsedSeconds)
-	benchmarkStatusLabel.TextColor3 = if phase == "Completed"
+	benchmarkPhase = if typeof(payload.Phase) == "string" then payload.Phase else "Inconnu"
+	benchmarkScenarioLabel = if typeof(payload.ScenarioLabel) == "string" then payload.ScenarioLabel else "P0"
+	benchmarkElapsedAtStatus = math.max(0, tonumber(payload.ElapsedSeconds) or 0)
+	benchmarkStatusReceivedAt = os.clock()
+	benchmarkCampaignLabel = if typeof(payload.CampaignLabel) == "string" then payload.CampaignLabel else nil
+	benchmarkCampaignIndex = if typeof(payload.CampaignIndex) == "number" then payload.CampaignIndex else nil
+	benchmarkCampaignTotal = if typeof(payload.CampaignTotal) == "number" then payload.CampaignTotal else nil
+	benchmarkStatusLabel.TextColor3 = if benchmarkPhase == "Completed"
 		then Color3.fromRGB(145, 235, 170)
-		elseif phase == "Cleanup"
+		elseif benchmarkPhase == "Cleanup"
 			then Color3.fromRGB(255, 221, 150)
 			else Color3.fromRGB(154, 212, 255)
+	refreshBenchmarkStatusLabel()
 	refreshBenchmarkControls()
+end)
+
+RunService.RenderStepped:Connect(function(deltaTime)
+	if not benchmarkIsActive then
+		benchmarkStatusRefreshElapsed = 0
+		return
+	end
+
+	benchmarkStatusRefreshElapsed += deltaTime
+	if benchmarkStatusRefreshElapsed >= 0.2 then
+		benchmarkStatusRefreshElapsed = 0
+		refreshBenchmarkStatusLabel()
+	end
 end)
 
 debugLogStateRemote.OnClientEvent:Connect(function(payload)
@@ -560,6 +683,7 @@ player:GetAttributeChangedSignal("CanUseAdminTools"):Connect(updateVisibility)
 player:GetAttributeChangedSignal(DEV_KIT_PREVIEW_ATTRIBUTE):Connect(refreshDevKitPreviewButton)
 updateVisibility()
 refreshDevKitPreviewButton()
+selectDefaultBenchmark()
 refreshBenchmarkControls()
 
 DebugLog.Info("UI", "UI admin initialisee", {

@@ -10,6 +10,7 @@ local PerformanceBaselineConfig = require(Shared:WaitForChild("PerformanceBaseli
 local JumpBonusService = require(script.Parent:WaitForChild("JumpBonusService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local PerformanceBenchmarkService = require(script.Parent:WaitForChild("PerformanceBenchmarkService"))
+local PhysicsAuditService = require(script.Parent:WaitForChild("PhysicsAuditService"))
 local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 
 local AdminService = {}
@@ -55,6 +56,7 @@ local debugLogStateRemote = getOrCreateRemote("Admin_DebugLogState")
 local getDebugLogStateRemote = getOrCreateRemoteFunction("Admin_GetDebugLogState")
 local toggleDevKitPreviewRemote = getOrCreateRemote("Admin_ToggleDevKitPreview")
 local performanceBenchmarkRemote = getOrCreateRemote(PerformanceBaselineConfig.AdminRemoteName)
+local physicsAuditRemote = getOrCreateRemote("Admin_RunPhysicsAudit")
 local debugCategoryIds = {}
 
 for _, category in ipairs(AdminConfig.DebugLogCategories) do
@@ -195,6 +197,12 @@ function AdminService.Start()
 		end, false)
 	end)
 
+	physicsAuditRemote.OnServerEvent:Connect(function(player)
+		runAdminAction(player, "Inventaire physique P1", function()
+			return PhysicsAuditService.RunAudit()
+		end, false)
+	end)
+
 	performanceBenchmarkRemote.OnServerEvent:Connect(function(player, payload)
 		if not canUseAdminTools(player) then
 			DebugLog.Warn("Admin", "Benchmark P0 refuse", {
@@ -212,8 +220,8 @@ function AdminService.Start()
 		local success = false
 		local message = "Commande P0 inconnue"
 
-		if payload.Action == "Start" and typeof(payload.ScenarioId) == "string" then
-			success, message = PerformanceBenchmarkService.StartScenario(player, payload.ScenarioId)
+		if payload.Action == "Start" and typeof(payload.SelectionId) == "string" then
+			success, message = PerformanceBenchmarkService.StartSelection(player, payload.SelectionId)
 		elseif payload.Action == "Stop" then
 			success, message = PerformanceBenchmarkService.StopScenario(player)
 		end
@@ -223,13 +231,13 @@ function AdminService.Start()
 			DebugLog.Info("Perf", "Commande benchmark P0 executee", {
 				Player = player.Name,
 				Action = payload.Action,
-				ScenarioId = payload.ScenarioId,
+				SelectionId = payload.SelectionId,
 			})
 		else
 			DebugLog.Warn("Perf", "Commande benchmark P0 refusee", {
 				Player = player.Name,
 				Action = payload.Action,
-				ScenarioId = payload.ScenarioId,
+				SelectionId = payload.SelectionId,
 				Reason = message,
 			})
 		end

@@ -54,11 +54,15 @@ local function preparePortalInstance(portal)
 	for _, descendant in ipairs(portal:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			descendant.Anchored = true
+			descendant.CanTouch = false
+			descendant.CanQuery = false
 		end
 	end
 
 	if portal:IsA("BasePart") then
 		portal.Anchored = true
+		portal.CanTouch = false
+		portal.CanQuery = false
 	end
 
 	portal:SetAttribute("PortalBossRuntime", true)

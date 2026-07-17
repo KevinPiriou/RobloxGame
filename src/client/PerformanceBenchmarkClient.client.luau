@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Stats = game:GetService("Stats")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -28,6 +29,10 @@ local frameSpikeCount = 0
 local memoryBeforeMb = nil
 local memoryPeakMb = nil
 local memoryAfterCleanupMb = nil
+local memoryAfterIdleMb = nil
+local viewportBefore = nil
+local viewportChanged = false
+local focusLostCount = 0
 
 local function readNumber(reader)
 	local success, value = pcall(reader)
@@ -101,6 +106,11 @@ local function sendSummary()
 			MemoryBeforeMb = memoryBeforeMb,
 			MemoryPeakMb = memoryPeakMb,
 			MemoryAfterCleanupMb = memoryAfterCleanupMb,
+			MemoryAfterIdleMb = memoryAfterIdleMb,
+			ViewportBefore = viewportBefore,
+			ViewportAfter = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or nil,
+			ViewportChanged = viewportChanged,
+			FocusLostCount = focusLostCount,
 			Graphics = GraphicsController.GetSettings(),
 			Vfx = VfxQualityController.GetSettings(),
 		},
@@ -148,6 +158,7 @@ local function sendPeriodicSample()
 			["Client.Memory.LuaHeapMb"] = readMemoryTag("LuaHeap") or -1,
 			["Client.Memory.GraphicsTextureMb"] = readMemoryTag("GraphicsTexture") or -1,
 			["Client.Memory.SoundsMb"] = readMemoryTag("Sounds") or -1,
+			["Client.Memory.PhysicsPartsMb"] = readMemoryTag("PhysicsParts") or -1,
 			["Client.Memory.PhysicsCollisionMb"] = readMemoryTag("PhysicsCollision") or -1,
 			["Client.Vfx.ParticleEmitters"] = particles,
 			["Client.Vfx.Lights"] = lights,
@@ -173,12 +184,25 @@ statusRemote.OnClientEvent:Connect(function(payload)
 			end)
 			memoryPeakMb = memoryBeforeMb
 			memoryAfterCleanupMb = nil
+			memoryAfterIdleMb = nil
+			viewportBefore = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or nil
+			viewportChanged = false
+			focusLostCount = 0
 			elapsedSinceSample = 0
 		end
 	end
 
+	if typeof(payload.VfxBenchmarkLock) == "boolean" then
+		VfxQualityController.SetBenchmarkLock(payload.VfxBenchmarkLock)
+	end
+
 	if nextPhase == "Cleanup" then
 		memoryAfterCleanupMb = readNumber(function()
+			return Stats:GetTotalMemoryUsageMb()
+		end)
+		sendSummary()
+	elseif nextPhase == "IdleObservation" then
+		memoryAfterIdleMb = readNumber(function()
 			return Stats:GetTotalMemoryUsageMb()
 		end)
 		sendSummary()
@@ -189,9 +213,20 @@ statusRemote.OnClientEvent:Connect(function(payload)
 	activePhase = if typeof(nextPhase) == "string" then nextPhase else activePhase
 end)
 
+UserInputService.WindowFocusReleased:Connect(function()
+	if activeBenchmarkId ~= nil then
+		focusLostCount += 1
+	end
+end)
+
 RunService.RenderStepped:Connect(function(deltaTime)
 	if activeBenchmarkId == nil then
 		return
+	end
+
+	local currentCamera = Workspace.CurrentCamera
+	if viewportBefore ~= nil and currentCamera ~= nil and currentCamera.ViewportSize ~= viewportBefore then
+		viewportChanged = true
 	end
 
 	if activePhase == "Measuring" then

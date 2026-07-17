@@ -23,7 +23,9 @@ local PerformanceBenchmarkService = {}
 
 local isStarted = false
 local activeBenchmark = nil
+local activeCampaign = nil
 local latestReport = nil
+local latestCampaignReport = nil
 local clientSamplesByMetric = {}
 local clientSummary = nil
 local serverSampleElapsed = 0
@@ -44,6 +46,21 @@ end
 
 local clientSampleRemote = getOrCreateRemote(PerformanceBaselineConfig.ClientSampleRemoteName)
 local statusRemote = getOrCreateRemote(PerformanceBaselineConfig.StatusRemoteName)
+
+local function getOrCreateReportFolder()
+	local folder = ReplicatedStorage:FindFirstChild(PerformanceBaselineConfig.ReportFolderName)
+
+	if folder == nil then
+		folder = Instance.new("Folder")
+		folder.Name = PerformanceBaselineConfig.ReportFolderName
+		folder.Parent = ReplicatedStorage
+	end
+
+	assert(folder:IsA("Folder"), PerformanceBaselineConfig.ReportFolderName .. " doit etre un Folder.")
+	return folder
+end
+
+local reportFolder = getOrCreateReportFolder()
 
 local function readNumber(reader)
 	local success, value = pcall(reader)
@@ -174,6 +191,7 @@ local function publishStatus(benchmark, phase, extra)
 		return
 	end
 
+	local campaign = benchmark.Campaign
 	local payload = {
 		Active = phase ~= "Completed" and phase ~= "Idle",
 		BenchmarkId = benchmark.Id,
@@ -183,6 +201,11 @@ local function publishStatus(benchmark, phase, extra)
 		ElapsedSeconds = os.clock() - benchmark.StartedAt,
 		WarmupSeconds = PerformanceBaselineConfig.WarmupSeconds,
 		MeasurementSeconds = PerformanceBaselineConfig.MeasurementSeconds,
+		CampaignId = if campaign ~= nil then campaign.Id else nil,
+		CampaignLabel = if campaign ~= nil then campaign.Config.Label else nil,
+		CampaignIndex = if campaign ~= nil then benchmark.CampaignIndex else nil,
+		CampaignTotal = if campaign ~= nil then #campaign.Config.ScenarioIds else nil,
+		VfxBenchmarkLock = PerformanceBaselineConfig.LockAdaptiveVfx == true and phase ~= "Completed",
 	}
 
 	for key, value in pairs(extra or {}) do
@@ -209,6 +232,7 @@ local function recordServerSample()
 	PerformanceTelemetryService.Record("Server.Memory.LuaHeapMb", readMemoryTag("LuaHeap") or -1)
 	PerformanceTelemetryService.Record("Server.Memory.GraphicsTextureMb", readMemoryTag("GraphicsTexture") or -1)
 	PerformanceTelemetryService.Record("Server.Memory.SoundsMb", readMemoryTag("Sounds") or -1)
+	PerformanceTelemetryService.Record("Server.Memory.PhysicsPartsMb", readMemoryTag("PhysicsParts") or -1)
 	PerformanceTelemetryService.Record("Server.Memory.PhysicsCollisionMb", readMemoryTag("PhysicsCollision") or -1)
 	PerformanceTelemetryService.Record("Server.Instances.Runtime", countRuntimeDescendants())
 	PerformanceTelemetryService.Record("Server.Instances.Total", readNumber(function()
@@ -254,13 +278,24 @@ local function restoreRunContext(benchmark)
 	end
 end
 
-local function cleanupBenchmark(benchmark)
-	MonsterService.SetBenchmarkMode(false)
-	MonsterService.SetBenchmarkSeed(nil)
+local function cleanupBenchmark(benchmark, preserveArenaContext)
+	if preserveArenaContext then
+		-- Entre deux scenarios P0, les vagues ordinaires doivent rester suspendues.
+		MonsterService.SetBenchmarkMode(true)
+		MonsterService.SetBenchmarkSeed(PerformanceBaselineConfig.Seed)
+	else
+		MonsterService.SetBenchmarkMode(false)
+		MonsterService.SetBenchmarkSeed(nil)
+	end
 	WeaponService.ClearProjectilesForBenchmark()
 	MonsterService.ClearAllMonsters("PerformanceBaseline")
 	XpService.ClearRunGems()
 	CoinService.ClearRunCoins()
+
+	if preserveArenaContext then
+		return
+	end
+
 	restoreArenaSurfaceState(benchmark.BenchmarkRoot, benchmark.Arena, benchmark.ArenaSurfaceState)
 	restoreRunContext(benchmark)
 
@@ -312,9 +347,97 @@ local function getMetricValue(telemetry, metricName, fieldName)
 	return if metric ~= nil then metric[fieldName] else nil
 end
 
+local function getCounterValue(telemetry, counterName)
+	if telemetry == nil or telemetry.Counters == nil then
+		return 0
+	end
+
+	local value = telemetry.Counters[counterName]
+	return if typeof(value) == "number" then value else 0
+end
+
 local function secondsToMilliseconds(value)
 	return if typeof(value) == "number" then value * 1000 else nil
 end
+
+local function formatNumber(value, decimals)
+	if typeof(value) ~= "number" then
+		return "n/a"
+	end
+
+	return string.format("%." .. tostring(decimals or 2) .. "f", value)
+end
+
+local function getClientMetric(report, metricName, fieldName)
+	return getMetricValue({ Metrics = report.Client.Metrics }, metricName, fieldName)
+end
+
+local function getReportReproducibility(report)
+	local summary = report.Client.Summary
+
+	if summary == nil then
+		return false, "client_absent"
+	end
+
+	if summary.ViewportChanged == true then
+		return false, "viewport_modifie"
+	end
+
+	if (tonumber(summary.FocusLostCount) or 0) > 0 then
+		return false, "fenetre_non_focalisee"
+	end
+
+	return true, "ok"
+end
+
+local function buildScenarioExport(report)
+	local clientSummary = report.Client.Summary or {}
+	local comparable, reason = getReportReproducibility(report)
+
+	return table.concat({
+		"P0_SCENARIO",
+		"id=" .. report.Scenario.Id,
+		"raison=" .. report.Reason,
+		"comparable=" .. tostring(comparable),
+		"validation=" .. reason,
+		"seed=" .. tostring(report.Seed),
+		"coeur_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Server.HeartbeatSeconds", "P95"))),
+		"monstres_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.TickSeconds", "P95"))),
+		"projectiles_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Weapon.TickSeconds", "P95"))),
+		"client_frame_ms_p95=" .. formatNumber(secondsToMilliseconds(clientSummary.FrameP95Seconds)),
+		"client_physics_ms_p95=" .. formatNumber(secondsToMilliseconds(getClientMetric(report, "Client.PhysicsSeconds", "P95"))),
+		"draw_calls_moy=" .. formatNumber(getClientMetric(report, "Client.DrawCalls", "Average"), 0),
+		"triangles_moy=" .. formatNumber(getClientMetric(report, "Client.Triangles", "Average"), 0),
+		"instances_client_p95=" .. formatNumber(getClientMetric(report, "Client.Instances", "P95"), 0),
+		"vfx_particules_p95=" .. formatNumber(getClientMetric(report, "Client.Vfx.ParticleEmitters", "P95"), 0),
+		"vfx_lumieres_p95=" .. formatNumber(getClientMetric(report, "Client.Vfx.Lights", "P95"), 0),
+		"memoire_serveur_avant_mb=" .. formatNumber(report.Memory.ServerBeforeMb),
+		"memoire_serveur_pic_mb=" .. formatNumber(report.Memory.ServerPeakMb),
+		"memoire_serveur_cleanup_mb=" .. formatNumber(report.Memory.ServerAfterCleanupMb),
+		"memoire_serveur_repos_mb=" .. formatNumber(report.Memory.ServerAfterIdleMb),
+		"memoire_client_avant_mb=" .. formatNumber(clientSummary.MemoryBeforeMb),
+		"memoire_client_pic_mb=" .. formatNumber(clientSummary.MemoryPeakMb),
+		"memoire_client_cleanup_mb=" .. formatNumber(clientSummary.MemoryAfterCleanupMb),
+		"memoire_client_repos_mb=" .. formatNumber(clientSummary.MemoryAfterIdleMb),
+		"vfx_verrouille=" .. tostring(clientSummary.Vfx and clientSummary.Vfx.BenchmarkLockEnabled == true),
+	}, "\n")
+end
+
+local function writeReportValue(name, value)
+	local reportValue = reportFolder:FindFirstChild(name)
+
+	if reportValue == nil then
+		reportValue = Instance.new("StringValue")
+		reportValue.Name = name
+		reportValue.Parent = reportFolder
+	end
+
+	assert(reportValue:IsA("StringValue"), name .. " doit etre un StringValue.")
+	reportValue.Value = value
+end
+
+local finishCampaign
+local startCampaignNextScenario
 
 local function finishBenchmark(benchmark, reason)
 	if activeBenchmark ~= benchmark then
@@ -322,7 +445,9 @@ local function finishBenchmark(benchmark, reason)
 	end
 
 	benchmark.Phase = "Cleanup"
-	cleanupBenchmark(benchmark)
+	-- Le contexte P0 reste actif jusqu'au rapport final. Sans cela, les
+	-- vagues ordinaires faussent immediatement la mesure de memoire residuelle.
+	cleanupBenchmark(benchmark, true)
 	benchmark.ServerMemoryAfterCleanupMb = readNumber(function()
 		return Stats:GetTotalMemoryUsageMb()
 	end)
@@ -333,74 +458,172 @@ local function finishBenchmark(benchmark, reason)
 			return
 		end
 
-		local telemetry = PerformanceTelemetryService.Finish()
-		local report = {
-			Version = "P0.2",
-			FinishedAtUnix = os.time(),
-			Reason = reason,
-			Scenario = table.clone(benchmark.Scenario),
-			RunId = benchmark.Session.RunId,
-			Seed = benchmark.Session.Seed,
-			Environment = if RunService:IsStudio() then "Studio" else "Published",
-			Server = telemetry,
-			Client = {
-				Metrics = getClientMetricsSummary(),
-				Summary = clientSummary,
-			},
-			Network = {
-				RealtimeBytesAvailable = false,
-				RequiredCapture = "MicroProfiler network or Developer Console",
-			},
-			Memory = {
-				ServerBeforeMb = benchmark.ServerMemoryBeforeMb,
-				ServerPeakMb = getMetricValue(telemetry, "Server.Memory.TotalMb", "Max"),
-				ServerAfterCleanupMb = benchmark.ServerMemoryAfterCleanupMb,
-			},
-		}
+		benchmark.Phase = "IdleObservation"
+		publishStatus(benchmark, "IdleObservation", { Reason = reason })
 
-		latestReport = report
-		activeBenchmark = nil
-		clientSamplesByMetric = {}
-		clientSummary = nil
-		publishStatus(benchmark, "Completed", {
-			Reason = reason,
-			ReportReady = true,
-		})
+		task.delay(PerformanceBaselineConfig.IdleObservationSeconds, function()
+			if activeBenchmark ~= benchmark then
+				return
+			end
 
-		DebugLog.Info("Perf", "Rapport P0 serveur", {
-			Scenario = benchmark.Scenario.Id,
-			Reason = reason,
-			HeartbeatP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "Server.HeartbeatSeconds", "P95")),
-			MonsterP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "Monster.TickSeconds", "P95")),
-			WeaponP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "Weapon.TickSeconds", "P95")),
-			RaycastP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "WorldSpawn.RaycastSeconds", "P95")),
-			Raycasts = telemetry and telemetry.Counters.WorldSpawn.RaycastCount or 0,
-			MonsterRaycastP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "Monster.RaycastSeconds", "P95")),
-			MonsterRaycasts = telemetry and telemetry.Counters.Monster.RaycastCount or 0,
-			XpMergeP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "Xp.MergeSeconds", "P95")),
-			CoinMergeP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "Coin.MergeSeconds", "P95")),
-		})
-		DebugLog.Info("Perf", "Rapport P0 client", {
-			Scenario = benchmark.Scenario.Id,
-			FrameP50Ms = secondsToMilliseconds(report.Client.Summary and report.Client.Summary.FrameP50Seconds),
-			FrameP95Ms = secondsToMilliseconds(report.Client.Summary and report.Client.Summary.FrameP95Seconds),
-			FrameP99Ms = secondsToMilliseconds(report.Client.Summary and report.Client.Summary.FrameP99Seconds),
-			FrameSpikes = report.Client.Summary and report.Client.Summary.FrameSpikeCount or 0,
-			DrawCallsAverage = getMetricValue({ Metrics = report.Client.Metrics }, "Client.DrawCalls", "Average"),
-			TrianglesAverage = getMetricValue({ Metrics = report.Client.Metrics }, "Client.Triangles", "Average"),
-			RenderCpuP95Ms = secondsToMilliseconds(getMetricValue({ Metrics = report.Client.Metrics }, "Client.RenderCpuSeconds", "P95")),
-			RenderGpuP95Ms = secondsToMilliseconds(getMetricValue({ Metrics = report.Client.Metrics }, "Client.RenderGpuSeconds", "P95")),
-		})
-		DebugLog.Info("Perf", "Rapport P0 memoire", {
-			Scenario = benchmark.Scenario.Id,
-			ServerBeforeMb = report.Memory.ServerBeforeMb,
-			ServerPeakMb = report.Memory.ServerPeakMb,
-			ServerAfterCleanupMb = report.Memory.ServerAfterCleanupMb,
-			ClientBeforeMb = report.Client.Summary and report.Client.Summary.MemoryBeforeMb,
-			ClientPeakMb = report.Client.Summary and report.Client.Summary.MemoryPeakMb,
-			ClientAfterCleanupMb = report.Client.Summary and report.Client.Summary.MemoryAfterCleanupMb,
-			Network = "Capture MicroProfiler requise",
-		})
+			benchmark.ServerMemoryAfterIdleMb = readNumber(function()
+				return Stats:GetTotalMemoryUsageMb()
+			end)
+
+			local telemetry = PerformanceTelemetryService.Finish()
+			local report = {
+				Version = "P0.4",
+				FinishedAtUnix = os.time(),
+				Reason = reason,
+				Scenario = table.clone(benchmark.Scenario),
+				Campaign = if benchmark.Campaign ~= nil
+					then {
+						Id = benchmark.Campaign.Id,
+						Label = benchmark.Campaign.Config.Label,
+						Index = benchmark.CampaignIndex,
+						Total = #benchmark.Campaign.Config.ScenarioIds,
+					}
+					else nil,
+				RunId = benchmark.Session.RunId,
+				Seed = benchmark.Session.Seed,
+				Environment = if RunService:IsStudio() then "Studio" else "Published",
+				Server = telemetry,
+				Client = {
+					Metrics = getClientMetricsSummary(),
+					Summary = clientSummary,
+				},
+				Network = {
+					RealtimeBytesAvailable = false,
+					RequiredCapture = "MicroProfiler network or Developer Console",
+				},
+				Memory = {
+					ServerBeforeMb = benchmark.ServerMemoryBeforeMb,
+					ServerPeakMb = getMetricValue(telemetry, "Server.Memory.TotalMb", "Max"),
+					ServerAfterCleanupMb = benchmark.ServerMemoryAfterCleanupMb,
+					ServerAfterIdleMb = benchmark.ServerMemoryAfterIdleMb,
+				},
+				BenchmarkPolicy = {
+					AdaptiveVfxLocked = PerformanceBaselineConfig.LockAdaptiveVfx == true,
+					IdleObservationSeconds = PerformanceBaselineConfig.IdleObservationSeconds,
+				},
+			}
+
+			local comparable, validationReason = getReportReproducibility(report)
+			report.Reproducibility = {
+				Comparable = comparable,
+				ValidationReason = validationReason,
+			}
+
+			local export = buildScenarioExport(report)
+			writeReportValue("LatestScenario", export)
+			writeReportValue("Scenario_" .. benchmark.Scenario.Id, export)
+			print("[MegaRoblox][P0_EXPORT] " .. export:gsub("\n", " | "))
+
+			latestReport = report
+			activeBenchmark = nil
+			clientSamplesByMetric = {}
+			clientSummary = nil
+
+			DebugLog.Info("Perf", "Rapport P0 serveur", {
+				Scenario = benchmark.Scenario.Id,
+				Reason = reason,
+				Comparable = comparable,
+				Validation = validationReason,
+				HeartbeatP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "Server.HeartbeatSeconds", "P95")),
+				MonsterP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "Monster.TickSeconds", "P95")),
+				WeaponP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "Weapon.TickSeconds", "P95")),
+				RaycastP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "WorldSpawn.RaycastSeconds", "P95")),
+				Raycasts = getCounterValue(telemetry, "WorldSpawn.RaycastCount"),
+				MonsterRaycastP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "Monster.RaycastSeconds", "P95")),
+				MonsterRaycasts = getCounterValue(telemetry, "Monster.RaycastCount"),
+				XpMergeP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "Xp.MergeSeconds", "P95")),
+				CoinMergeP95Ms = secondsToMilliseconds(getMetricValue(telemetry, "Coin.MergeSeconds", "P95")),
+			})
+			DebugLog.Info("Perf", "Rapport P0 client", {
+				Scenario = benchmark.Scenario.Id,
+				FrameP50Ms = secondsToMilliseconds(report.Client.Summary and report.Client.Summary.FrameP50Seconds),
+				FrameP95Ms = secondsToMilliseconds(report.Client.Summary and report.Client.Summary.FrameP95Seconds),
+				FrameP99Ms = secondsToMilliseconds(report.Client.Summary and report.Client.Summary.FrameP99Seconds),
+				FrameSpikes = report.Client.Summary and report.Client.Summary.FrameSpikeCount or 0,
+				PhysicsP95Ms = secondsToMilliseconds(getClientMetric(report, "Client.PhysicsSeconds", "P95")),
+				DrawCallsAverage = getClientMetric(report, "Client.DrawCalls", "Average"),
+				TrianglesAverage = getClientMetric(report, "Client.Triangles", "Average"),
+				InstancesP95 = getClientMetric(report, "Client.Instances", "P95"),
+				RenderCpuP95Ms = secondsToMilliseconds(getClientMetric(report, "Client.RenderCpuSeconds", "P95")),
+				RenderGpuP95Ms = secondsToMilliseconds(getClientMetric(report, "Client.RenderGpuSeconds", "P95")),
+				VfxParticlesP95 = getClientMetric(report, "Client.Vfx.ParticleEmitters", "P95"),
+				VfxLightsP95 = getClientMetric(report, "Client.Vfx.Lights", "P95"),
+			})
+			DebugLog.Info("Perf", "Rapport P0 memoire", {
+				Scenario = benchmark.Scenario.Id,
+				ServerBeforeMb = report.Memory.ServerBeforeMb,
+				ServerPeakMb = report.Memory.ServerPeakMb,
+				ServerAfterCleanupMb = report.Memory.ServerAfterCleanupMb,
+				ServerAfterIdleMb = report.Memory.ServerAfterIdleMb,
+				ClientBeforeMb = report.Client.Summary and report.Client.Summary.MemoryBeforeMb,
+				ClientPeakMb = report.Client.Summary and report.Client.Summary.MemoryPeakMb,
+				ClientAfterCleanupMb = report.Client.Summary and report.Client.Summary.MemoryAfterCleanupMb,
+				ClientAfterIdleMb = report.Client.Summary and report.Client.Summary.MemoryAfterIdleMb,
+				Network = "Capture MicroProfiler requise",
+			})
+
+			local campaign = benchmark.Campaign
+			if campaign ~= nil and activeCampaign == campaign then
+				table.insert(campaign.Reports, report)
+				campaign.LastBenchmark = benchmark
+
+				if campaign.StopRequested then
+					finishCampaign(campaign, reason, benchmark)
+				else
+					publishStatus(benchmark, "CampaignTransition", {
+						Reason = reason,
+						ReportReady = true,
+					})
+
+					task.delay(PerformanceBaselineConfig.InterScenarioSeconds, function()
+						startCampaignNextScenario(campaign)
+					end)
+				end
+			else
+				cleanupBenchmark(benchmark, false)
+				publishStatus(benchmark, "Completed", {
+					Reason = reason,
+					ReportReady = true,
+				})
+			end
+		end)
+	end)
+end
+
+local function startProjectileCadence(benchmark)
+	local burstCount = math.max(0, math.floor(benchmark.Scenario.ProjectileBurst or 0))
+	local intervalSeconds = tonumber(benchmark.Scenario.ProjectileBurstIntervalSeconds)
+
+	if burstCount <= 0 then
+		return
+	end
+
+	local function fireBurst()
+		if activeBenchmark ~= benchmark or benchmark.Phase ~= "Measuring" then
+			return false
+		end
+
+		WeaponService.DebugFireballBurst(benchmark.Owner, burstCount)
+		return true
+	end
+
+	if not fireBurst() or intervalSeconds == nil or intervalSeconds <= 0 then
+		return
+	end
+
+	task.spawn(function()
+		while activeBenchmark == benchmark and benchmark.Phase == "Measuring" do
+			task.wait(intervalSeconds)
+
+			if not fireBurst() then
+				return
+			end
+		end
 	end)
 end
 
@@ -416,18 +639,24 @@ local function beginMeasurement(benchmark)
 	serverSampleElapsed = 0
 	publishStatus(benchmark, "Measuring")
 
-	if (benchmark.Scenario.ProjectileBurst or 0) > 0 then
-		WeaponService.DebugFireballBurst(benchmark.Owner, benchmark.Scenario.ProjectileBurst)
-	end
+	startProjectileCadence(benchmark)
 
 	task.delay(PerformanceBaselineConfig.MeasurementSeconds, function()
 		finishBenchmark(benchmark, "Completed")
 	end)
 end
 
-local function startBenchmark(player, scenarioId)
+local function startBenchmark(player, scenarioId, campaign)
 	if activeBenchmark ~= nil then
 		return false, "Un benchmark P0 est deja en cours"
+	end
+
+	if campaign == nil and activeCampaign ~= nil then
+		return false, "Une campagne P0 est deja en cours"
+	end
+
+	if campaign ~= nil and activeCampaign ~= campaign then
+		return false, "Campagne P0 invalide"
 	end
 
 	if #Players:GetPlayers() ~= 1 then
@@ -448,16 +677,22 @@ local function startBenchmark(player, scenarioId)
 		return false, "Configuration P0 incomplete"
 	end
 
+	local originalMap = if campaign ~= nil and campaign.OriginalMap ~= nil then campaign.OriginalMap else RunMapService.GetActiveMap()
+	local originalCharacterCFrame = if campaign ~= nil and campaign.OriginalCharacterCFrame ~= nil
+		then campaign.OriginalCharacterCFrame
+		else root.CFrame
 	local benchmark = {
 		Id = ("P0-%d-%d"):format(player.UserId, math.floor(os.clock() * 1000)),
 		Owner = player,
 		Scenario = scenario,
+		Campaign = campaign,
+		CampaignIndex = if campaign ~= nil then campaign.NextScenarioIndex else nil,
 		Session = session,
 		BenchmarkRoot = benchmarkRoot,
 		Arena = arena,
 		SimulationCenter = simulationCenter,
-		OriginalMap = RunMapService.GetActiveMap(),
-		OriginalCharacterCFrame = root.CFrame,
+		OriginalMap = originalMap,
+		OriginalCharacterCFrame = originalCharacterCFrame,
 		ServerMemoryBeforeMb = readNumber(function()
 			return Stats:GetTotalMemoryUsageMb()
 		end),
@@ -468,9 +703,19 @@ local function startBenchmark(player, scenarioId)
 		Phase = "Warmup",
 	}
 
-	benchmark.ArenaSurfaceState = applyArenaSurfaceState(benchmarkRoot, arena, true)
+	benchmark.ArenaSurfaceState = if campaign ~= nil then campaign.ArenaSurfaceState else nil
+	if benchmark.ArenaSurfaceState == nil then
+		benchmark.ArenaSurfaceState = applyArenaSurfaceState(benchmarkRoot, arena, true)
+	end
 	if benchmark.ArenaSurfaceState == nil then
 		return false, "Sol P0 introuvable"
+	end
+
+	if campaign ~= nil then
+		campaign.ArenaSurfaceState = benchmark.ArenaSurfaceState
+		campaign.OriginalMap = originalMap
+		campaign.OriginalCharacterCFrame = originalCharacterCFrame
+		campaign.LastBenchmark = benchmark
 	end
 
 	MonsterService.ClearAllMonsters("PerformanceBaselinePreparation")
@@ -499,10 +744,14 @@ local function startBenchmark(player, scenarioId)
 		Scenario = scenario.Id,
 		RequestedMonsters = scenario.MonsterCount or 0,
 		SpawnedMonsters = spawnedCount,
-		Projectiles = scenario.ProjectileBurst or 0,
+		ProjectileBurst = scenario.ProjectileBurst or 0,
+		ProjectileBurstIntervalSeconds = scenario.ProjectileBurstIntervalSeconds,
 		XpGems = scenario.XpGemCount or 0,
 		Coins = scenario.CoinCount or 0,
 		Seed = PerformanceBaselineConfig.Seed,
+		CampaignId = if campaign ~= nil then campaign.Id else nil,
+		CampaignIndex = if campaign ~= nil then benchmark.CampaignIndex else nil,
+		CampaignTotal = if campaign ~= nil then #campaign.Config.ScenarioIds else nil,
 	})
 
 	task.delay(PerformanceBaselineConfig.WarmupSeconds, function()
@@ -520,21 +769,200 @@ function PerformanceBenchmarkService.StartScenario(player, scenarioId)
 	return startBenchmark(player, scenarioId)
 end
 
-function PerformanceBenchmarkService.StopScenario(player)
+finishCampaign = function(campaign, reason, benchmark)
+	if activeCampaign ~= campaign then
+		return
+	end
+
+	local cleanupSource = benchmark or campaign.LastBenchmark
+	if cleanupSource ~= nil then
+		cleanupBenchmark(cleanupSource, false)
+	end
+
+	campaign.FinishedAt = os.clock()
+	campaign.ServerMemoryAfterCampaignMb = readNumber(function()
+		return Stats:GetTotalMemoryUsageMb()
+	end)
+	latestCampaignReport = {
+		Version = "P0.4",
+		CampaignId = campaign.Id,
+		CampaignLabel = campaign.Config.Label,
+		RunId = campaign.Session and campaign.Session.RunId or nil,
+		Seed = PerformanceBaselineConfig.Seed,
+		Environment = if RunService:IsStudio() then "Studio" else "Published",
+		Reason = reason,
+		StartedAtUnix = campaign.StartedAtUnix,
+		FinishedAtUnix = os.time(),
+		ScenarioCount = #campaign.Config.ScenarioIds,
+		CompletedScenarioCount = #campaign.Reports,
+		DurationSeconds = campaign.FinishedAt - campaign.StartedAt,
+		Memory = {
+			ServerBeforeCampaignMb = campaign.ServerMemoryBeforeCampaignMb,
+			ServerAfterCampaignMb = campaign.ServerMemoryAfterCampaignMb,
+		},
+		Reports = table.clone(campaign.Reports),
+	}
+	activeCampaign = nil
+
+	local campaignLines = {
+		"P0_CAMPAGNE",
+		"id=" .. campaign.Id,
+		"raison=" .. reason,
+		"scenarios=" .. tostring(#campaign.Reports) .. "/" .. tostring(#campaign.Config.ScenarioIds),
+		"duree_s=" .. formatNumber(latestCampaignReport.DurationSeconds),
+		"memoire_serveur_avant_mb=" .. formatNumber(campaign.ServerMemoryBeforeCampaignMb),
+		"memoire_serveur_apres_mb=" .. formatNumber(campaign.ServerMemoryAfterCampaignMb),
+	}
+
+	for _, report in ipairs(campaign.Reports) do
+		local comparable, validationReason = getReportReproducibility(report)
+		table.insert(campaignLines, table.concat({
+			"scenario=" .. report.Scenario.Id,
+			"comparable=" .. tostring(comparable),
+			"validation=" .. validationReason,
+			"frame_p95_ms=" .. formatNumber(secondsToMilliseconds(report.Client.Summary and report.Client.Summary.FrameP95Seconds)),
+			"monstre_p95_ms=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.TickSeconds", "P95"))),
+		}, " "))
+	end
+
+	local campaignExport = table.concat(campaignLines, "\n")
+	writeReportValue("LatestCampaign", campaignExport)
+	writeReportValue("Campaign_" .. campaign.Id, campaignExport)
+	print("[MegaRoblox][P0_EXPORT] " .. campaignExport:gsub("\n", " | "))
+
+	if cleanupSource ~= nil then
+		publishStatus(cleanupSource, "Completed", {
+			Reason = reason,
+			ReportReady = true,
+			CampaignCompleted = true,
+			CampaignCompletedScenarios = #campaign.Reports,
+		})
+	end
+
+	DebugLog.Info("Perf", "Rapport campagne P0", {
+		Campaign = campaign.Id,
+		Reason = reason,
+		CompletedScenarios = #campaign.Reports,
+		RequestedScenarios = #campaign.Config.ScenarioIds,
+		DurationSeconds = latestCampaignReport.DurationSeconds,
+		ServerBeforeMb = campaign.ServerMemoryBeforeCampaignMb,
+		ServerAfterMb = campaign.ServerMemoryAfterCampaignMb,
+		ExplorerReport = PerformanceBaselineConfig.ReportFolderName .. "/LatestCampaign",
+	})
+end
+
+startCampaignNextScenario = function(campaign)
+	if activeCampaign ~= campaign or campaign.StopRequested then
+		return
+	end
+
+	if campaign.NextScenarioIndex > #campaign.Config.ScenarioIds then
+		finishCampaign(campaign, "Completed", campaign.LastBenchmark)
+		return
+	end
+
+	local scenarioId = campaign.Config.ScenarioIds[campaign.NextScenarioIndex]
+	local success, message = startBenchmark(campaign.Owner, scenarioId, campaign)
+
+	if not success then
+		campaign.StopRequested = true
+		DebugLog.Warn("Perf", "Campagne P0 interrompue", {
+			Campaign = campaign.Id,
+			ScenarioId = scenarioId,
+			Reason = message,
+		})
+		finishCampaign(campaign, "ScenarioStartFailed", campaign.LastBenchmark)
+		return
+	end
+
+	campaign.NextScenarioIndex += 1
+end
+
+function PerformanceBenchmarkService.StartCampaign(player, campaignId)
+	if activeBenchmark ~= nil or activeCampaign ~= nil then
+		return false, "Un benchmark P0 est deja en cours"
+	end
+
+	local campaignConfig = PerformanceBaselineConfig.GetCampaign(campaignId)
+	if campaignConfig == nil or #campaignConfig.ScenarioIds == 0 then
+		return false, "Campagne P0 inconnue ou vide"
+	end
+
+	for _, scenarioId in ipairs(campaignConfig.ScenarioIds) do
+		if PerformanceBaselineConfig.GetScenario(scenarioId) == nil then
+			return false, "Campagne P0 invalide : scenario absent " .. scenarioId
+		end
+	end
+
+	local session = RunSessionService.GetCurrentSession(player)
+	if session == nil or not RunStateService.IsRunActive(player) then
+		return false, "Lance d'abord une run avant la campagne P0"
+	end
+
+	activeCampaign = {
+		Id = ("P0C-%d-%d"):format(player.UserId, math.floor(os.clock() * 1000)),
+		Config = campaignConfig,
+		Owner = player,
+		Session = session,
+		StartedAt = os.clock(),
+		StartedAtUnix = os.time(),
+		NextScenarioIndex = 1,
+		Reports = {},
+		ServerMemoryBeforeCampaignMb = readNumber(function()
+			return Stats:GetTotalMemoryUsageMb()
+		end),
+		StopRequested = false,
+	}
+
+	startCampaignNextScenario(activeCampaign)
+
 	if activeBenchmark == nil then
+		return false, "Campagne P0 impossible a demarrer"
+	end
+
+	return true, ("%s : %d scenarios enchaines"):format(campaignConfig.Label, #campaignConfig.ScenarioIds)
+end
+
+function PerformanceBenchmarkService.StartSelection(player, selectionId)
+	if PerformanceBaselineConfig.GetScenario(selectionId) ~= nil then
+		return PerformanceBenchmarkService.StartScenario(player, selectionId)
+	end
+
+	if PerformanceBaselineConfig.GetCampaign(selectionId) ~= nil then
+		return PerformanceBenchmarkService.StartCampaign(player, selectionId)
+	end
+
+	return false, "Selection P0 inconnue"
+end
+
+function PerformanceBenchmarkService.StopScenario(player)
+	if activeBenchmark == nil and activeCampaign == nil then
 		return false, "Aucun benchmark P0 actif"
 	end
 
-	if activeBenchmark.Owner ~= player then
+	local owner = if activeBenchmark ~= nil then activeBenchmark.Owner else activeCampaign.Owner
+	if owner ~= player then
 		return false, "Seul le lanceur peut arreter le benchmark P0"
 	end
 
-	finishBenchmark(activeBenchmark, "StoppedByAdmin")
+	if activeCampaign ~= nil then
+		activeCampaign.StopRequested = true
+	end
+
+	if activeBenchmark ~= nil then
+		finishBenchmark(activeBenchmark, "StoppedByAdmin")
+	else
+		finishCampaign(activeCampaign, "StoppedByAdmin", activeCampaign.LastBenchmark)
+	end
 	return true, "Arret P0 demande, nettoyage puis rapport"
 end
 
 function PerformanceBenchmarkService.GetLatestReport()
 	return latestReport
+end
+
+function PerformanceBenchmarkService.GetLatestCampaignReport()
+	return latestCampaignReport
 end
 
 function PerformanceBenchmarkService.Start()
@@ -600,23 +1028,34 @@ function PerformanceBenchmarkService.Start()
 	end)
 
 	RunStateService.RunEnded:Connect(function(player)
+		if activeCampaign ~= nil and activeCampaign.Owner == player then
+			activeCampaign.StopRequested = true
+		end
+
 		if activeBenchmark ~= nil and activeBenchmark.Owner == player then
 			finishBenchmark(activeBenchmark, "RunEnded")
+		elseif activeCampaign ~= nil and activeCampaign.Owner == player then
+			finishCampaign(activeCampaign, "RunEnded", activeCampaign.LastBenchmark)
 		end
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)
 		if activeBenchmark ~= nil and activeBenchmark.Owner == player then
-			cleanupBenchmark(activeBenchmark)
+			cleanupBenchmark(activeBenchmark, false)
 			PerformanceTelemetryService.Finish()
 			activeBenchmark = nil
+			activeCampaign = nil
+		elseif activeCampaign ~= nil and activeCampaign.Owner == player then
+			activeCampaign = nil
 		end
 	end)
 
 	DebugLog.Info("Perf", "PerformanceBenchmarkService demarre", {
 		Scenarios = #PerformanceBaselineConfig.Scenarios,
+		Campaigns = #PerformanceBaselineConfig.Campaigns,
 		WarmupSeconds = PerformanceBaselineConfig.WarmupSeconds,
 		MeasurementSeconds = PerformanceBaselineConfig.MeasurementSeconds,
+		IdleObservationSeconds = PerformanceBaselineConfig.IdleObservationSeconds,
 	})
 end
 

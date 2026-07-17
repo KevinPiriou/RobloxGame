@@ -16,6 +16,7 @@ local changedEvent = Instance.new("BindableEvent")
 local manualQualityName = "Balanced"
 local effectsIntensity = 1
 local adaptivePenalty = 0
+local benchmarkLockEnabled = false
 local sampleElapsed = 0
 local sampleFrameTime = 0
 local sampleFrames = 0
@@ -40,6 +41,7 @@ local function buildSettings()
 		Quality = qualityName,
 		EffectsIntensity = effectsIntensity,
 		AdaptivePenalty = adaptivePenalty,
+		BenchmarkLockEnabled = benchmarkLockEnabled,
 		Profile = VfxConfig.GetQualityProfile(qualityName),
 	}
 end
@@ -60,6 +62,15 @@ local function applyGraphicsSettings(settings)
 end
 
 local function updateAdaptiveBudget(deltaTime)
+	if benchmarkLockEnabled then
+		sampleElapsed = 0
+		sampleFrameTime = 0
+		sampleFrames = 0
+		slowSamples = 0
+		fastSamples = 0
+		return
+	end
+
 	if effectsIntensity <= 0 then
 		sampleElapsed = 0
 		sampleFrameTime = 0
@@ -113,6 +124,25 @@ end
 
 function VfxQualityController.GetSettings()
 	return buildSettings()
+end
+
+function VfxQualityController.SetBenchmarkLock(isEnabled)
+	local nextValue = isEnabled == true
+
+	if benchmarkLockEnabled == nextValue then
+		return
+	end
+
+	benchmarkLockEnabled = nextValue
+	-- Une campagne repart de la qualite manuelle, pas d'une penalite issue
+	-- d'une activite precedente du joueur.
+	adaptivePenalty = 0
+	sampleElapsed = 0
+	sampleFrameTime = 0
+	sampleFrames = 0
+	slowSamples = 0
+	fastSamples = 0
+	notifyChanged()
 end
 
 function VfxQualityController.Start()

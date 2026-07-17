@@ -264,6 +264,7 @@ local function prepareCollectible(instance)
 		instance.Anchored = true
 		instance.CanCollide = false
 		instance.CanTouch = false
+		instance.CanQuery = false
 	end
 
 	for _, descendant in ipairs(instance:GetDescendants()) do
@@ -271,6 +272,7 @@ local function prepareCollectible(instance)
 			descendant.Anchored = true
 			descendant.CanCollide = false
 			descendant.CanTouch = false
+			descendant.CanQuery = false
 		end
 	end
 end

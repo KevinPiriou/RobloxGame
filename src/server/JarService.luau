@@ -373,11 +373,15 @@ local function prepareJarInstance(jar)
 	for _, descendant in ipairs(jar:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			descendant.Anchored = true
+			descendant.CanTouch = false
+			descendant.CanQuery = false
 		end
 	end
 
 	if jar:IsA("BasePart") then
 		jar.Anchored = true
+		jar.CanTouch = false
+		jar.CanQuery = false
 	end
 
 	if jar:GetAttribute("JarBroken") == nil then

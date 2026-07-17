@@ -236,11 +236,15 @@ local function prepareTotemInstance(totem)
 	for _, descendant in ipairs(totem:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			descendant.Anchored = true
+			descendant.CanTouch = false
+			descendant.CanQuery = false
 		end
 	end
 
 	if totem:IsA("BasePart") then
 		totem.Anchored = true
+		totem.CanTouch = false
+		totem.CanQuery = false
 	end
 
 	if totem:GetAttribute("TotemActivated") == nil then

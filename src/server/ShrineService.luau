@@ -876,17 +876,19 @@ local function prepareShrineInstance(shrine, definition)
 	for _, descendant in ipairs(shrine:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			descendant.Anchored = true
+			descendant.CanTouch = false
+			descendant.CanQuery = false
 
 			if descendant == chargePart or (bubble ~= nil and (descendant == bubble or descendant:IsDescendantOf(bubble))) then
 				descendant.CanCollide = false
-				descendant.CanTouch = false
-				descendant.CanQuery = false
 			end
 		end
 	end
 
 	if shrine:IsA("BasePart") then
 		shrine.Anchored = true
+		shrine.CanTouch = false
+		shrine.CanQuery = false
 	end
 
 	if chargePart ~= nil and chargePart:IsA("BasePart") then

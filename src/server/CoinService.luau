@@ -259,6 +259,7 @@ local function prepareCoin(coin)
 		coin.Anchored = true
 		coin.CanCollide = false
 		coin.CanTouch = false
+		coin.CanQuery = false
 	end
 
 	for _, descendant in ipairs(coin:GetDescendants()) do
@@ -266,6 +267,7 @@ local function prepareCoin(coin)
 			descendant.Anchored = true
 			descendant.CanCollide = false
 			descendant.CanTouch = false
+			descendant.CanQuery = false
 		end
 	end
 end

@@ -149,3 +149,32 @@ comme valide tant que ce referentiel manque.
   Une decision ne peut donc etre fondee sur une seule metrique.
 - Un benchmark isole la charge, mais il ne remplace pas une verification de
   sensation de jeu en run reelle.
+
+## Appendice chronologique - Requalification P0 locale le 2026-07-17 10:49 Europe/Paris
+
+Le responsable produit a choisi de ne pas attendre la capture MicroProfiler
+reseau ni trois campagnes integralement comparables avant de commencer P1.
+Cette decision ne transforme pas retroactivement P0 en baseline complete.
+
+### Entree J-000 - P0 baseline locale
+
+- Phase : `P0-local`.
+- Commit avant : `88c73ca` plus worktree P0 non committe.
+- Commit apres : identique ; aucune optimisation runtime n'est incluse.
+- Scenario : campagne P0 complete, avec reference canonique
+  `P0C-7883142449-17802070`.
+- Environnement : Studio local, un joueur, seed `17072026`, VFX adaptatifs
+  verrouilles pendant la mesure.
+- Mesures de reference : frame P95 client / tick monstre P95 de
+  `7,57 / 1,16 ms` a 25, `9,13 / 6,47 ms` a 100,
+  `28,79 / 20,69 ms` a 250, `69,78 / 52,51 ms` a 500 et
+  `185,12 / 134,31 ms` a 1 000.
+- Ecart / variance : seconde campagne coherente pour les monstres et les
+  collectibles ; `projectiles_24` exclu, car non comparable.
+- Decision : `Keep - P0-local clos ; P0-complet defer`.
+- Commentaires : le reseau, la variance globale et la memoire residuelle sont
+  reportes dans `todo_2026-07-17_performance_p0_observabilite_reportee.md`.
+
+P1 est autorise uniquement dans le perimetre CPU/frame local soutenu par cette
+baseline. Toute affirmation sur le reseau, la memoire de longue duree ou la
+performance publiee devra reouvrir les travaux P0-complet.

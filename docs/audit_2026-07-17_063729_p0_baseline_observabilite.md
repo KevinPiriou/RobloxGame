@@ -390,3 +390,252 @@ desormais definis dans
 format de rapport avant / apres de chaque phase, la decision explicite
 `Keep`, `Adjust`, `Revert` ou `Defer`, et bloque toute fermeture de P0 sans
 baseline manuelle reelle.
+
+## Appendice chronologique - Correctif du rapport P0 le 2026-07-17 08:00 Europe/Paris
+
+Le premier essai manuel du scenario `monsters_25` a revele une erreur de fin
+de rapport : le rapport lisait les compteurs de raycasts comme une structure
+imbriquee alors que `PerformanceTelemetryService` les stocke sous des cles
+plates, par exemple `WorldSpawn.RaycastCount`. Un scenario peut legitimement
+ne produire aucun raycast de cette famille ; il doit alors remonter `0`, pas
+interrompre le nettoyage.
+
+Le rapport utilise maintenant un acces borne aux compteurs absents. Le panneau
+Admin affiche egalement un etat vivant pendant la chauffe, la mesure et le
+nettoyage, avec le temps ecoule et la duree attendue de chaque phase.
+
+Un benchmark arrete manuellement est utile pour valider le rail, mais il est
+non comparable a une baseline complete. Seule une campagne terminee apres les
+15 secondes de chauffe et les 90 secondes de mesure peut alimenter J-000.
+
+Verification technique apres correctif :
+
+- `rojo build default.project.json -o %TEMP%/MegaRoblox_P0_baseline.rbxlx`
+  valide ;
+- `git diff --check` valide ;
+- aucun marqueur de conflit Git trouve.
+
+## Appendice chronologique - Campagne P0 complete ajoutee le 2026-07-17 08:27 Europe/Paris
+
+### Decision de protocole
+
+La selection Admin P0 propose maintenant les scenarios unitaires existants et
+`P0 - campagne complete`. Cette campagne enchaine, dans un ordre fixe et avec
+le meme seed, les sept scenarios suivants :
+
+1. `monsters_25` ;
+2. `monsters_100` ;
+3. `monsters_250` ;
+4. `monsters_500` ;
+5. `monsters_1000` ;
+6. `projectiles_24` ;
+7. `collectibles_300`.
+
+Chaque etape conserve sa propre chauffe de 15 secondes, sa mesure de 90
+secondes et son nettoyage. Le panneau Admin affiche l'avancement de campagne
+(`n/7`), le scenario courant et la phase en cours. A la fin, les sept rapports
+enfants sont conserves avec une synthese de campagne contenant la duree et la
+memoire serveur avant / apres campagne.
+
+### Ce que la campagne mesure et ne mesure pas
+
+La campagne est un releve de stabilite et de memoire residuelle enchaine : les
+pools et le processus Studio restent chauds entre deux scenarios, tandis que
+les monstres, projectiles et collectibles runtime sont nettoyes. Les vagues
+ordinaires restent suspendues pendant toute la campagne afin de ne pas injecter
+de charge gameplay parasite entre deux paliers.
+
+Elle ne remplace pas les scenarios unitaires. Un ecart sur la campagne ne
+permet pas, a lui seul, de conclure si le cout vient des monstres, des
+projectiles, de la collecte ou de la transition. Les mesures unitaires restent
+donc la reference pour comparer un changement de phase P1 a P12. La campagne
+complete apporte la preuve complementaire : le projet reste-t-il stable apres
+une suite representative de charges ?
+
+### Smoke manuel canonique P0.6
+
+1. Lancer une run solo et garder les reglages graphiques inchanges.
+2. Dans Admin, faire defiler la selection jusqu'a `P0 - campagne complete`.
+3. Cliquer `P0 : lancer`, sans deplacer le joueur ni ouvrir de menu pendant
+   les 7 scenarios.
+4. Verifier que le statut passe successivement par `chauffe`, `mesure`,
+   `nettoyage`, puis `scenario suivant`, avec un compteur de 1/7 a 7/7.
+5. Relever les trois logs `Perf` de chaque scenario et le log final
+   `Rapport campagne P0`.
+6. Rejouer la campagne complete au moins trois fois dans le meme environnement
+   avant de comparer une phase ulterieure.
+7. Capturer le MicroProfiler et les mesures reseau sur au moins une campagne
+   complete ; elles ne sont pas inventees par le script.
+
+Un arret Admin interromp la campagne, nettoie le contexte P0 et produit un
+rapport partiel explicite. Un rapport partiel ne peut pas fermer P0.
+
+### Verification technique de cette passe
+
+- `rojo build default.project.json -o %TEMP%/MegaRoblox_P0_campaign.rbxlx`
+  valide ;
+- `git diff --check` valide ;
+- aucun marqueur de conflit Git actif trouve ;
+- aucune session Play n'a ete lancee par Codex.
+
+### Etat P0 apres cette passe
+
+P0 reste ouvert. La campagne est implementee mais aucune baseline complete,
+aucune variance mesuree et aucune comparaison avant / apres ne sont encore
+disponibles. La prochaine action est le smoke P0.6 manuel, pas une conclusion
+sur les performances ni le demarrage de P1.
+
+## Appendice chronologique - Calibration P0 non-baseline le 2026-07-17 09:01 Europe/Paris
+
+### Statut de cette campagne
+
+Une premiere campagne `p0_complete` a ete terminee dans Roblox Studio :
+
+- source de travail : commit `88c73ca` plus le worktree P0 non committe ;
+- seed : `17072026` ;
+- scenarios termines : `7/7` ;
+- duree observee : `759,15 s` ;
+- duree theorique du protocole : `755 s` (`7 * (15 s + 90 s + 2 s) + 6 s`) ;
+- environnement : serveur et client integres a Studio, un seul joueur.
+
+La difference de l'ordre de quatre secondes est compatible avec les transitions
+entre scenarios. Elle valide le sequencement de campagne : aucun scenario ne
+s'est arrete avant son nettoyage.
+
+Cette campagne ne constitue volontairement pas la baseline J-000. La fenetre
+Studio a ete redimensionnee et Studio a ete quitte pendant la mesure. Ces
+actions perturbent au minimum le rendu, le scheduling client et les percentiles
+de frame. Elles ne doivent pas etre masquees par une moyenne globale.
+
+### Releve de calibration
+
+Les valeurs suivantes viennent des rapports `Perf` ecrits dans le log Studio
+local. Les temps sont des P95 en millisecondes, sauf indication contraire.
+
+| Scenario | Heartbeat serveur | Tick monstre | Frame client P50 / P95 / P99 | Draw calls moy. | Triangles moy. |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `monsters_25` | 7,34 | 1,06 | 6,05 / 7,65 / 8,32 | 14 | 59 624 |
+| `monsters_100` | 7,99 | 5,73 | 6,01 / 8,32 / 10,09 | 39 | 215 825 |
+| `monsters_250` | 23,98 | 19,23 | 19,56 / 26,34 / 31,06 | 89 | 528 290 |
+| `monsters_500` | 66,88 | 51,27 | 49,03 / 67,78 / 165,34 | 177 | 1 049 012 |
+| `monsters_1000` | 173,79 | 128,69 | 142,54 / 180,46 / 204,56 | 352 | 2 090 542 |
+| `projectiles_24` | 7,16 | 1,41 | 6,05 / 7,65 / 8,37 | 14 | 57 522 |
+| `collectibles_300` | 7,95 | 0,01 | 6,04 / 7,48 / 7,99 | 6 | 45 886 |
+
+Autres releves utiles :
+
+- `monsters_500` : `1 734` frames superieures a `33,3 ms` ;
+- `monsters_1000` : `656` frames superieures a `33,3 ms` ;
+- `monsters_1000` : `1 278 560` raycasts WorldSpawn sur 90 secondes ;
+- `collectibles_300` : fusion XP P95 `0,081 ms`, fusion coin P95 `0,096 ms`.
+
+### Ce que la calibration etablit deja
+
+1. Le rail de mesure est operationnel. Les sept scenarios, leurs phases et
+   leur nettoyage sont effectivement enchaines. C'est la premiere preuve que
+   P0 mesure autre chose qu'un FPS instantane.
+2. La pente de charge des monstres est nette. Le palier 250 depasse deja le
+   budget de `16,7 ms` correspondant a 60 FPS cote client et le tick monstre
+   P95 atteint `19,23 ms`. A 500, serveur et client sont tous deux tres au
+   dessus de ce budget. A 1 000, le plafond reste donc un stress test debug,
+   pas une cible de gameplay stable.
+3. Le cout rendu brut ne semble pas expliquer seul les frames longues : les
+   P95 Render CPU et GPU restent autour de 6 ms et 2 a 4 ms dans les logs,
+   alors que le frame P95 client atteint 67,78 ms puis 180,46 ms. Il faut
+   exposer explicitement le P95 physique, la replication et le cout simulation
+   client avant d'attribuer ce temps au GPU.
+
+### Limites revelees par la calibration
+
+1. Le scenario `projectiles_24` tire une salve unique au debut de la mesure.
+   Les projectiles peuvent toucher ou expirer bien avant la fin des 90
+   secondes. Il ne mesure donc pas encore une pression projectile soutenue.
+2. Le scenario `collectibles_300` mesure surtout la creation, la fusion et le
+   nettoyage de 300 drops. Les fusions reduisent rapidement le nombre de
+   collectibles visibles ; il ne garantit pas 300 collectibles actifs pendant
+   toute la fenetre de mesure.
+3. La memoire totale Studio n'est pas une separation fiable entre serveur et
+   client : les chiffres remontes sont tres proches car les deux contextes
+   partagent le processus Studio. La hausse de `2 289 MB` a `3 606 MB` sur la
+   campagne traduit surtout le prechauffage progressif des pools jusqu'a 1 000
+   monstres, pas une fuite prouvee. La comparaison utile devra commencer apres
+   prechauffage identique et suivre les tags memoire, les instances runtime et
+   les tailles de pools.
+4. Le budget VFX adaptatif s'est reduit pendant la campagne (`Quality`, puis
+   `Balanced`, puis `Performance`). La charge graphique n'est donc pas restée
+   constante entre paliers. Une baseline devra distinguer un mode graphique
+   verrouille d'une campagne representative avec adaptation active.
+5. Le reseau reste explicitement non mesure par le script. Le rapport demande
+   encore une capture MicroProfiler ou Developer Console. P0 ne peut pas
+   pretendre separer CPU, GPU, reseau et memoire tant que cette capture manque.
+6. Les rapports detailes existent dans le log Studio, mais la synthese Admin
+   n'expose pas encore les sept resultats de facon directement exportable.
+
+### Decision de calibration
+
+Decision : `Adjust`.
+
+Avant de rejouer les trois campagnes de baseline, P0 doit etre renforce pour :
+
+1. fixer ou declarer explicitement l'etat du budget VFX pendant une campagne ;
+2. rendre les scenarios projectile et collectibles soutenus, ou les renommer
+   strictement comme tests de salve et de fusion ;
+3. afficher les P95 physique, instances, VFX et tags memoire deja collectes ;
+4. rendre le rapport de campagne recuperable sans dependre d'une longue
+   recherche manuelle dans les logs ;
+5. ajouter au protocole la capture reseau et MicroProfiler.
+
+P0 reste ouvert. Aucun gain de performance n'est revendique et P1 ne doit pas
+etre ouvert sur cette premiere campagne de calibration.
+
+### Observation complementaire issue du journal brut
+
+Apres l'emission du rapport de campagne, le contexte de jeu normal est restaure
+et le combat recommence a peupler la run. Les mesures `AfterCleanup` de chaque
+scenario restent exploitables car elles sont ecrites avant cette reprise, mais
+la memoire observee apres la campagne ne peut pas servir de mesure de stabilite
+au repos. Le protocole officiel devra ajouter une fenetre idle explicite, avec
+le spawn combat suspendu, avant de mesurer le nettoyage et la memoire residuelle.
+
+## Appendice chronologique - Calibration P0.5 appliquee le 2026-07-17 10:15 Europe/Paris
+
+Les limites de la calibration non-baseline precedente sont traitees dans
+`post_audit_2026-07-17_101500_performance_p0_calibration.md`.
+
+Le protocole officiel est maintenant :
+
+1. `15 s` de chauffe ;
+2. `90 s` de mesure ;
+3. `2 s` de nettoyage sans reprise des vagues ordinaires ;
+4. `8 s` de repos observe dans le contexte P0 ;
+5. transition de campagne ou restauration du contexte de run.
+
+La campagne `p0_complete` est la selection Admin par defaut. Elle contient :
+
+1. `monsters_25` ;
+2. `monsters_100` ;
+3. `monsters_250` ;
+4. `monsters_500` ;
+5. `monsters_1000` ;
+6. `projectiles_24`, explicitement une charge soutenue de 24 tirs par seconde
+   et non 24 projectiles garantis simultanement ;
+7. `collectibles_fusion_300`, explicitement une creation et fusion initiale
+   de 300 collectibles, et non une population stable de 300 objets.
+
+Le budget VFX adaptatif est verrouille a la qualite manuelle pendant P0. La
+configuration effective reste relevee dans chaque rapport et le verrou est
+retire a la fin de la campagne sans modifier les preferences du joueur.
+
+Une campagne est marquee non comparable si le client constate un changement de
+viewport ou une perte de focus. Cette detection ne remplace pas la discipline
+manuelle : aucune interaction, aucun changement de qualite et aucune navigation
+hors Studio ne doivent avoir lieu pendant les sept scenarios.
+
+Les resultats de la session sont recuperables sans parcourir les logs courants
+via `ReplicatedStorage/PerformanceBaselineReports/LatestCampaign` et les
+valeurs `Scenario_*`. Les memes syntheses sont imprimees avec le prefixe
+`[MegaRoblox][P0_EXPORT]` afin de pouvoir etre archivees apres l'arret du Play
+Test.
+
+P0 reste ouvert. La prochaine campagne propre servira de baseline J-000 ; elle
+ne devra pas etre confondue avec la calibration precedente.

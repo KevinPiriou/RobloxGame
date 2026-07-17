@@ -268,11 +268,15 @@ local function prepareChestInstance(chest)
 	for _, descendant in ipairs(chest:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			descendant.Anchored = true
+			descendant.CanTouch = false
+			descendant.CanQuery = false
 		end
 	end
 
 	if chest:IsA("BasePart") then
 		chest.Anchored = true
+		chest.CanTouch = false
+		chest.CanQuery = false
 	end
 
 	if chest:GetAttribute("ChestOpened") == nil then

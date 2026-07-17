@@ -323,7 +323,8 @@ local function setGeneratedTerrainProperties(part, name, terrainKind)
 	part.Name = name
 	part.Anchored = true
 	part.CanCollide = true
-	part.CanTouch = true
+	-- Le relief est une surface de deplacement et de raycast, pas un declencheur tactile.
+	part.CanTouch = false
 	part.CanQuery = true
 	part.Material = ProceduralMapConfig.GeneratedTerrainMaterial
 
