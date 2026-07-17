@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local PerkConfig = require(Shared:WaitForChild("PerkConfig"))
 local Perks = require(Shared:WaitForChild("Perks"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
@@ -19,6 +20,7 @@ local rng = Random.new()
 local profilesByUserId = {}
 local characterConnectionsByUserId = {}
 local baseWalkSpeedByUserId = {}
+local baseMaxHealthByUserId = {}
 local isStarted = false
 
 local function getOrCreateRemote(remoteName)
@@ -56,6 +58,7 @@ local function createEmptyStats()
 		CritMultiplierBonus = 0,
 		LifeStealPercent = 0,
 		HealthRegen = 0,
+		MaxHealthBonus = 0,
 		Shield = 0,
 		XpGainPercent = 0,
 		GoldGainPercent = 0,
@@ -84,11 +87,30 @@ local function getOrCreateProfile(player)
 			CurrentShield = 0,
 			XpRemainder = 0,
 			GoldRemainder = 0,
+			RerollsUsedThisRun = 0,
+			IsRerollPending = false,
 		}
 		profilesByUserId[player.UserId] = profile
 	end
 
 	return profile
+end
+
+local function getRerollUsesThisRun(profile)
+	return math.clamp(
+		math.floor(tonumber(profile.RerollsUsedThisRun) or 0),
+		0,
+		PerkConfig.MaxRerollsPerRun
+	)
+end
+
+local function publishRerollUsesThisRun(player, profile)
+	if player.Parent ~= Players then
+		return
+	end
+
+	player:SetAttribute("PerkRerollsUsedThisRun", getRerollUsesThisRun(profile))
+	player:SetAttribute("PerkRerollsMaxUses", PerkConfig.MaxRerollsPerRun)
 end
 
 local function getHumanoid(player)
@@ -132,6 +154,26 @@ local function applyMovementStats(player)
 
 	humanoid.WalkSpeed = baseWalkSpeedByUserId[player.UserId] * moveMultiplier
 	JumpBonusService.SetExternalJumpMultiplier(player, jumpMultiplier)
+end
+
+local function applyMaxHealthStats(player)
+	local humanoid = getHumanoid(player)
+
+	if humanoid == nil then
+		return
+	end
+
+	local profile = getOrCreateProfile(player)
+	local baseMaxHealth = baseMaxHealthByUserId[player.UserId]
+
+	if baseMaxHealth == nil then
+		baseMaxHealth = math.max(1, humanoid.MaxHealth)
+		baseMaxHealthByUserId[player.UserId] = baseMaxHealth
+	end
+
+	local targetMaxHealth = math.max(1, baseMaxHealth + (profile.Stats.MaxHealthBonus or 0))
+	humanoid.MaxHealth = targetMaxHealth
+	humanoid.Health = math.min(humanoid.Health, targetMaxHealth)
 end
 
 local function getDisplayStatsSnapshot(player, profile)
@@ -258,6 +300,7 @@ local PREVIEW_RULES = {
 	{ StatName = "CritMultiplierBonus", Label = "Degats critiques", Format = "CritMultiplier" },
 	{ StatName = "LifeStealPercent", Label = "Vol de vie", Format = "Percent" },
 	{ StatName = "HealthRegen", Label = "Regen PV", Format = "Regen" },
+	{ StatName = "MaxHealthBonus", Label = "PV maximum", Format = "Integer" },
 	{ StatName = "Shield", Label = "Bouclier", Format = "Shield" },
 	{ StatName = "XpGainPercent", Label = "Gain XP", Format = "Multiplier" },
 	{ StatName = "GoldGainPercent", Label = "Gain or", Format = "Multiplier" },
@@ -613,7 +656,25 @@ local function onRerollRequested(player, choiceId)
 		return
 	end
 
+	if profile.IsRerollPending then
+		return
+	end
+
+	if getRerollUsesThisRun(profile) >= PerkConfig.MaxRerollsPerRun then
+		DebugLog.Warn("Perks", "Reroll perk refuse, limite de run atteinte", {
+			Player = player.Name,
+			ChoiceId = choiceId,
+			MaxUses = PerkConfig.MaxRerollsPerRun,
+		})
+		return
+	end
+
+	-- Le verrou est pose avant la lecture DataStore. Il empeche trois requetes
+	-- rapides du meme choix de consommer plusieurs credits en parallele.
+	profile.IsRerollPending = true
+
 	local consumed, reason = CommerceService.TryConsumePerkReroll(player)
+	profile.IsRerollPending = false
 
 	if not consumed then
 		DebugLog.Warn("Perks", "Reroll perk refuse", {
@@ -623,6 +684,9 @@ local function onRerollRequested(player, choiceId)
 		})
 		return
 	end
+
+	profile.RerollsUsedThisRun = getRerollUsesThisRun(profile) + 1
+	publishRerollUsesThisRun(player, profile)
 
 	local rerolledChoice = createChoice(player, activeChoice.Level, activeChoice.Title)
 	profile.ActiveChoice = rerolledChoice
@@ -645,7 +709,8 @@ function PerkService.SetupPlayer(player)
 	DebugLog.Info("Perks", "Setup joueur perks", {
 		Player = player.Name,
 	})
-	getOrCreateProfile(player)
+	local profile = getOrCreateProfile(player)
+	publishRerollUsesThisRun(player, profile)
 
 	if characterConnectionsByUserId[player.UserId] ~= nil then
 		characterConnectionsByUserId[player.UserId]:Disconnect()
@@ -653,9 +718,11 @@ function PerkService.SetupPlayer(player)
 
 	characterConnectionsByUserId[player.UserId] = player.CharacterAdded:Connect(function(character)
 		baseWalkSpeedByUserId[player.UserId] = nil
+		baseMaxHealthByUserId[player.UserId] = nil
 		disableNativeHealthRegen(character)
 		character:WaitForChild("Humanoid", 5)
 		applyMovementStats(player)
+		applyMaxHealthStats(player)
 		sendPerkStats(player)
 	end)
 
@@ -664,6 +731,7 @@ function PerkService.SetupPlayer(player)
 	end
 
 	applyMovementStats(player)
+	applyMaxHealthStats(player)
 	sendPerkStats(player)
 end
 
@@ -680,6 +748,7 @@ function PerkService.RemovePlayer(player)
 
 	characterConnectionsByUserId[player.UserId] = nil
 	baseWalkSpeedByUserId[player.UserId] = nil
+	baseMaxHealthByUserId[player.UserId] = nil
 	profilesByUserId[player.UserId] = nil
 end
 
@@ -695,8 +764,12 @@ function PerkService.ResetRun(player)
 	profile.CurrentShield = 0
 	profile.XpRemainder = 0
 	profile.GoldRemainder = 0
+	profile.RerollsUsedThisRun = 0
+	profile.IsRerollPending = false
+	publishRerollUsesThisRun(player, profile)
 	hideChoicesRemote:FireClient(player)
 	applyMovementStats(player)
+	applyMaxHealthStats(player)
 	sendPerkStats(player)
 end
 
@@ -821,6 +894,7 @@ function PerkService.ApplyRunItemStats(player, addedStats)
 	local profile = getOrCreateProfile(player)
 	addStats(profile.Stats, addedStats)
 	applyMovementStats(player)
+	applyMaxHealthStats(player)
 	sendPerkStats(player)
 end
 
@@ -913,14 +987,15 @@ function PerkService.ApplyInstantHeal(player, amount)
 end
 
 function PerkService.GrantMaxHealth(player, amount)
-	local humanoid = getHumanoid(player)
 	local addedAmount = math.max(0, amount)
 
-	if humanoid == nil or addedAmount <= 0 then
+	if player == nil or addedAmount <= 0 then
 		return 0
 	end
 
-	humanoid.MaxHealth += addedAmount
+	local profile = getOrCreateProfile(player)
+	profile.Stats.MaxHealthBonus = (profile.Stats.MaxHealthBonus or 0) + addedAmount
+	applyMaxHealthStats(player)
 	sendPerkStats(player)
 	GameplayFeedbackService.Queue(player, "MaxHealth", addedAmount)
 

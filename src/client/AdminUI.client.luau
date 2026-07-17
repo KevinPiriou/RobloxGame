@@ -21,6 +21,9 @@ local adminMessageRemote = ReplicatedStorage:WaitForChild("Admin_ShowMessage")
 local setDebugLogSettingRemote = ReplicatedStorage:WaitForChild("Admin_SetDebugLogSetting")
 local debugLogStateRemote = ReplicatedStorage:WaitForChild("Admin_DebugLogState")
 local getDebugLogStateRemote = ReplicatedStorage:WaitForChild("Admin_GetDebugLogState")
+local toggleDevKitPreviewRemote = ReplicatedStorage:WaitForChild("Admin_ToggleDevKitPreview")
+
+local DEV_KIT_PREVIEW_ATTRIBUTE = "DevKitPreviewEnabled"
 
 local existingGui = playerGui:FindFirstChild("AdminGui")
 
@@ -69,7 +72,7 @@ local container = Instance.new("Frame")
 container.Name = "AdminPanel"
 container.AnchorPoint = Vector2.new(1, 0)
 container.Position = UDim2.new(1, -92, 0, 58)
-container.Size = UDim2.fromOffset(310, 480)
+container.Size = UDim2.fromOffset(310, 520)
 container.BackgroundColor3 = Color3.fromRGB(37, 51, 70)
 container.BackgroundTransparency = 0.16
 container.BorderSizePixel = 0
@@ -155,6 +158,7 @@ end
 local resetButton = createButton("ResetPowerUpsButton", "Reinit bonus", Color3.fromRGB(92, 70, 145), 1)
 local spawnButton = createButton("SpawnMonstersButton", "Spawn 100 ennemis", Color3.fromRGB(54, 105, 165), 2)
 local killButton = createButton("KillMonstersButton", "Tuer tous les ennemis", Color3.fromRGB(155, 65, 65), 3)
+local devKitPreviewButton = createButton("DevKitPreviewButton", "Kit UI demo : afficher", Color3.fromRGB(52, 101, 153), 4)
 
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Name = "StatusLabel"
@@ -166,7 +170,7 @@ statusLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
 statusLabel.TextSize = 11
 statusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-statusLabel.LayoutOrder = 4
+statusLabel.LayoutOrder = 5
 statusLabel.Parent = content
 
 local debugSection = Instance.new("Frame")
@@ -174,7 +178,7 @@ debugSection.Name = "DebugLogSection"
 debugSection.Size = UDim2.new(1, 0, 0, 266)
 debugSection.BackgroundTransparency = 1
 debugSection.BorderSizePixel = 0
-debugSection.LayoutOrder = 5
+debugSection.LayoutOrder = 6
 debugSection.Parent = content
 
 local debugTitle = Instance.new("TextLabel")
@@ -293,6 +297,14 @@ end
 local activeButton = nil
 local debugStateRequestInFlight = false
 
+local function refreshDevKitPreviewButton()
+	local isPreviewEnabled = player:GetAttribute(DEV_KIT_PREVIEW_ATTRIBUTE) == true
+	devKitPreviewButton.Text = if isPreviewEnabled then "Kit UI demo : actif" else "Kit UI demo : afficher"
+	devKitPreviewButton.BackgroundColor3 = if isPreviewEnabled
+		then Color3.fromRGB(48, 132, 93)
+		else Color3.fromRGB(52, 101, 153)
+end
+
 local function applyDebugLogState(payload)
 	if typeof(payload) ~= "table" or typeof(payload.Categories) ~= "table" then
 		return
@@ -400,6 +412,16 @@ killButton.Activated:Connect(function()
 	fireAdminAction(killButton, killMonstersRemote, "Suppression...")
 end)
 
+devKitPreviewButton.Activated:Connect(function()
+	if not toggleDevKitPreviewRemote:IsA("RemoteEvent") then
+		return
+	end
+
+	statusLabel.Text = "Mise a jour de l'apercu..."
+	statusLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
+	toggleDevKitPreviewRemote:FireServer()
+end)
+
 consoleToggle.Activated:Connect(function()
 	sendDebugLogSetting("Console", nil, not debugLogState.ConsoleEnabled)
 end)
@@ -433,7 +455,9 @@ debugLogStateRemote.OnClientEvent:Connect(function(payload)
 end)
 
 player:GetAttributeChangedSignal("CanUseAdminTools"):Connect(updateVisibility)
+player:GetAttributeChangedSignal(DEV_KIT_PREVIEW_ATTRIBUTE):Connect(refreshDevKitPreviewButton)
 updateVisibility()
+refreshDevKitPreviewButton()
 
 DebugLog.Info("UI", "UI admin initialisee", {
 	Player = player.Name,

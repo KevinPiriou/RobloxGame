@@ -48,6 +48,15 @@ local healthConnectionsByUserId = {}
 local elitePacksById = {}
 local nextElitePackId = 0
 local difficultyPercent = 0
+local runItemService = nil
+
+local function getRunItemService()
+	if runItemService == nil then
+		runItemService = require(script.Parent:WaitForChild("RunItemService"))
+	end
+
+	return runItemService
+end
 
 local function createSpawnActivity()
 	return {
@@ -863,6 +872,7 @@ local function removeMonster(monsterState, killer)
 	if killer ~= nil and killer.Parent == Players then
 		killsByUserId[killer.UserId] = (killsByUserId[killer.UserId] or 0) + 1
 		RunAnalyticsService.RecordMonsterKill(killer, monsterState.Instance)
+		getRunItemService().OnMonsterKilled(killer)
 		pickupFeedbackRemote:FireClient(killer, {
 			Kind = "Kill",
 			Amount = 1,

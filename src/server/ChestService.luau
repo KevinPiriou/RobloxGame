@@ -441,10 +441,11 @@ local function getPlayerRoot(player)
 	return character:FindFirstChild("HumanoidRootPart")
 end
 
-local function getRewardOptions()
+local function getRewardOptions(player)
 	local rewards = {}
+	local itemIds = RunItemService.GetEligibleRewardItemIds(player, RunItemConfig.ChestRewardIds)
 
-	for _, itemId in ipairs(RunItemConfig.ChestRewardIds) do
+	for _, itemId in ipairs(itemIds) do
 		local definition = RunItemConfig.Definitions[itemId]
 
 		if definition ~= nil then
@@ -455,10 +456,41 @@ local function getRewardOptions()
 	return rewards
 end
 
-local function pickReward()
-	local rewards = getRewardOptions()
-	local index = rng:NextInteger(1, #rewards)
-	local reward = rewards[index]
+local function getRewardWeight(reward)
+	local rarityWeights = RunItemConfig.ChestRarityWeights or {}
+	return math.max(0, rarityWeights[reward.Rarity] or 1)
+end
+
+local function pickReward(player)
+	local rewards = getRewardOptions(player)
+
+	if #rewards == 0 then
+		return nil
+	end
+	local totalWeight = 0
+
+	for _, candidate in ipairs(rewards) do
+		totalWeight += getRewardWeight(candidate)
+	end
+
+	local reward = nil
+
+	if totalWeight > 0 then
+		local roll = rng:NextNumber(0, totalWeight)
+
+		for _, candidate in ipairs(rewards) do
+			roll -= getRewardWeight(candidate)
+
+			if roll <= 0 then
+				reward = candidate
+				break
+			end
+		end
+	end
+
+	if reward == nil then
+		reward = rewards[rng:NextInteger(1, #rewards)]
+	end
 
 	return {
 		Id = reward.Id,
@@ -469,9 +501,13 @@ local function pickReward()
 	}
 end
 
-local function createSpinItems(finalReward)
-	local rewards = getRewardOptions()
+local function createSpinItems(player, finalReward)
+	local rewards = getRewardOptions(player)
 	local spinItems = {}
+
+	if #rewards == 0 then
+		return { finalReward }
+	end
 
 	for index = 1, 18 do
 		local reward = rewards[rng:NextInteger(1, #rewards)]
@@ -634,6 +670,12 @@ onOpenRequested = function(player, chest)
 		return
 	end
 
+	local reward = pickReward(player)
+	if reward == nil then
+		sendOpenFailed(player, "NoEligibleReward")
+		return
+	end
+
 	local currentCost = profile.NextOpenCost
 	local didSpend = CoinService.TrySpendCoins(player, currentCost)
 
@@ -646,14 +688,13 @@ onOpenRequested = function(player, chest)
 	chest:SetAttribute("ChestOpening", true)
 	chest:SetAttribute("ChestOpened", true)
 	RunAnalyticsService.RecordChestOpened(player, false)
+	RunItemService.OnChestOpened(player)
 
 	if chestState.Prompt ~= nil then
 		chestState.Prompt.Enabled = false
 	end
 
 	AudioService.PlayForPlayer(player, "ChestOpen")
-
-	local reward = pickReward()
 
 	profile.NextOpeningId += 1
 	profile.NextOpenCost += ChestConfig.OpenCostIncrease
@@ -678,7 +719,7 @@ onOpenRequested = function(player, chest)
 		OpeningId = profile.ActiveOpening.OpeningId,
 		Chest = chest,
 		Reward = reward,
-		SpinItems = createSpinItems(reward),
+		SpinItems = createSpinItems(player, reward),
 		Duration = ChestConfig.SlotDuration,
 		Cost = currentCost,
 		NextOpenCost = profile.NextOpenCost,
@@ -753,8 +794,12 @@ local function startRewardChestOpening(player, chest)
 	chest:SetAttribute("ChestOpening", true)
 	chest:SetAttribute("ChestOpened", true)
 	RunAnalyticsService.RecordChestOpened(player, true)
+	RunItemService.OnChestOpened(player)
 
-	local reward = pickReward()
+	local reward = pickReward(player)
+	if reward == nil then
+		return
+	end
 
 	profile.NextOpeningId += 1
 	profile.ActiveOpening = {
@@ -776,7 +821,7 @@ local function startRewardChestOpening(player, chest)
 		OpeningId = profile.ActiveOpening.OpeningId,
 		Chest = chest,
 		Reward = reward,
-		SpinItems = createSpinItems(reward),
+		SpinItems = createSpinItems(player, reward),
 		Duration = ChestConfig.SlotDuration,
 		Cost = 0,
 		NextOpenCost = profile.NextOpenCost,

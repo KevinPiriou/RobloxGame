@@ -13,6 +13,7 @@ local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsServ
 local AdminService = {}
 
 local ADMIN_ATTRIBUTE = "CanUseAdminTools"
+local DEV_KIT_PREVIEW_ATTRIBUTE = "DevKitPreviewEnabled"
 local isStarted = false
 
 local function getOrCreateRemote(remoteName)
@@ -50,6 +51,7 @@ local adminMessageRemote = getOrCreateRemote("Admin_ShowMessage")
 local setDebugLogSettingRemote = getOrCreateRemote("Admin_SetDebugLogSetting")
 local debugLogStateRemote = getOrCreateRemote("Admin_DebugLogState")
 local getDebugLogStateRemote = getOrCreateRemoteFunction("Admin_GetDebugLogState")
+local toggleDevKitPreviewRemote = getOrCreateRemote("Admin_ToggleDevKitPreview")
 local debugCategoryIds = {}
 
 for _, category in ipairs(AdminConfig.DebugLogCategories) do
@@ -126,6 +128,7 @@ end
 
 function AdminService.SetupPlayer(player)
 	player:SetAttribute(ADMIN_ATTRIBUTE, canUseAdminTools(player))
+	player:SetAttribute(DEV_KIT_PREVIEW_ATTRIBUTE, false)
 	DebugLog.Info("Admin", "Setup joueur admin", {
 		Player = player.Name,
 		CanUseAdminTools = player:GetAttribute(ADMIN_ATTRIBUTE),
@@ -135,6 +138,7 @@ end
 
 function AdminService.RemovePlayer(player)
 	player:SetAttribute(ADMIN_ATTRIBUTE, nil)
+	player:SetAttribute(DEV_KIT_PREVIEW_ATTRIBUTE, nil)
 end
 
 function AdminService.Start()
@@ -177,6 +181,15 @@ function AdminService.Start()
 
 			return ("Debug : %d ennemis supprimes"):format(killedCount)
 		end)
+	end)
+
+	toggleDevKitPreviewRemote.OnServerEvent:Connect(function(player)
+		runAdminAction(player, "Apercu kit UI", function()
+			local isEnabled = player:GetAttribute(DEV_KIT_PREVIEW_ATTRIBUTE) ~= true
+			player:SetAttribute(DEV_KIT_PREVIEW_ATTRIBUTE, isEnabled)
+
+			return if isEnabled then "Apercu kit UI active" else "Apercu kit UI masque"
+		end, false)
 	end)
 
 	setDebugLogSettingRemote.OnServerEvent:Connect(function(player, payload)

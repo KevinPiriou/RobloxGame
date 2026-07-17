@@ -558,6 +558,7 @@ local function createPlatform(terrainFolder, templates, anchorPosition, layoutYa
 		Center = platformCenter,
 		GroundPosition = surfacePosition,
 		SurfaceY = surfacePosition.Y + elevation,
+		Elevation = elevation,
 		Size = definition.Size,
 		Yaw = layoutYaw,
 		Ramps = definition.Ramps,
@@ -718,103 +719,414 @@ local function createLayoutLinks(terrainFolder, templates, selectedLayouts, styl
 	return placedCount
 end
 
-local function getPartVerticalExtent(part, rotation)
-	local halfSize = part.Size * 0.5
-	local right = rotation.RightVector
-	local up = rotation.UpVector
-	local look = rotation.LookVector
+local function getDecorationTemplateHeight(template)
+	if template:IsA("BasePart") then
+		return math.max(0.01, template.Size.Y)
+	end
 
-	return (math.abs(right.Y) * halfSize.X)
-		+ (math.abs(up.Y) * halfSize.Y)
-		+ (math.abs(look.Y) * halfSize.Z)
+	local _, size = template:GetBoundingBox()
+	return math.max(0.01, size.Y)
 end
 
-local function getRandomPlatformPosition(random, platformRecords)
-	if #platformRecords == 0 then
+local function getDecorationPivotRotation(instance)
+	local pivot = instance:GetPivot()
+	return pivot - pivot.Position
+end
+
+local function getDecorationParts(decoration)
+	local parts = {}
+
+	if decoration:IsA("BasePart") then
+		table.insert(parts, decoration)
+	end
+
+	for _, descendant in ipairs(decoration:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			table.insert(parts, descendant)
+		end
+	end
+
+	return parts
+end
+
+local function shouldDecorationPartCollide(part, collisionMode, maximumHorizontalArea)
+	if collisionMode == "All" then
+		return true
+	end
+
+	if collisionMode == "TreeTrunk" then
+		local horizontalArea = part.Size.X * part.Size.Z
+		return part.Size.Y >= 8 and horizontalArea <= (maximumHorizontalArea or 0)
+	end
+
+	return false
+end
+
+local function prepareDecoration(decoration, collisionMode, maximumHorizontalArea)
+	decoration:SetAttribute(ProceduralMapConfig.GeneratedDecorationAttributeName, true)
+	decoration:SetAttribute(ProceduralMapConfig.IgnoreAsSurfaceAttributeName, true)
+
+	for _, part in ipairs(getDecorationParts(decoration)) do
+		part.Anchored = true
+		part.CanCollide = shouldDecorationPartCollide(part, collisionMode, maximumHorizontalArea)
+		part.CanTouch = false
+		part.CanQuery = false
+		part.Massless = true
+		part:SetAttribute(ProceduralMapConfig.GeneratedDecorationAttributeName, true)
+		part:SetAttribute(ProceduralMapConfig.IgnoreAsSurfaceAttributeName, true)
+	end
+end
+
+local function getDecorationBounds(decoration)
+	if decoration:IsA("BasePart") then
+		return decoration.CFrame, decoration.Size
+	end
+
+	return decoration:GetBoundingBox()
+end
+
+local function createDecorationCollisionBounds(decoration, cframe, size)
+	local collision = Instance.new("Part")
+	collision.Name = "Collision"
+	collision.Size = size
+	collision.CFrame = cframe
+	collision.Transparency = 1
+	collision.CastShadow = false
+	collision.Anchored = true
+	collision.CanCollide = true
+	collision.CanTouch = false
+	collision.CanQuery = false
+	collision.Massless = true
+	collision:SetAttribute(ProceduralMapConfig.GeneratedDecorationAttributeName, true)
+	collision:SetAttribute(ProceduralMapConfig.IgnoreAsSurfaceAttributeName, true)
+	collision.Parent = decoration
+
+	return collision
+end
+
+local function scaleDecoration(decoration, scale)
+	if decoration:IsA("BasePart") then
+		decoration.Size = decoration.Size * scale
+		return
+	end
+
+	decoration:ScaleTo(scale)
+end
+
+local function buildDecorationCatalog(kit)
+	local templateFolder = kit:FindFirstChild(ProceduralMapConfig.Decorations.TemplateFolderName)
+
+	if templateFolder == nil or not templateFolder:IsA("Folder") then
+		DebugLog.Warn("MapGeneration", "Dossier de decorations introuvable dans le kit procedural", {
+			Kit = kit,
+			Expected = ProceduralMapConfig.Decorations.TemplateFolderName,
+		})
 		return nil
 	end
 
-	local record = platformRecords[random:NextInteger(1, #platformRecords)]
-	local margin = math.min(
-		ProceduralMapConfig.Decorations.PlatformMargin,
-		math.min(record.Size.X, record.Size.Y) * 0.22
-	)
-	local localPosition = Vector3.new(
-		random:NextNumber((-record.Size.X * 0.5) + margin, (record.Size.X * 0.5) - margin),
-		0,
-		random:NextNumber((-record.Size.Y * 0.5) + margin, (record.Size.Y * 0.5) - margin)
-	)
-	local cframe = CFrame.new(record.Center.X, record.SurfaceY, record.Center.Z) * CFrame.Angles(0, record.Yaw, 0)
-	local worldPosition = cframe:PointToWorldSpace(localPosition)
+	local catalog = {}
+	local hasAnyTemplate = false
 
-	return Vector3.new(worldPosition.X, record.SurfaceY, worldPosition.Z)
+	for familyName, family in pairs(ProceduralMapConfig.Decorations.Families) do
+		local assets = {}
+
+		for _, asset in ipairs(family.Assets) do
+			local template = templateFolder:FindFirstChild(asset.Name)
+
+			if template ~= nil and (template:IsA("Model") or template:IsA("BasePart")) then
+				table.insert(assets, {
+					Config = asset,
+					Template = template,
+					TemplateHeight = getDecorationTemplateHeight(template),
+					CollisionMode = family.CollisionMode,
+					CollisionMaximumHorizontalArea = family.CollisionMaximumHorizontalArea,
+				})
+				hasAnyTemplate = true
+			else
+				DebugLog.Warn("MapGeneration", "Asset de decor absent ou invalide", {
+					Family = familyName,
+					Asset = asset.Name,
+				})
+			end
+		end
+
+		catalog[familyName] = assets
+	end
+
+	if not hasAnyTemplate then
+		DebugLog.Warn("MapGeneration", "Aucun asset de decor exploitable dans le kit procedural", {
+			Folder = templateFolder,
+		})
+		return nil
+	end
+
+	return catalog
 end
 
-local function createDecoration(folder, template, position, yaw, lean, name)
-	local decoration = template:Clone()
-	local rotation = CFrame.Angles(0, yaw, 0) * getSourceRotation(template) * CFrame.Angles(0, 0, lean or 0)
-	local verticalExtent = getPartVerticalExtent(decoration, rotation)
+local function selectWeightedDecorationAsset(random, assets)
+	local totalWeight = 0
 
+	for _, asset in ipairs(assets) do
+		totalWeight += asset.Config.Weight
+	end
+
+	if totalWeight <= 0 then
+		return nil
+	end
+
+	local selection = random:NextNumber(0, totalWeight)
+
+	for _, asset in ipairs(assets) do
+		selection -= asset.Config.Weight
+
+		if selection <= 0 then
+			return asset
+		end
+	end
+
+	return assets[#assets]
+end
+
+local function isDecorationRecordEligible(record, family)
+	local area = record.Size.X * record.Size.Y
+
+	return area >= family.MinimumPlatformArea
+		and record.Elevation >= family.MinimumElevation
+		and record.Elevation <= family.MaximumElevation
+end
+
+local function getDecorationTargetCount(random, record, family)
+	local expectedCount = (record.Size.X * record.Size.Y / 1000) * family.DensityPerThousandStuds
+	local count = math.floor(expectedCount)
+
+	if random:NextNumber() < (expectedCount - count) then
+		count += 1
+	end
+
+	return math.clamp(
+		math.max(family.MinimumPerPlatform, count),
+		family.MinimumPerPlatform,
+		family.MaximumPerPlatform
+	)
+end
+
+local function isDecorationPositionAvailable(position, radius, occupiedPositions, arrivalPosition)
+	if arrivalPosition ~= nil and getHorizontalDistance(position, arrivalPosition) < ProceduralMapConfig.Decorations.ArrivalClearRadius then
+		return false
+	end
+
+	for _, occupied in ipairs(occupiedPositions) do
+		if getHorizontalDistance(position, occupied.Position) < radius + occupied.Radius then
+			return false
+		end
+	end
+
+	return true
+end
+
+local function getDecorationPosition(random, record, family, occupiedPositions, arrivalPosition)
+	local maximumMargin = math.min(record.Size.X, record.Size.Y) * 0.35
+	local margin = math.min(ProceduralMapConfig.Decorations.PlatformMargin, maximumMargin)
+	local halfWidth = record.Size.X * 0.5
+	local halfDepth = record.Size.Y * 0.5
+
+	if halfWidth <= margin or halfDepth <= margin then
+		return nil
+	end
+
+	local platformCFrame = CFrame.new(record.Center.X, record.SurfaceY, record.Center.Z) * CFrame.Angles(0, record.Yaw, 0)
+
+	for _ = 1, ProceduralMapConfig.Decorations.PlacementAttemptsPerInstance do
+		local localPosition = Vector3.new(
+			random:NextNumber(-halfWidth + margin, halfWidth - margin),
+			0,
+			random:NextNumber(-halfDepth + margin, halfDepth - margin)
+		)
+		local worldPosition = platformCFrame:PointToWorldSpace(localPosition)
+		local position = Vector3.new(worldPosition.X, record.SurfaceY, worldPosition.Z)
+
+		if isDecorationPositionAvailable(position, family.FootprintRadius, occupiedPositions, arrivalPosition) then
+			return position
+		end
+	end
+
+	return nil
+end
+
+local function getGroundDecorationTargetCount(random, bounds, family)
+	local groundConfig = ProceduralMapConfig.Decorations.Ground
+	local usableWidth = (bounds.MaxX - bounds.MinX) - (groundConfig.EdgeInset * 2)
+	local usableDepth = (bounds.MaxZ - bounds.MinZ) - (groundConfig.EdgeInset * 2)
+
+	if usableWidth <= 0 or usableDepth <= 0 then
+		return 0
+	end
+
+	local expectedCount = (usableWidth * usableDepth / 1000)
+		* family.DensityPerThousandStuds
+		* groundConfig.DensityMultiplier
+	local count = math.floor(expectedCount)
+
+	if random:NextNumber() < (expectedCount - count) then
+		count += 1
+	end
+
+	return math.min(count, family.MaximumGroundInstances or math.huge)
+end
+
+local function getGroundDecorationPosition(random, map, bounds, family, occupiedPositions, arrivalPosition)
+	local groundConfig = ProceduralMapConfig.Decorations.Ground
+	local minimumX = bounds.MinX + groundConfig.EdgeInset
+	local maximumX = bounds.MaxX - groundConfig.EdgeInset
+	local minimumZ = bounds.MinZ + groundConfig.EdgeInset
+	local maximumZ = bounds.MaxZ - groundConfig.EdgeInset
+
+	if minimumX >= maximumX or minimumZ >= maximumZ then
+		return nil
+	end
+
+	for _ = 1, ProceduralMapConfig.Decorations.PlacementAttemptsPerInstance do
+		local surfacePosition = getSurfacePosition(
+			random:NextNumber(minimumX, maximumX),
+			random:NextNumber(minimumZ, maximumZ),
+			bounds.Center
+		)
+
+		if surfacePosition ~= nil
+			and ProceduralMapService.IsAreaClear(map, surfacePosition, groundConfig.TerrainClearance)
+			and isDecorationPositionAvailable(surfacePosition, family.FootprintRadius, occupiedPositions, arrivalPosition)
+		then
+			return surfacePosition
+		end
+	end
+
+	return nil
+end
+
+local function createFoliageDecoration(folder, random, asset, position, yaw, name)
+	local decoration = asset.Template:Clone()
+	local targetHeight = random:NextNumber(asset.Config.MinimumHeight, asset.Config.MaximumHeight)
+	local scale = targetHeight / asset.TemplateHeight
+
+	scaleDecoration(decoration, scale)
+	prepareDecoration(decoration, asset.CollisionMode, asset.CollisionMaximumHorizontalArea)
 	decoration.Name = name
-	decoration.Anchored = false
-	decoration.CanCollide = true
-	decoration.CanTouch = false
-	decoration.CanQuery = false
-	decoration:SetAttribute(ProceduralMapConfig.GeneratedDecorationAttributeName, true)
-	decoration:SetAttribute(ProceduralMapConfig.IgnoreAsSurfaceAttributeName, true)
-	decoration.CFrame = CFrame.new(position.X, position.Y + verticalExtent + ProceduralMapConfig.Decorations.VerticalPadding, position.Z) * rotation
 	decoration.Parent = folder
+	decoration:PivotTo(
+		CFrame.new(position) * CFrame.Angles(0, yaw, 0) * getDecorationPivotRotation(asset.Template)
+	)
 
-	pcall(function()
-		decoration:SetNetworkOwner(nil)
-	end)
+	local boundsCFrame, boundsSize = getDecorationBounds(decoration)
+	local bottomY = boundsCFrame.Position.Y - (boundsSize.Y * 0.5)
+	decoration:PivotTo(decoration:GetPivot() + Vector3.new(0, position.Y + ProceduralMapConfig.Decorations.VerticalPadding - bottomY, 0))
+
+	if asset.CollisionMode == "Bounds" then
+		local collisionCFrame, collisionSize = getDecorationBounds(decoration)
+		createDecorationCollisionBounds(decoration, collisionCFrame, collisionSize)
+	end
 
 	return decoration
 end
 
-local function generateDecorations(random, decorationFolder, templates, platformRecords, onProgress)
-	if #platformRecords == 0 then
-		return 0, 0
-	end
-
-	local trunkCount = math.min(#platformRecords, random:NextInteger(
-		ProceduralMapConfig.Decorations.MinimumTrunks,
-		ProceduralMapConfig.Decorations.MaximumTrunks
-	))
-	local ballCount = random:NextInteger(
-		ProceduralMapConfig.Decorations.MinimumBalls,
-		ProceduralMapConfig.Decorations.MaximumBalls
-	)
-	local totalCount = trunkCount + ballCount
+local function generateFoliage(random, map, bounds, decorationFolder, catalog, platformRecords, arrivalPosition, onProgress)
 	local placedCount = 0
+	local attemptedCount = 0
+	local byFamily = {}
+	local occupiedPositions = {}
 
-	for index = 1, totalCount do
-		local position = getRandomPlatformPosition(random, platformRecords)
-
-		if position ~= nil then
-			local isTrunk = index <= trunkCount
-			local template = if isTrunk then templates.Trunk else templates.Ball
-			local lean = if isTrunk then random:NextNumber(-ProceduralMapConfig.Decorations.TrunkLeanRadians, ProceduralMapConfig.Decorations.TrunkLeanRadians) else 0
-			createDecoration(
-				decorationFolder,
-				template,
-				position,
-				random:NextNumber(0, math.pi * 2),
-				lean,
-				(if isTrunk then "Tronc_" else "Boule_") .. index
-			)
-			placedCount += 1
+	for _, familyName in ipairs(ProceduralMapConfig.Decorations.FamilyOrder) do
+		if placedCount >= ProceduralMapConfig.Decorations.MaximumInstances then
+			break
 		end
 
-		if index % ProceduralMapConfig.DecorationBatchSize == 0 or index == totalCount then
-			if onProgress ~= nil then
-				onProgress("Decorations", ("Decor : %d / %d"):format(placedCount, totalCount))
+		local family = ProceduralMapConfig.Decorations.Families[familyName]
+		local assets = catalog[familyName]
+		local familyCount = 0
+		local maximumFamilyInstances = if family ~= nil then family.MaximumInstancesPerMap or math.huge else 0
+
+		if family ~= nil and assets ~= nil and #assets > 0 then
+			local function tryPlaceDecoration(position)
+				if position == nil then
+					return
+				end
+
+				local asset = selectWeightedDecorationAsset(random, assets)
+
+				if asset == nil then
+					return
+				end
+
+				createFoliageDecoration(
+					decorationFolder,
+					random,
+					asset,
+					position,
+					random:NextNumber(0, math.pi * 2),
+					("%s_%d"):format(familyName, placedCount + 1)
+				)
+				table.insert(occupiedPositions, {
+					Position = position,
+					Radius = family.FootprintRadius,
+				})
+				placedCount += 1
+				familyCount += 1
 			end
-			task.wait()
+
+			local function reportAttemptProgress()
+				if attemptedCount % ProceduralMapConfig.DecorationBatchSize == 0 then
+					if onProgress ~= nil then
+						onProgress("Decorations", ("Foliage : %d / %d"):format(
+							placedCount,
+							ProceduralMapConfig.Decorations.MaximumInstances
+						))
+					end
+					task.wait()
+				end
+			end
+
+			for _, record in ipairs(platformRecords) do
+				if placedCount >= ProceduralMapConfig.Decorations.MaximumInstances or familyCount >= maximumFamilyInstances then
+					break
+				end
+
+				if isDecorationRecordEligible(record, family) then
+					local targetCount = getDecorationTargetCount(random, record, family)
+
+					for _ = 1, targetCount do
+						if placedCount >= ProceduralMapConfig.Decorations.MaximumInstances or familyCount >= maximumFamilyInstances then
+							break
+						end
+
+						attemptedCount += 1
+						local position = getDecorationPosition(random, record, family, occupiedPositions, arrivalPosition)
+						tryPlaceDecoration(position)
+						reportAttemptProgress()
+					end
+				end
+			end
+
+			local groundTargetCount = getGroundDecorationTargetCount(random, bounds, family)
+
+			for _ = 1, groundTargetCount do
+				if placedCount >= ProceduralMapConfig.Decorations.MaximumInstances or familyCount >= maximumFamilyInstances then
+					break
+				end
+
+				attemptedCount += 1
+				local position = getGroundDecorationPosition(random, map, bounds, family, occupiedPositions, arrivalPosition)
+				tryPlaceDecoration(position)
+				reportAttemptProgress()
+			end
 		end
+
+		byFamily[familyName] = familyCount
 	end
 
-	return trunkCount, ballCount
+	if onProgress ~= nil then
+		onProgress("Decorations", ("Foliage : %d"):format(placedCount))
+	end
+
+	return placedCount, byFamily
 end
 
 function ProceduralMapService.Clear(map)
@@ -882,8 +1194,8 @@ function ProceduralMapService.Generate(session, map, arrival, onProgress)
 		return true, {
 			Layouts = 0,
 			Platforms = 0,
-			Trunks = 0,
-			Balls = 0,
+			Foliage = 0,
+			FoliageByFamily = {},
 		}
 	end
 
@@ -901,14 +1213,18 @@ function ProceduralMapService.Generate(session, map, arrival, onProgress)
 		Top = getTemplatePart(kit, "TopBasePlateform"),
 		Bottom = getTemplatePart(kit, "BotBasePlateform"),
 		Ramp = getTemplatePart(kit, "RampBasePlateform"),
-		Trunk = getTemplatePart(kit, "TroncDecorsMobile"),
-		Ball = getTemplatePart(kit, "BouleDecorsMobile"),
 	}
 
 	for name, template in pairs(templates) do
 		if template == nil then
 			return false, "TemplateMissing_" .. name
 		end
+	end
+
+	local decorationCatalog = buildDecorationCatalog(kit)
+
+	if decorationCatalog == nil then
+		return false, "DecorationTemplatesMissing"
 	end
 
 	ProceduralMapService.Clear(map)
@@ -1055,7 +1371,16 @@ function ProceduralMapService.Generate(session, map, arrival, onProgress)
 
 	local linkCount = createLayoutLinks(terrainFolder, templates, selectedLayouts, styleRandom, terrainTheme)
 
-	local trunkCount, ballCount = generateDecorations(random, decorationFolder, templates, platformRecords, onProgress)
+	local foliageCount, foliageByFamily = generateFoliage(
+		random,
+		map,
+		bounds,
+		decorationFolder,
+		decorationCatalog,
+		platformRecords,
+		arrivalPosition,
+		onProgress
+	)
 
 	DebugLog.Info("MapGeneration", "Relief procedural genere", {
 		RunId = session.RunId,
@@ -1067,16 +1392,16 @@ function ProceduralMapService.Generate(session, map, arrival, onProgress)
 		Links = linkCount,
 		CoveredRatio = coveredSurfaceArea / usableArea,
 		TargetCoverageRatio = ProceduralMapConfig.TargetCoverageRatio,
-		Trunks = trunkCount,
-		Balls = ballCount,
+		Foliage = foliageCount,
+		FoliageByFamily = foliageByFamily,
 	})
 
 	return true, {
 		Layouts = #selectedLayouts,
 		Platforms = placedPlatforms,
 		Links = linkCount,
-		Trunks = trunkCount,
-		Balls = ballCount,
+		Foliage = foliageCount,
+		FoliageByFamily = foliageByFamily,
 		Theme = terrainThemeId,
 		BaseGenerated = baseGenerated,
 	}

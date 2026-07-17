@@ -61,6 +61,81 @@
         "GlobalShadows": true,
         "Outlines": false,
         "Technology": "Voxel"
+      },
+      "Atmosphere": {
+        "$className": "Atmosphere",
+        "$properties": {
+          "Color": [
+            1,
+            1,
+            1
+          ],
+          "Decay": [
+            1,
+            1,
+            1
+          ],
+          "Density": 0,
+          "Glare": 0,
+          "Haze": 0,
+          "Offset": 0
+        }
+      },
+      "Sky": {
+        "$className": "Sky",
+        "$properties": {
+          "CelestialBodiesShown": true,
+          "MoonAngularSize": 11,
+          "MoonTextureId": "rbxassetid://0",
+          "SkyboxBk": "rbxassetid://2128458653",
+          "SkyboxDn": "rbxassetid://2128462480",
+          "SkyboxFt": "rbxassetid://2128458653",
+          "SkyboxLf": "rbxassetid://2128462027",
+          "SkyboxRt": "rbxassetid://2128462027",
+          "SkyboxUp": "rbxassetid://2128462236",
+          "StarCount": 3000,
+          "SunAngularSize": 21,
+          "SunTextureId": "rbxassetid://0"
+        }
+      },
+      "ColorCorrection": {
+        "$className": "ColorCorrectionEffect",
+        "$properties": {
+          "Brightness": 0,
+          "Contrast": 0,
+          "Enabled": false,
+          "Saturation": 0,
+          "TintColor": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "Blur": {
+        "$className": "BlurEffect",
+        "$properties": {
+          "Enabled": false,
+          "Size": 0
+        }
+      },
+      "DepthOfField": {
+        "$className": "DepthOfFieldEffect",
+        "$properties": {
+          "Enabled": false,
+          "FarIntensity": 0.1,
+          "FocusDistance": 34,
+          "InFocusRadius": 26,
+          "NearIntensity": 0
+        }
+      },
+      "SunRays": {
+        "$className": "SunRaysEffect",
+        "$properties": {
+          "Enabled": false,
+          "Intensity": 0.01,
+          "Spread": 0.65
+        }
       }
     },
     "SoundService": {

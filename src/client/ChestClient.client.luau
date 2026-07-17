@@ -510,6 +510,8 @@ local function showOpenFailed(payload)
 
 	if payload.Reason == "NotEnoughCoins" then
 		slotSubtitle.Text = ("Il faut %d coins."):format(payload.NextOpenCost or currentOpenCost)
+	elseif payload.Reason == "NoEligibleReward" then
+		slotSubtitle.Text = "Aucune recompense disponible."
 	else
 		slotSubtitle.Text = "Rapproche-toi du coffre."
 	end

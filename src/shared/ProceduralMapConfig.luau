@@ -134,13 +134,147 @@ local ProceduralMapConfig = {
 	},
 
 	Decorations = {
-		MinimumTrunks = 3,
-		MaximumTrunks = 5,
-		MinimumBalls = 5,
-		MaximumBalls = 8,
-		PlatformMargin = 12,
-		VerticalPadding = 0.2,
-		TrunkLeanRadians = math.rad(5),
+		TemplateFolderName = "Decorations",
+		MaximumInstances = 280,
+		PlacementAttemptsPerInstance = 24,
+		PlatformMargin = 7,
+		VerticalPadding = 0.04,
+		ArrivalClearRadius = 74,
+		-- Le sol de base complete les plateformes sans depasser le budget visuel.
+		Ground = {
+			DensityMultiplier = 0.18,
+			EdgeInset = 10,
+			TerrainClearance = 7,
+		},
+		-- Les grandes silhouettes sont posees avant les details afin de conserver
+		-- leur espace visuel et d'eviter les chevauchements artificiels.
+		FamilyOrder = { "Trees", "Bushes", "Crates", "Logs", "Rocks", "Grass", "Flowers", "Mushrooms" },
+		Families = {
+			Trees = {
+				-- Un arbre par grande plateforme rend le biome lisible comme une foret
+				-- sans fermer les trajectoires ni multiplier les canopees superposees.
+				DensityPerThousandStuds = 0.42,
+				MinimumPerPlatform = 0,
+				MaximumPerPlatform = 1,
+				MaximumGroundInstances = 22,
+				MinimumPlatformArea = 3200,
+				MinimumElevation = 8,
+				MaximumElevation = 145,
+				FootprintRadius = 18,
+				CollisionMode = "TreeTrunk",
+				CollisionMaximumHorizontalArea = 36,
+				Assets = {
+					{ Name = "arbre", Weight = 1, MinimumHeight = 44, MaximumHeight = 78 },
+				},
+			},
+			Grass = {
+				DensityPerThousandStuds = 1.1,
+				MinimumPerPlatform = 1,
+				MaximumPerPlatform = 6,
+				MaximumGroundInstances = 70,
+				MinimumPlatformArea = 550,
+				MinimumElevation = 4,
+				MaximumElevation = 180,
+				FootprintRadius = 0.75,
+				Assets = {
+					{ Name = "Grass", Weight = 2, MinimumHeight = 3.4, MaximumHeight = 5.4 },
+					{ Name = "Grass 1", Weight = 3, MinimumHeight = 1.7, MaximumHeight = 2.9 },
+					{ Name = "Grass 2", Weight = 3, MinimumHeight = 1.8, MaximumHeight = 3.1 },
+					{ Name = "Grass 3", Weight = 3, MinimumHeight = 1.9, MaximumHeight = 3.2 },
+				},
+			},
+			Flowers = {
+				DensityPerThousandStuds = 0.42,
+				MinimumPerPlatform = 0,
+				MaximumPerPlatform = 3,
+				MaximumGroundInstances = 28,
+				MinimumPlatformArea = 800,
+				MinimumElevation = 4,
+				MaximumElevation = 82,
+				FootprintRadius = 0.8,
+				Assets = {
+					{ Name = "Flower 1", Weight = 1, MinimumHeight = 1.05, MaximumHeight = 1.75 },
+					{ Name = "Flower 2", Weight = 1, MinimumHeight = 1.05, MaximumHeight = 1.75 },
+					{ Name = "Flower 3", Weight = 1, MinimumHeight = 1.05, MaximumHeight = 1.75 },
+				},
+			},
+			Mushrooms = {
+				DensityPerThousandStuds = 0.22,
+				MinimumPerPlatform = 0,
+				MaximumPerPlatform = 2,
+				MaximumGroundInstances = 14,
+				MinimumPlatformArea = 700,
+				MinimumElevation = 4,
+				MaximumElevation = 58,
+				FootprintRadius = 0.65,
+				Assets = {
+					{ Name = "Mushroom 1", Weight = 1, MinimumHeight = 0.7, MaximumHeight = 1.2 },
+					{ Name = "Mushroom 2", Weight = 1, MinimumHeight = 0.75, MaximumHeight = 1.3 },
+				},
+			},
+			Rocks = {
+				DensityPerThousandStuds = 0.26,
+				MinimumPerPlatform = 0,
+				MaximumPerPlatform = 2,
+				MaximumGroundInstances = 16,
+				MinimumPlatformArea = 900,
+				MinimumElevation = 4,
+				MaximumElevation = 180,
+				FootprintRadius = 3.4,
+				CollisionMode = "All",
+				Assets = {
+					{ Name = "Rock 1", Weight = 2, MinimumHeight = 2.2, MaximumHeight = 3.8 },
+					{ Name = "Rock 2", Weight = 2, MinimumHeight = 2.4, MaximumHeight = 4.2 },
+					{ Name = "Rock 3", Weight = 2, MinimumHeight = 1.9, MaximumHeight = 3.4 },
+					{ Name = "Rock 4", Weight = 1, MinimumHeight = 2.2, MaximumHeight = 3.6 },
+					{ Name = "Rock 5", Weight = 2, MinimumHeight = 1.5, MaximumHeight = 2.8 },
+				},
+			},
+			Bushes = {
+				DensityPerThousandStuds = 0.14,
+				MinimumPerPlatform = 0,
+				MaximumPerPlatform = 1,
+				MaximumGroundInstances = 10,
+				MinimumPlatformArea = 1700,
+				MinimumElevation = 4,
+				MaximumElevation = 108,
+				FootprintRadius = 3.8,
+				Assets = {
+					{ Name = "Bush 2", Weight = 1, MinimumHeight = 2.9, MaximumHeight = 4.8 },
+				},
+			},
+			Crates = {
+				-- CrateDecors est un set de caisses complet. Il reste exceptionnel pour
+				-- ne pas surcharger la carte ni son budget de rendu.
+				DensityPerThousandStuds = 0.015,
+				MinimumPerPlatform = 0,
+				MaximumPerPlatform = 1,
+				MaximumInstancesPerMap = 2,
+				MaximumGroundInstances = 2,
+				MinimumPlatformArea = 1800,
+				MinimumElevation = 4,
+				MaximumElevation = 68,
+				FootprintRadius = 7.2,
+				CollisionMode = "Bounds",
+				Assets = {
+					{ Name = "CrateDecors", Weight = 1, MinimumHeight = 4.7, MaximumHeight = 7.4 },
+				},
+			},
+			Logs = {
+				-- L'ancien asset Tree est un tronc horizontal de faible hauteur : il reste un decor rare au sol.
+				DensityPerThousandStuds = 0.06,
+				MinimumPerPlatform = 0,
+				MaximumPerPlatform = 1,
+				MaximumGroundInstances = 6,
+				MinimumPlatformArea = 2600,
+				MinimumElevation = 8,
+				MaximumElevation = 92,
+				FootprintRadius = 5.4,
+				Assets = {
+					{ Name = "Tree", Weight = 1, MinimumHeight = 1.6, MaximumHeight = 2.7 },
+				},
+			},
+		},
 	},
 
 	-- Chaque layout ne contient que des rotations cardinales. Le service calcule

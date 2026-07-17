@@ -1,43 +1,22 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
+local StarterGui = game:GetService("StarterGui")
+local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
-local RunItemConfig = require(Shared:WaitForChild("RunItemConfig"))
-local UiTheme = require(Shared:WaitForChild("UiTheme"))
+local UiTemplateConfig = require(Shared:WaitForChild("UiTemplateConfig"))
 
-local existingGui = playerGui:FindFirstChild("RunStatsGui")
+local PRODUCTION_TEMPLATE_GUI_NAME = UiTemplateConfig.ProductionTemplateGuiName
+local STATS_TEMPLATE_NAME = "RunStatsDock"
+local PRODUCTION_GUI_NAME = "RunStatsGui"
 
-if existingGui ~= nil then
-	existingGui:Destroy()
-end
-
-local COLORS = UiTheme.Contexts.RunStats
-
-local function createLabel(parent, name, text, font, size, color)
-	local label = Instance.new("TextLabel")
-	label.Name = name
-	label.BackgroundTransparency = 1
-	label.BorderSizePixel = 0
-	label.Font = font
-	label.Text = text
-	label.TextColor3 = color
-	label.TextSize = size
-	label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-	label.TextStrokeTransparency = 0.62
-	label.TextTruncate = Enum.TextTruncate.AtEnd
-	label.TextYAlignment = Enum.TextYAlignment.Center
-	label.Parent = parent
-
-	return label
-end
-
-local addCorner = UiTheme.AddCorner
-local addStroke = UiTheme.AddStroke
+local POSITIVE_COLOR = Color3.fromRGB(66, 219, 107)
+local NEGATIVE_COLOR = Color3.fromRGB(248, 60, 76)
+local PREVIEW_TWEEN = TweenInfo.new(0.58, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
 
 local function getDefaultDisplayStats()
 	return {
@@ -67,219 +46,6 @@ local function getDefaultDisplayStats()
 	}
 end
 
-local state = {
-	IsRunActive = false,
-	IsPaused = false,
-	MaxHealth = 100,
-	CurrentShield = 0,
-	MaxShield = 0,
-	DisplayStats = getDefaultDisplayStats(),
-	RunItemStacks = {},
-}
-
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "RunStatsGui"
-screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
-screenGui.DisplayOrder = 30
-screenGui.Enabled = false
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.Parent = playerGui
-
-local panel = Instance.new("Frame")
-panel.Name = "StatsPanel"
-panel.AnchorPoint = Vector2.new(0, 0.5)
-panel.Position = UDim2.new(0, 18, 0.5, 0)
-panel.Size = UDim2.new(0, 230, 0.78, 0)
-panel.BackgroundColor3 = COLORS.Panel
-panel.BackgroundTransparency = 0.2
-panel.BorderSizePixel = 0
-panel.ClipsDescendants = true
-panel.Parent = screenGui
-addCorner(panel, 8)
-addStroke(panel, Color3.fromRGB(7, 12, 19), 0.16, 4)
-addStroke(panel, COLORS.Cyan, 0.3, 1.5)
-
-local panelGradient = Instance.new("UIGradient")
-panelGradient.Name = "GlassGradient"
-panelGradient.Rotation = 90
-panelGradient.Color = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, COLORS.Header),
-	ColorSequenceKeypoint.new(0.36, COLORS.Panel),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 17, 26)),
-})
-panelGradient.Transparency = NumberSequence.new({
-	NumberSequenceKeypoint.new(0, 0.1),
-	NumberSequenceKeypoint.new(1, 0.36),
-})
-panelGradient.Parent = panel
-UiTheme.AddSurfaceFinish(panel, {
-	Accent = COLORS.Cyan,
-	Intensity = 0.62,
-})
-
-local header = Instance.new("Frame")
-header.Name = "Header"
-header.Size = UDim2.new(1, 0, 0, 34)
-header.BackgroundColor3 = COLORS.Header
-header.BackgroundTransparency = 0.32
-header.BorderSizePixel = 0
-header.Parent = panel
-
-local headerAccent = Instance.new("Frame")
-headerAccent.Name = "HeaderAccent"
-headerAccent.Position = UDim2.fromOffset(0, 31)
-headerAccent.Size = UDim2.new(1, 0, 0, 3)
-headerAccent.BackgroundColor3 = COLORS.Cyan
-headerAccent.BackgroundTransparency = 0.12
-headerAccent.BorderSizePixel = 0
-headerAccent.Parent = header
-
-local headerIcon = createLabel(header, "HeaderIcon", "|||", Enum.Font.GothamBlack, 12, COLORS.Cyan)
-headerIcon.Position = UDim2.fromOffset(9, 0)
-headerIcon.Size = UDim2.fromOffset(20, 31)
-headerIcon.TextXAlignment = Enum.TextXAlignment.Center
-
-local titleLabel = createLabel(header, "Title", "STATISTIQUES DE RUN", Enum.Font.GothamBold, 14, COLORS.Text)
-titleLabel.Position = UDim2.fromOffset(32, 0)
-titleLabel.Size = UDim2.new(1, -42, 1, 0)
-titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-local content = Instance.new("ScrollingFrame")
-content.Name = "Content"
-content.Position = UDim2.fromOffset(7, 40)
-content.Size = UDim2.new(1, -14, 1, -47)
-content.BackgroundTransparency = 1
-content.BorderSizePixel = 0
-content.CanvasSize = UDim2.fromOffset(0, 0)
-content.AutomaticCanvasSize = Enum.AutomaticSize.Y
-content.ScrollBarImageColor3 = COLORS.Cyan
-content.ScrollBarImageTransparency = 0.35
-content.ScrollBarThickness = 4
-content.ScrollingDirection = Enum.ScrollingDirection.Y
-content.Parent = panel
-
-local contentPadding = Instance.new("UIPadding")
-contentPadding.PaddingTop = UDim.new(0, 2)
-contentPadding.PaddingBottom = UDim.new(0, 4)
-contentPadding.Parent = content
-
-local contentLayout = Instance.new("UIListLayout")
-contentLayout.FillDirection = Enum.FillDirection.Vertical
-contentLayout.Padding = UDim.new(0, 1)
-contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
-contentLayout.Parent = content
-
-local rows = {}
-local rowOrder = 0
-local currentSectionColor = COLORS.Cyan
-
-local SECTION_STYLES = {
-	SURVIE = {
-		Color = COLORS.Survival,
-		Icon = "+",
-	},
-	ATTAQUE = {
-		Color = COLORS.Attack,
-		Icon = "x",
-	},
-	["MOBILITE ET GAIN"] = {
-		Color = COLORS.Mobility,
-		Icon = ">",
-	},
-}
-
-local function createSection(text)
-	rowOrder += 1
-	local style = SECTION_STYLES[text] or {
-		Color = COLORS.Cyan,
-		Icon = ">",
-	}
-	currentSectionColor = style.Color
-
-	local section = createLabel(content, "Section", text, Enum.Font.GothamBold, 12, style.Color)
-	section.Size = UDim2.new(1, 0, 0, 22)
-	section.LayoutOrder = rowOrder
-	section.TextXAlignment = Enum.TextXAlignment.Left
-	section.Text = "  " .. style.Icon .. "  " .. text
-
-	return section
-end
-
-local function createRow(id, text)
-	rowOrder += 1
-
-	local row = Instance.new("Frame")
-	row.Name = id
-	row.Size = UDim2.new(1, 0, 0, 20)
-	row.BackgroundColor3 = Color3.fromRGB(20, 34, 48)
-	row.BackgroundTransparency = 0.38
-	row.BorderSizePixel = 0
-	row.LayoutOrder = rowOrder
-	row.Parent = content
-	addCorner(row, 3)
-	addStroke(row, currentSectionColor, 0.8, 1)
-
-	local marker = Instance.new("Frame")
-	marker.Name = "Marker"
-	marker.Position = UDim2.fromOffset(4, 6)
-	marker.Size = UDim2.fromOffset(8, 8)
-	marker.BackgroundColor3 = currentSectionColor
-	marker.BorderSizePixel = 0
-	marker.Parent = row
-	addCorner(marker, 4)
-
-	local nameLabel = createLabel(row, "Name", text, Enum.Font.GothamMedium, 10, COLORS.Muted)
-	nameLabel.Position = UDim2.fromOffset(17, 0)
-	nameLabel.Size = UDim2.new(0.63, -17, 1, 0)
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-	local valueLabel = createLabel(row, "Value", "-", Enum.Font.GothamBold, 10, COLORS.Value)
-	valueLabel.AnchorPoint = Vector2.new(1, 0)
-	valueLabel.Position = UDim2.new(1, -7, 0, 0)
-	valueLabel.Size = UDim2.new(0.37, -7, 1, 0)
-	valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-
-	rows[id] = valueLabel
-end
-
-createSection("SURVIE")
-createRow("MaxHealth", "PV maximum")
-createRow("HealthRegen", "Regeneration PV")
-createRow("Shield", "Bouclier")
-createRow("Armor", "Armure")
-createRow("LifeSteal", "Vol de vie")
-
-createSection("ATTAQUE")
-createRow("BaseDamage", "Degats")
-createRow("EliteDamage", "Degats elites")
-createRow("AttackRate", "Vitesse d'attaque")
-createRow("ProjectileCount", "Projectiles")
-createRow("BounceCount", "Rebonds")
-createRow("CritChance", "Chance critique")
-createRow("CritDamage", "Degats critiques")
-createRow("ProjectileSpeed", "Vitesse projectile")
-createRow("ProjectileDuration", "Duree projectile")
-
-createSection("MOBILITE ET GAIN")
-createRow("MoveSpeed", "Vitesse deplacement")
-createRow("Jump", "Puissance saut")
-createRow("CollectRadius", "Rayon recolte")
-createRow("XpMultiplier", "Gain d'XP")
-createRow("GoldMultiplier", "Gain d'or")
-createRow("Luck", "Chance")
-createRow("EnemyMultiplier", "Plus d'ennemis")
-
-createSection("OBJETS DE RUN")
-
-for _, itemId in ipairs(RunItemConfig.ChestRewardIds) do
-	local definition = RunItemConfig.Definitions[itemId]
-
-	if definition ~= nil then
-		createRow("RunItem_" .. itemId, definition.Name)
-	end
-end
-
 local function getNumber(value, fallback)
 	if typeof(value) == "number" then
 		return value
@@ -295,7 +61,7 @@ end
 local function formatDecimal(value, decimals)
 	local text = string.format("%." .. tostring(decimals) .. "f", getNumber(value))
 
-	return string.gsub(text, "%.", ",")
+	return string.gsub(text, "\\.", ",")
 end
 
 local function formatPercent(value)
@@ -305,6 +71,242 @@ end
 local function formatMultiplier(value)
 	return "x" .. formatDecimal(value, 2)
 end
+
+local state = {
+	IsRunActive = false,
+	IsPaused = false,
+	MaxHealth = 100,
+	CurrentShield = 0,
+	MaxShield = 0,
+	DisplayStats = getDefaultDisplayStats(),
+}
+
+local existingGui = playerGui:FindFirstChild(PRODUCTION_GUI_NAME)
+
+if existingGui then
+	existingGui:Destroy()
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = PRODUCTION_GUI_NAME
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.DisplayOrder = 30
+screenGui.Enabled = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = playerGui
+
+local function getStatsTemplate()
+	local templateGui = StarterGui:FindFirstChild(PRODUCTION_TEMPLATE_GUI_NAME)
+	local runCanvas = templateGui and templateGui:FindFirstChild("RunCanvas")
+	local template = runCanvas and runCanvas:FindFirstChild(STATS_TEMPLATE_NAME)
+
+	if template and template:IsA("Frame") then
+		return template
+	end
+
+	DebugLog.Warn("UI", "Panneau statistiques V2 non initialise, template introuvable", {
+		ProductionTemplate = templateGui ~= nil,
+		RunCanvas = runCanvas ~= nil,
+		Template = template ~= nil,
+	})
+	return nil
+end
+
+local template = getStatsTemplate()
+
+if template == nil then
+	return
+end
+
+local panel = template:Clone()
+panel.Name = "StatsPanel"
+panel.Visible = true
+panel:SetAttribute("ProductionBound", true)
+panel.Parent = screenGui
+
+local content = panel:FindFirstChild("Content")
+local statList = content and content:FindFirstChild("StatList")
+
+if statList == nil or not statList:IsA("ScrollingFrame") then
+	DebugLog.Warn("UI", "Panneau statistiques V2 non initialise, StatList introuvable")
+	screenGui:Destroy()
+	return
+end
+
+local rows = {}
+
+for _, child in ipairs(statList:GetChildren()) do
+	if child:IsA("Frame") then
+		local value = child:FindFirstChild("Value")
+		local cue = child:FindFirstChild("PreviewCue")
+
+		if value and value:IsA("TextLabel") then
+			rows[child.Name] = {
+				Root = child,
+				Value = value,
+				Cue = if cue and cue:IsA("TextLabel") then cue else nil,
+			}
+		end
+	end
+end
+
+local activePreviewTweens = {}
+local activePreviewRows = {}
+
+local function clearPreviewRow(row)
+	local previewTween = activePreviewTweens[row]
+
+	if previewTween then
+		previewTween:Cancel()
+		activePreviewTweens[row] = nil
+	end
+
+	local cue = row.Cue
+
+	if cue then
+		cue.Visible = false
+		cue.Text = ""
+		cue.TextTransparency = 1
+	end
+
+	activePreviewRows[row] = nil
+end
+
+local function clearAllPreviews()
+	local rowsToClear = {}
+
+	for row in pairs(activePreviewRows) do
+		table.insert(rowsToClear, row)
+	end
+
+	for _, row in ipairs(rowsToClear) do
+		clearPreviewRow(row)
+	end
+end
+
+local function showPreview(row, delta, impact)
+	local cue = row.Cue
+
+	if cue == nil then
+		return
+	end
+
+	local positive = delta >= 0
+	local startY = if positive then 0.62 else 0.38
+	local endY = if positive then 0.36 else 0.64
+
+	clearPreviewRow(row)
+
+	cue.Text = string.rep(if positive then "▲" else "▼", math.clamp(impact, 1, 3))
+	cue.TextColor3 = if positive then POSITIVE_COLOR else NEGATIVE_COLOR
+	cue.Position = UDim2.fromScale(0.595, startY)
+	cue.TextTransparency = 0.02
+	cue.Visible = true
+
+	local previewTween = TweenService:Create(cue, PREVIEW_TWEEN, {
+		Position = UDim2.fromScale(0.595, endY),
+		TextTransparency = 0.46,
+	})
+	activePreviewTweens[row] = previewTween
+	activePreviewRows[row] = true
+	previewTween:Play()
+end
+
+local function previewCard(card)
+	clearAllPreviews()
+
+	local preview = card:FindFirstChild("StatPreview")
+
+	if preview == nil then
+		return
+	end
+
+	for _, entry in ipairs(preview:GetChildren()) do
+		if entry:IsA("NumberValue") and entry.Value ~= 0 then
+			local row = rows[entry.Name]
+
+			if row then
+				local impact = math.clamp(math.floor(getNumber(entry:GetAttribute("VisualImpact"), 1)), 1, 3)
+				showPreview(row, entry.Value, impact)
+			end
+		end
+	end
+end
+
+local boundCards = {}
+
+local function bindCard(card)
+	if boundCards[card] or not card:IsA("GuiObject") then
+		return
+	end
+
+	boundCards[card] = true
+	card.MouseEnter:Connect(function()
+		previewCard(card)
+	end)
+	card.MouseLeave:Connect(clearAllPreviews)
+	card.SelectionGained:Connect(function()
+		previewCard(card)
+	end)
+	card.SelectionLost:Connect(clearAllPreviews)
+	card.Destroying:Connect(function()
+		boundCards[card] = nil
+		clearAllPreviews()
+	end)
+end
+
+local observedPerkChoiceGuis = {}
+
+local function bindPerkChoiceGui(perkChoiceGui)
+	if observedPerkChoiceGuis[perkChoiceGui] or not perkChoiceGui:IsA("ScreenGui") then
+		return
+	end
+	observedPerkChoiceGuis[perkChoiceGui] = true
+
+	perkChoiceGui:GetPropertyChangedSignal("Enabled"):Connect(function()
+		if not perkChoiceGui.Enabled then
+			clearAllPreviews()
+		end
+	end)
+	perkChoiceGui.Destroying:Connect(function()
+		observedPerkChoiceGuis[perkChoiceGui] = nil
+		clearAllPreviews()
+	end)
+
+	-- PerkChoiceV2 est construit apres son parent ScreenGui. Le raccordement
+	-- attend donc sa hierarchie au lieu de dependre de l'ordre des LocalScripts.
+	task.spawn(function()
+		local overlay = perkChoiceGui:WaitForChild("Overlay", 5)
+		local dock = overlay and overlay:WaitForChild("PerkChoiceDockV2", 5)
+		local choicePanel = dock and dock:WaitForChild("PerkChoicePanel", 5)
+		local choiceContent = choicePanel and choicePanel:WaitForChild("Content", 5)
+		local offers = choiceContent and choiceContent:WaitForChild("Offers", 5)
+
+		if offers == nil then
+			DebugLog.Warn("UI", "Apercu statistiques V2 non raccorde, offres introuvables")
+			return
+		end
+
+		for _, card in ipairs(offers:GetChildren()) do
+			bindCard(card)
+		end
+
+		offers.ChildAdded:Connect(bindCard)
+	end)
+end
+
+local currentPerkChoiceGui = playerGui:FindFirstChild("PerkChoiceV2")
+
+if currentPerkChoiceGui then
+	bindPerkChoiceGui(currentPerkChoiceGui)
+end
+
+playerGui.ChildAdded:Connect(function(child)
+	if child.Name == "PerkChoiceV2" then
+		bindPerkChoiceGui(child)
+	end
+end)
 
 local function refreshRows()
 	local stats = state.DisplayStats
@@ -325,68 +327,44 @@ local function refreshRows()
 		currentShield = getNumber(stats.CurrentShield)
 	end
 
-	rows.MaxHealth.Text = formatInteger(maxHealth)
-	rows.HealthRegen.Text = formatDecimal(stats.HealthRegen, 1) .. " /s"
-	rows.Shield.Text = formatInteger(currentShield) .. " / " .. formatInteger(maxShield)
-	rows.Armor.Text = "-" .. formatPercent(stats.ArmorPercent) .. " degats"
-	rows.LifeSteal.Text = formatPercent(stats.LifeStealPercent)
+	local values = {
+		MaxHealth = formatInteger(maxHealth),
+		HealthRegen = formatDecimal(stats.HealthRegen, 1) .. " /s",
+		Shield = formatInteger(currentShield) .. " / " .. formatInteger(maxShield),
+		Armor = "-" .. formatPercent(stats.ArmorPercent) .. " degats",
+		LifeSteal = formatPercent(stats.LifeStealPercent),
+		BaseDamage = formatDecimal(stats.BaseDamage, 1),
+		EliteDamage = formatDecimal(stats.EliteDamage, 1),
+		AttackRate = formatDecimal(stats.AttackRate, 2) .. " /s",
+		ProjectileCount = formatInteger(stats.ProjectileCount),
+		BounceCount = formatInteger(stats.BounceCount),
+		CritChance = formatPercent(stats.CritChance),
+		CritDamage = formatPercent(stats.CritDamageMultiplier),
+		ProjectileSpeed = formatDecimal(stats.ProjectileSpeed, 0),
+		ProjectileDuration = formatDecimal(stats.ProjectileDuration, 1) .. " s",
+		MoveSpeed = formatDecimal(stats.MoveSpeed, 1),
+		Jump = formatDecimal(stats.JumpValue, 1),
+		CollectRadius = formatDecimal(stats.CollectRadius, 1),
+		XpMultiplier = formatMultiplier(stats.XpMultiplier),
+		GoldMultiplier = formatMultiplier(stats.GoldMultiplier),
+		Luck = formatPercent(stats.Luck),
+		EnemyMultiplier = formatMultiplier(stats.EnemyMultiplier),
+	}
 
-	rows.BaseDamage.Text = formatDecimal(stats.BaseDamage, 1)
-	rows.EliteDamage.Text = formatDecimal(stats.EliteDamage, 1)
-	rows.AttackRate.Text = formatDecimal(stats.AttackRate, 2) .. " /s"
-	rows.ProjectileCount.Text = formatInteger(stats.ProjectileCount)
-	rows.BounceCount.Text = formatInteger(stats.BounceCount)
-	rows.CritChance.Text = formatPercent(stats.CritChance)
-	rows.CritDamage.Text = formatPercent(stats.CritDamageMultiplier)
-	rows.ProjectileSpeed.Text = formatDecimal(stats.ProjectileSpeed, 0)
-	rows.ProjectileDuration.Text = formatDecimal(stats.ProjectileDuration, 1) .. " s"
+	for rowId, text in pairs(values) do
+		local row = rows[rowId]
 
-	rows.MoveSpeed.Text = formatDecimal(stats.MoveSpeed, 1)
-	rows.Jump.Text = formatDecimal(stats.JumpValue, 1)
-	rows.CollectRadius.Text = formatDecimal(stats.CollectRadius, 1)
-	rows.XpMultiplier.Text = formatMultiplier(stats.XpMultiplier)
-	rows.GoldMultiplier.Text = formatMultiplier(stats.GoldMultiplier)
-	rows.Luck.Text = formatPercent(stats.Luck)
-	rows.EnemyMultiplier.Text = formatMultiplier(stats.EnemyMultiplier)
-
-	for _, itemId in ipairs(RunItemConfig.ChestRewardIds) do
-		local row = rows["RunItem_" .. itemId]
-
-		if row ~= nil then
-			row.Text = "x" .. formatInteger(state.RunItemStacks[itemId] or 0)
+		if row then
+			row.Value.Text = text
 		end
 	end
 end
 
 local function refreshVisibility()
 	screenGui.Enabled = state.IsRunActive and state.IsPaused
-end
 
-local function getViewportSize()
-	local camera = Workspace.CurrentCamera
-
-	if camera == nil then
-		return Vector2.new(1280, 720)
-	end
-
-	return camera.ViewportSize
-end
-
-local function updateResponsiveLayout()
-	local viewportSize = getViewportSize()
-
-	if viewportSize.X < 700 then
-		panel.AnchorPoint = Vector2.new(0.5, 1)
-		panel.Position = UDim2.new(0.5, 0, 1, -12)
-		panel.Size = UDim2.new(0.9, 0, 0.42, 0)
-	elseif viewportSize.X < 1200 then
-		panel.AnchorPoint = Vector2.new(0, 0.5)
-		panel.Position = UDim2.new(0, 12, 0.5, 0)
-		panel.Size = UDim2.new(0, 218, 0.7, 0)
-	else
-		panel.AnchorPoint = Vector2.new(0, 0.5)
-		panel.Position = UDim2.new(0, 18, 0.5, 0)
-		panel.Size = UDim2.new(0, 230, 0.78, 0)
+	if not screenGui.Enabled then
+		clearAllPreviews()
 	end
 end
 
@@ -443,43 +421,10 @@ local function onRunState(payload)
 	refreshVisibility()
 end
 
-local function onRunItems(payload)
-	payload = payload or {}
-	state.RunItemStacks = {}
-
-	if typeof(payload.Items) == "table" then
-		for _, item in ipairs(payload.Items) do
-			if typeof(item) == "table" and item.Id ~= nil then
-				state.RunItemStacks[tostring(item.Id)] = math.max(0, math.floor(getNumber(item.Stacks) or 0))
-			end
-		end
-	end
-
-	refreshRows()
-end
-
 ReplicatedStorage:WaitForChild("Perk_UpdateStats").OnClientEvent:Connect(onPerkStats)
 ReplicatedStorage:WaitForChild("Combat_UpdateStats").OnClientEvent:Connect(onCombatStats)
 ReplicatedStorage:WaitForChild("Combat_PauseState").OnClientEvent:Connect(onPauseState)
 ReplicatedStorage:WaitForChild("Run_StateUpdate").OnClientEvent:Connect(onRunState)
-ReplicatedStorage:WaitForChild(RunItemConfig.UpdateRemoteName).OnClientEvent:Connect(onRunItems)
-
-if Workspace.CurrentCamera ~= nil then
-	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateResponsiveLayout)
-end
-
-Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
-	if Workspace.CurrentCamera ~= nil then
-		Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateResponsiveLayout)
-	end
-
-	updateResponsiveLayout()
-end)
+ReplicatedStorage:WaitForChild("Perk_HideChoices").OnClientEvent:Connect(clearAllPreviews)
 
 refreshRows()
-refreshVisibility()
-updateResponsiveLayout()
-
-DebugLog.Info("UI", "Panneau statistiques de run initialise", {
-	Player = player.Name,
-})

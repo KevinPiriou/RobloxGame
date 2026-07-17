@@ -8,13 +8,17 @@ local playerGui = player:WaitForChild("PlayerGui")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local RunItemConfig = require(Shared:WaitForChild("RunItemConfig"))
+local UiTheme = require(Shared:WaitForChild("UiTheme"))
+local UiTemplateConfig = require(Shared:WaitForChild("UiTemplateConfig"))
 
-local DRAFT_GUI_NAME = "MegaRobloxUIV_RunLayoutDraft"
+local PRODUCTION_TEMPLATE_GUI_NAME = UiTemplateConfig.ProductionTemplateGuiName
+
 local function findPath(root, names)
 	local current = root
 
 	for _, name in ipairs(names) do
-		current = current:FindFirstChild(name)
+		local directChild = current:FindFirstChild(name)
+		current = directChild or current:FindFirstChild(name, true)
 
 		if current == nil then
 			return nil
@@ -54,6 +58,14 @@ local function getFrame(root, names)
 	return nil
 end
 
+local function getItemRarityColor(definition)
+	if definition and type(definition.Rarity) == "string" then
+		return UiTheme.Rarities[definition.Rarity] or UiTheme.Colors.GlassTint
+	end
+
+	return UiTheme.Colors.GlassTint
+end
+
 local function bindText(source, target)
 	if source == nil or target == nil then
 		return
@@ -78,6 +90,82 @@ local function bindBar(sourceFill, targetFill)
 
 	copyProgress()
 	sourceFill:GetPropertyChangedSignal("Size"):Connect(copyProgress)
+end
+
+local function getOrCreateScale(parent, name)
+	local scale = parent:FindFirstChild(name)
+
+	if scale and scale:IsA("UIScale") then
+		return scale
+	end
+
+	local created = Instance.new("UIScale")
+	created.Name = name
+	created.Parent = parent
+	return created
+end
+
+local function configureTopBarLayout(topDock, topContent)
+	local timerSlot = topContent:FindFirstChild("TimerSlot")
+	local leftCluster = topContent:FindFirstChild("LeftCluster")
+	local rightCluster = topContent:FindFirstChild("RightCluster")
+	local pauseControl = topDock:FindFirstChild("PauseControl")
+
+	if
+		not (timerSlot and timerSlot:IsA("Frame"))
+		or not (leftCluster and leftCluster:IsA("Frame"))
+		or not (rightCluster and rightCluster:IsA("Frame"))
+	then
+		return
+	end
+
+	local leftScale = getOrCreateScale(leftCluster, "ClusterScale")
+	local rightScale = getOrCreateScale(rightCluster, "ClusterScale")
+	local pauseButton = pauseControl and pauseControl:FindFirstChild("PauseButton")
+	local hexCore = pauseControl and pauseControl:FindFirstChild("HexCore")
+
+	local function updateLayout()
+		local availableWidth = math.max(1, topContent.AbsoluteSize.X)
+		local topHeight = math.max(1, topDock.AbsoluteSize.Y)
+		local timerWidth = 136
+		local middleGap = 18
+		local groupWidth = math.max(1, (availableWidth - timerWidth - (middleGap * 2)) * 0.5)
+		local leftFactor = math.clamp(groupWidth / 294, 0.42, 1)
+		local rightFactor = math.clamp(groupWidth / 342, 0.42, 1)
+		local pauseSize = math.clamp(math.floor(topHeight * 0.64 + 0.5), 34, 46)
+		local pauseGap = math.clamp(math.floor(topHeight * 0.13 + 0.5), 5, 10)
+
+		leftScale.Scale = leftFactor
+		rightScale.Scale = rightFactor
+		leftCluster.Position = UDim2.new(0, 0, 0.5, 0)
+		rightCluster.Position = UDim2.new(1, -(342 * rightFactor), 0.5, 0)
+
+		timerSlot.AnchorPoint = Vector2.new(0.5, 0.5)
+		timerSlot.Position = UDim2.fromScale(0.5, 0.5)
+		timerSlot.Size = UDim2.new(0, timerWidth, 1, 0)
+
+		if pauseControl and pauseControl:IsA("Frame") then
+			pauseControl.AnchorPoint = Vector2.new(0.5, 0)
+			pauseControl.Position = UDim2.fromScale(0.5, 0)
+			pauseControl.Size = UDim2.new(0, timerWidth, 0, topHeight + pauseGap + pauseSize)
+		end
+
+		if hexCore and hexCore:IsA("GuiObject") then
+			hexCore.AnchorPoint = Vector2.new(0.5, 0)
+			hexCore.Position = UDim2.fromScale(0.5, 0)
+			hexCore.Size = UDim2.new(0, timerWidth, 0, topHeight)
+		end
+
+		if pauseButton and pauseButton:IsA("GuiObject") then
+			pauseButton.AnchorPoint = Vector2.new(0.5, 0)
+			pauseButton.Position = UDim2.new(0.5, 0, 0, topHeight + pauseGap)
+			pauseButton.Size = UDim2.fromOffset(pauseSize, pauseSize)
+		end
+	end
+
+	topContent:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateLayout)
+	topDock:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateLayout)
+	task.defer(updateLayout)
 end
 
 local function setSlotEmpty(slot)
@@ -105,6 +193,8 @@ local function setSlotEmpty(slot)
 end
 
 local function setSlotItem(slot, definition, stacks)
+	local rarityColor = getItemRarityColor(definition)
+
 	slot:SetAttribute("ObjectId", definition.Id)
 	slot:SetAttribute("Count", stacks)
 	slot.BackgroundTransparency = 0.08
@@ -123,26 +213,26 @@ local function setSlotItem(slot, definition, stacks)
 
 	local stroke = slot:FindFirstChild("SlotStroke")
 	if stroke and stroke:IsA("UIStroke") then
-		stroke.Color = definition.Accent
+		stroke.Color = rarityColor
 		stroke.Transparency = 0.12
 	end
 end
 
 local function initialise()
 	local combatGui = playerGui:WaitForChild("CombatGui", 30)
-	local draftGui = playerGui:WaitForChild(DRAFT_GUI_NAME, 30)
+	local templateGui = playerGui:WaitForChild(PRODUCTION_TEMPLATE_GUI_NAME, 30)
 
-	if combatGui == nil or draftGui == nil or not draftGui:IsA("ScreenGui") then
-		DebugLog.Warn("UI", "Barres V2 non activees, template ou HUD introuvable", {
+	if combatGui == nil or templateGui == nil or not templateGui:IsA("ScreenGui") then
+		DebugLog.Warn("UI", "Barres V2 non activees, snapshot ou HUD introuvable", {
 			HasCombatGui = combatGui ~= nil,
-			HasDraftGui = draftGui ~= nil,
+			HasProductionTemplate = templateGui ~= nil,
 		})
 		return
 	end
 
-	local draftCanvas = draftGui:FindFirstChild("RunCanvas")
-	local topTemplate = draftCanvas and draftCanvas:FindFirstChild("TopDock")
-	local bottomTemplate = draftCanvas and draftCanvas:FindFirstChild("BottomDock")
+	local templateCanvas = templateGui:FindFirstChild("RunCanvas")
+	local topTemplate = templateCanvas and templateCanvas:FindFirstChild("TopDock")
+	local bottomTemplate = templateCanvas and templateCanvas:FindFirstChild("BottomDock")
 
 	if topTemplate == nil or bottomTemplate == nil or not topTemplate:IsA("Frame") or not bottomTemplate:IsA("Frame") then
 		DebugLog.Warn("UI", "Barres V2 non activees, docks du kit invalides")
@@ -179,27 +269,8 @@ local function initialise()
 	bottomDock.Visible = false
 	bottomDock.Parent = combatGui
 
-	-- Le contenu de la TopBar est volontairement plus large que son dock.
-	-- Cette echelle garde la composition lisible sur les petits ecrans sans positions fixes.
-	local responsiveScale = topDock.Content:FindFirstChild("ResponsiveScale")
-	if responsiveScale == nil then
-		responsiveScale = Instance.new("UIScale")
-		responsiveScale.Name = "ResponsiveScale"
-		responsiveScale.Parent = topDock.Content
-	end
-
-	if responsiveScale:IsA("UIScale") then
-		local function updateTopScale()
-			local visualWidth = (topDock.AbsoluteSize.X * 1.25895083) - 56
-			responsiveScale.Scale = math.clamp(visualWidth / 801, 0.64, 1)
-		end
-
-		topDock:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateTopScale)
-		task.defer(updateTopScale)
-	end
-
-	-- Le kit reste une source de composition dans StarterGui, il ne doit pas s'afficher en doublon.
-	draftGui.Enabled = false
+	-- Le snapshot sert uniquement de source de clonage dans StarterGui.
+	templateGui.Enabled = false
 
 	local topContent = getFrame(topDock, { "Content" })
 	local bottomBar = getFrame(bottomDock, { "BottomBar" })
@@ -211,6 +282,8 @@ local function initialise()
 		bottomDock:Destroy()
 		return
 	end
+
+	configureTopBarLayout(topDock, topContent)
 
 	local kitHealth = getFrame(bottomContent, { "Stats", "Health" })
 	local kitShield = getFrame(bottomContent, { "Stats", "Shield" })
@@ -312,6 +385,16 @@ local function initialise()
 
 	local kitPauseButton = getGuiObject(topDock, { "PauseControl", "PauseButton" })
 	local kitPauseGlow = getFrame(topDock, { "PauseControl", "StateGlow" })
+	local pauseToggleRemote = ReplicatedStorage:FindFirstChild("Combat_TogglePause")
+		or ReplicatedStorage:WaitForChild("Combat_TogglePause", 10)
+
+	if pauseToggleRemote ~= nil and not pauseToggleRemote:IsA("RemoteEvent") then
+		DebugLog.Warn("UI", "Remote de pause invalide pour les barres V2", {
+		ClassName = pauseToggleRemote.ClassName,
+		Name = pauseToggleRemote.Name,
+	})
+		pauseToggleRemote = nil
+	end
 
 	if kitPauseButton and kitPauseButton:IsA("ImageButton") then
 		local function refreshPauseButton()
@@ -339,15 +422,14 @@ local function initialise()
 				return
 			end
 
-			local success, err = pcall(function()
-				legacyPauseButton:Activate()
-			end)
-
-			if not success then
-				DebugLog.Warn("UI", "Pause V2 impossible a declencher", {
-					Error = tostring(err),
-				})
+			if pauseToggleRemote == nil then
+				DebugLog.Warn("UI", "Pause V2 ignoree, remote indisponible")
+				return
 			end
+
+			-- Le bouton V2 parle directement au serveur. Activer artificiellement
+			-- le bouton historique masque peut lever une erreur et coupe la partie.
+			pauseToggleRemote:FireServer()
 		end)
 	end
 
@@ -366,31 +448,28 @@ local function initialise()
 	end
 
 	local function refreshRunItems(payload)
-		local stacksById = {}
-
-		if typeof(payload) == "table" and typeof(payload.Items) == "table" then
-			for _, item in ipairs(payload.Items) do
-				if typeof(item) == "table" and item.Id ~= nil then
-					local stacks = math.max(0, math.floor(tonumber(item.Stacks) or 0))
-					stacksById[tostring(item.Id)] = stacks
-				end
-			end
-		end
-
 		for _, slot in ipairs(inventorySlots) do
 			setSlotEmpty(slot)
 		end
 
 		local usedSlots = 0
-		for _, itemId in ipairs(RunItemConfig.ChestRewardIds) do
-			local stacks = stacksById[itemId] or 0
-			local definition = RunItemConfig.Definitions[itemId]
+		local displayedItemIds = {}
 
-			if stacks > 0 and definition ~= nil then
-				usedSlots += 1
-				local slot = inventorySlots[usedSlots]
+		if typeof(payload) == "table" and typeof(payload.Items) == "table" then
+			for _, item in ipairs(payload.Items) do
+				local itemId = if typeof(item) == "table" and item.Id ~= nil then tostring(item.Id) else ""
+				local stacks = if typeof(item) == "table" then math.max(0, math.floor(tonumber(item.Stacks) or 0)) else 0
+				local definition = RunItemConfig.Definitions[itemId]
 
-				if slot then
+				if stacks > 0 and definition ~= nil and not displayedItemIds[itemId] then
+					usedSlots += 1
+					local slot = inventorySlots[usedSlots]
+
+					if slot == nil then
+						break
+					end
+
+					displayedItemIds[itemId] = true
 					setSlotItem(slot, definition, stacks)
 				end
 			end
@@ -402,10 +481,10 @@ local function initialise()
 		Health = { Root = kitHealth, Track = getFrame(kitHealth, { "Track" }), Fill = kitHealthFill },
 		Shield = { Root = kitShield, Track = getFrame(kitShield, { "Track" }), Fill = kitShieldFill },
 		Xp = { Root = kitExperience, Track = getFrame(kitExperience, { "Track" }), Fill = kitXpFill },
-		ArcaneGem = { Root = getFrame(topContent, { "ArcaneSlot" }) },
-		Kill = { Root = getFrame(topContent, { "KillsSlot" }) },
-		Coin = { Root = getFrame(topContent, { "GoldSlot" }) },
-		RunScore = { Root = getFrame(topContent, { "RunScoreSlot" }) },
+		ArcaneGem = { Root = getFrame(topContent, { "ArcaneSlot" }), Accent = Color3.fromRGB(109, 220, 255) },
+		Kill = { Root = getFrame(topContent, { "KillsSlot" }), Accent = Color3.fromRGB(248, 60, 76) },
+		Coin = { Root = getFrame(topContent, { "GoldSlot" }), Accent = Color3.fromRGB(255, 211, 82) },
+		RunScore = { Root = getFrame(topContent, { "RunScoreSlot" }), Accent = Color3.fromRGB(112, 228, 255) },
 	}
 
 	local feedbackTokens = {}
@@ -420,22 +499,42 @@ local function initialise()
 		local token = (feedbackTokens[targetId] or 0) + 1
 		feedbackTokens[targetId] = token
 
-		local scale = target.Root:FindFirstChild("FeedbackPulseScale")
-		if scale == nil then
-			scale = Instance.new("UIScale")
-			scale.Name = "FeedbackPulseScale"
-			scale.Parent = target.Root
+
+		-- Un UIScale sur un slot horizontal rend la top bar nerveuse : le slot
+		-- grossit a l'ecran au milieu de ses voisins. Le retour est donc porte
+		-- par un contour local, sans modifier aucune emprise de layout.
+		local legacyScale = target.Root:FindFirstChild("FeedbackPulseScale")
+		if legacyScale and legacyScale:IsA("UIScale") then
+			legacyScale:Destroy()
 		end
 
-		if scale:IsA("UIScale") then
-			scale.Scale = 1
-			TweenService:Create(scale, TweenInfo.new(0.11, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-				Scale = 1.055,
+		local pulseStroke = target.Root:FindFirstChild("FeedbackPulseStroke")
+		if pulseStroke == nil then
+			pulseStroke = Instance.new("UIStroke")
+			pulseStroke.Name = "FeedbackPulseStroke"
+			pulseStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			pulseStroke.Parent = target.Root
+		end
+
+		if pulseStroke:IsA("UIStroke") then
+			local accent = target.Accent
+			if typeof(accent) ~= "Color3" and target.Fill ~= nil then
+				accent = target.Fill.BackgroundColor3
+			end
+
+			pulseStroke.Color = if typeof(accent) == "Color3" then accent else Color3.fromRGB(245, 246, 255)
+			pulseStroke.Thickness = 1
+			pulseStroke.Transparency = 0.9
+			TweenService:Create(pulseStroke, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Thickness = 1.65,
+				Transparency = 0.42,
 			}):Play()
-			task.delay(0.13, function()
-				if feedbackTokens[targetId] == token and scale.Parent ~= nil then
-					TweenService:Create(scale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-						Scale = 1,
+
+			task.delay(0.14, function()
+				if feedbackTokens[targetId] == token and pulseStroke.Parent ~= nil then
+					TweenService:Create(pulseStroke, TweenInfo.new(0.24, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+						Thickness = 1,
+						Transparency = 1,
 					}):Play()
 				end
 			end)
@@ -514,7 +613,7 @@ local function initialise()
 
 	DebugLog.Info("UI", "Barres V2 du kit activees", {
 		BottomSlots = #inventorySlots,
-		Source = DRAFT_GUI_NAME,
+		Source = PRODUCTION_TEMPLATE_GUI_NAME,
 	})
 end
 

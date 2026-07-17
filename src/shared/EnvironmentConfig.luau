@@ -5,37 +5,88 @@ local EnvironmentConfig = {
 	FallbackAtmosphereName = "MegaRoblox_FallbackAtmosphere",
 	ColorCorrectionName = "MegaRoblox_RunColorCorrection",
 	BloomName = "MegaRoblox_RunBloom",
+	BlurName = "MegaRoblox_RunBlur",
+	DepthOfFieldName = "MegaRoblox_RunDepthOfField",
 	FallbackSunRaysName = "MegaRoblox_FallbackSunRays",
-	MoteAnchorName = "ForestMoteAnchor",
+	MoteVolumesFolderName = "ForestMoteVolumes",
 	TransitionSeconds = 0.65,
 	MoteTexture = "rbxasset://textures/particles/sparkles_main.dds",
-	MoteFollowHeight = 4.5,
-	MoteUpdateInterval = 0.12,
+	-- L'emission commence au-dessus de la plus haute plateforme jouable de la map.
+	AtmosphereSpawnMarginAbovePlatform = 24,
+	MoteTileMaximumSize = 128,
+	MoteAreaReference = 160000,
+	MoteAreaMaxMultiplier = 6,
+	-- Amplification temporaire, uniquement pour rendre le volume global visible pendant le debug visuel.
+	MoteDebugRateMultiplier = 5.5,
+	AtmosphereLeafRatePerTile = 0.75,
+	AtmosphereLeafFallAcceleration = -3,
+	AtmosphereLeafWindAccelerationMultiplier = 1.15,
+	AtmosphereLeafPatterns = {
+		{
+			Name = "Particule_Atmos1",
+			Texture = "rbxassetid://122342824323639",
+			RateMultiplier = 1,
+			SizeStart = 1.6,
+			SizePeak = 2.8,
+			SizeEnd = 1.2,
+		},
+		{
+			Name = "Particule_Atmos2",
+			Texture = "rbxassetid://140439338158742",
+			RateMultiplier = 0.85,
+			SizeStart = 1.3,
+			SizePeak = 2.4,
+			SizeEnd = 1,
+		},
+	},
 	DefaultLevelId = "Map_Test",
+	LobbyAtmosphere = {
+		Density = 0,
+		Offset = 0,
+		Color = Color3.fromRGB(255, 255, 255),
+		Decay = Color3.fromRGB(255, 255, 255),
+		Glare = 0,
+		Haze = 0,
+	},
 
 	QualityProfiles = {
 		Performance = {
 			AtmosphereDensityMultiplier = 0.76,
 			BloomEnabled = false,
 			SunRaysEnabled = false,
-			MoteRateMultiplier = 0,
+			BlurEnabled = false,
+			BlurSizeMultiplier = 0,
+			DepthOfFieldEnabled = false,
+			DepthOfFieldIntensityMultiplier = 0,
+			-- Un voile tres leger subsiste si le budget adaptatif bascule temporairement en Performance.
+			MoteRateMultiplier = 0.18,
+			LeafRateMultiplier = 0.45,
 		},
 		Balanced = {
 			AtmosphereDensityMultiplier = 0.9,
 			BloomEnabled = true,
 			SunRaysEnabled = false,
+			BlurEnabled = true,
+			BlurSizeMultiplier = 0.55,
+			DepthOfFieldEnabled = true,
+			DepthOfFieldIntensityMultiplier = 0.55,
 			MoteRateMultiplier = 0.55,
+			LeafRateMultiplier = 0.7,
 		},
 		Quality = {
 			AtmosphereDensityMultiplier = 1,
 			BloomEnabled = true,
 			SunRaysEnabled = true,
+			BlurEnabled = true,
+			BlurSizeMultiplier = 1,
+			DepthOfFieldEnabled = true,
+			DepthOfFieldIntensityMultiplier = 1,
 			MoteRateMultiplier = 1,
+			LeafRateMultiplier = 1,
 		},
 	},
 
-	-- L'ambiance est liee a la map jouee, jamais a la progression de chapitre.
-	-- Un chapitre peut donc proposer plusieurs niveaux aux identites distinctes.
+	-- La map porte le theme de monde. Les chapitres partagent ce theme et choisissent leur variante chromatique.
 	LevelProfiles = {
 		Map_Test = {
 			Id = "ForestVerdant",
@@ -47,6 +98,16 @@ local EnvironmentConfig = {
 			EnvironmentDiffuseScale = 0.54,
 			EnvironmentSpecularScale = 0.18,
 			ShadowSoftness = 0.42,
+			Wind = Vector3.new(1.8, 0, 0.7),
+			Blur = {
+				Size = 0.45,
+			},
+			DepthOfField = {
+				FocusDistance = 34,
+				InFocusRadius = 26,
+				NearIntensity = 0,
+				FarIntensity = 0.1,
+			},
 			Atmosphere = {
 				Density = 0.25,
 				Offset = 0.04,
@@ -85,6 +146,16 @@ local EnvironmentConfig = {
 			EnvironmentDiffuseScale = 0.43,
 			EnvironmentSpecularScale = 0.18,
 			ShadowSoftness = 0.4,
+			Wind = Vector3.new(1.55, 0, 1.05),
+			Blur = {
+				Size = 0.4,
+			},
+			DepthOfField = {
+				FocusDistance = 36,
+				InFocusRadius = 28,
+				NearIntensity = 0,
+				FarIntensity = 0.085,
+			},
 			Atmosphere = {
 				Density = 0.13,
 				Offset = 0.06,
@@ -109,8 +180,8 @@ local EnvironmentConfig = {
 				Spread = 0.64,
 			},
 			Motes = {
-				Color = Color3.fromRGB(133, 224, 255),
-				Rate = 6,
+				Color = Color3.fromRGB(225, 255, 255),
+				Rate = 8,
 			},
 		},
 		Map_Test3 = {
@@ -123,6 +194,16 @@ local EnvironmentConfig = {
 			EnvironmentDiffuseScale = 0.45,
 			EnvironmentSpecularScale = 0.16,
 			ShadowSoftness = 0.36,
+			Wind = Vector3.new(2.05, 0, 0.5),
+			Blur = {
+				Size = 0.35,
+			},
+			DepthOfField = {
+				FocusDistance = 32,
+				InFocusRadius = 24,
+				NearIntensity = 0,
+				FarIntensity = 0.075,
+			},
 			Atmosphere = {
 				Density = 0.12,
 				Offset = 0.08,
@@ -152,10 +233,23 @@ local EnvironmentConfig = {
 			},
 		},
 	},
+
+	-- Les trois chapitres emploient actuellement Map_Test : cette table rend leurs palettes atteignables.
+	ChapterProfileIdsByWorld = {
+		Map_Test = {
+			[1] = "Map_Test",
+			[2] = "Map_Test2",
+			[3] = "Map_Test3",
+		},
+	},
 }
 
-function EnvironmentConfig.GetLevelProfile(levelId)
-	return EnvironmentConfig.LevelProfiles[levelId or ""]
+function EnvironmentConfig.GetLevelProfile(levelId, chapterId)
+	local profileIds = EnvironmentConfig.ChapterProfileIdsByWorld[levelId or ""]
+	local normalizedChapterId = math.floor(tonumber(chapterId) or 0)
+	local chapterProfileId = if profileIds ~= nil then profileIds[normalizedChapterId] else nil
+
+	return EnvironmentConfig.LevelProfiles[chapterProfileId or levelId or ""]
 		or EnvironmentConfig.LevelProfiles[EnvironmentConfig.DefaultLevelId]
 end
 

@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local RunItemConfig = require(Shared:WaitForChild("RunItemConfig"))
 local RunScoreConfig = require(Shared:WaitForChild("RunScoreConfig"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
@@ -28,6 +29,15 @@ local statesByUserId: { [number]: ScoreState } = {}
 local accumulator = 0
 local publishAccumulator = 0
 local isStarted = false
+local runItemService: any = nil
+
+local function getRunItemService(): any
+	if runItemService == nil then
+		runItemService = require(script.Parent:WaitForChild("RunItemService"))
+	end
+
+	return runItemService
+end
 
 local function getOrCreateRemote(remoteName: string): RemoteEvent
 	local remote = ReplicatedStorage:FindFirstChild(remoteName)
@@ -89,6 +99,23 @@ local function resetSampling(state: ScoreState, position: Vector3?)
 	state.Remainder = 0
 end
 
+function RunScoreService.GetStepScoreMultiplier(player: Player?): number
+	if player == nil then
+		return 1
+	end
+
+	local definition = RunItemConfig.Definitions.golden_sneakers
+
+	if definition == nil then
+		return 1
+	end
+
+	local stacks = getRunItemService().GetItemCount(player, definition.Id)
+	local bonusPerStack = math.max(0, tonumber(definition.StepScorePercentPerStack) or 0)
+
+	return math.max(1, 1 + (bonusPerStack * stacks))
+end
+
 local function updatePlayerScore(player: Player)
 	local state = getOrCreateState(player)
 
@@ -123,7 +150,7 @@ local function updatePlayerScore(player: Player)
 	end
 
 	local pointsPerStud = math.max(0, tonumber(RunScoreConfig.PointsPerStud) or 1)
-	state.Remainder += horizontalDistance * pointsPerStud
+	state.Remainder += horizontalDistance * pointsPerStud * RunScoreService.GetStepScoreMultiplier(player)
 	local gainedScore = math.floor(state.Remainder)
 
 	if gainedScore <= 0 then
