@@ -5,9 +5,11 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AdminConfig = require(Shared:WaitForChild("AdminConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local PerformanceBaselineConfig = require(Shared:WaitForChild("PerformanceBaselineConfig"))
 
 local JumpBonusService = require(script.Parent:WaitForChild("JumpBonusService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
+local PerformanceBenchmarkService = require(script.Parent:WaitForChild("PerformanceBenchmarkService"))
 local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 
 local AdminService = {}
@@ -52,6 +54,7 @@ local setDebugLogSettingRemote = getOrCreateRemote("Admin_SetDebugLogSetting")
 local debugLogStateRemote = getOrCreateRemote("Admin_DebugLogState")
 local getDebugLogStateRemote = getOrCreateRemoteFunction("Admin_GetDebugLogState")
 local toggleDevKitPreviewRemote = getOrCreateRemote("Admin_ToggleDevKitPreview")
+local performanceBenchmarkRemote = getOrCreateRemote(PerformanceBaselineConfig.AdminRemoteName)
 local debugCategoryIds = {}
 
 for _, category in ipairs(AdminConfig.DebugLogCategories) do
@@ -190,6 +193,48 @@ function AdminService.Start()
 
 			return if isEnabled then "Apercu kit UI active" else "Apercu kit UI masque"
 		end, false)
+	end)
+
+	performanceBenchmarkRemote.OnServerEvent:Connect(function(player, payload)
+		if not canUseAdminTools(player) then
+			DebugLog.Warn("Admin", "Benchmark P0 refuse", {
+				Player = player.Name,
+			})
+			sendAdminMessage(player, false, "Acces admin refuse")
+			return
+		end
+
+		if typeof(payload) ~= "table" or typeof(payload.Action) ~= "string" then
+			sendAdminMessage(player, false, "Commande P0 invalide")
+			return
+		end
+
+		local success = false
+		local message = "Commande P0 inconnue"
+
+		if payload.Action == "Start" and typeof(payload.ScenarioId) == "string" then
+			success, message = PerformanceBenchmarkService.StartScenario(player, payload.ScenarioId)
+		elseif payload.Action == "Stop" then
+			success, message = PerformanceBenchmarkService.StopScenario(player)
+		end
+
+		if success then
+			RunAnalyticsService.RecordAdminCommand(player)
+			DebugLog.Info("Perf", "Commande benchmark P0 executee", {
+				Player = player.Name,
+				Action = payload.Action,
+				ScenarioId = payload.ScenarioId,
+			})
+		else
+			DebugLog.Warn("Perf", "Commande benchmark P0 refusee", {
+				Player = player.Name,
+				Action = payload.Action,
+				ScenarioId = payload.ScenarioId,
+				Reason = message,
+			})
+		end
+
+		sendAdminMessage(player, success, message)
 	end)
 
 	setDebugLogSettingRemote.OnServerEvent:Connect(function(player, payload)

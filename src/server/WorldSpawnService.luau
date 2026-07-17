@@ -4,6 +4,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
+local PerformanceTelemetryService = require(script.Parent:WaitForChild("PerformanceTelemetryService"))
 
 local WorldSpawnService = {}
 
@@ -322,7 +323,10 @@ function WorldSpawnService.FindSurfacePositionAtXZ(x, z, options)
 		raycastParams.FilterDescendantsInstances = getDefaultExcludeInstances(options.ExcludeInstances)
 	end
 
+	local raycastStartedAt = os.clock()
 	local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+	PerformanceTelemetryService.Record("WorldSpawn.RaycastSeconds", os.clock() - raycastStartedAt)
+	PerformanceTelemetryService.Increment("WorldSpawn.RaycastCount")
 
 	if isSurfaceAllowed(result, options) then
 		return result.Position, result.Instance
@@ -333,7 +337,10 @@ function WorldSpawnService.FindSurfacePositionAtXZ(x, z, options)
 	if options.AllowWorkspaceSurfaceFallback == true and includeInstances ~= nil then
 		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 		raycastParams.FilterDescendantsInstances = getDefaultExcludeInstances(options.ExcludeInstances)
+		local fallbackStartedAt = os.clock()
 		local fallbackResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+		PerformanceTelemetryService.Record("WorldSpawn.RaycastSeconds", os.clock() - fallbackStartedAt)
+		PerformanceTelemetryService.Increment("WorldSpawn.RaycastCount")
 
 		if isSurfaceAllowed(fallbackResult, options) then
 			return fallbackResult.Position, fallbackResult.Instance
@@ -551,7 +558,10 @@ function WorldSpawnService.FindGeneratedTerrainBarrier(origin, direction, distan
 
 	local rayHeight = if options ~= nil and options.Height ~= nil then options.Height else 2
 	local rayOrigin = origin + Vector3.new(0, rayHeight, 0)
+	local raycastStartedAt = os.clock()
 	local result = Workspace:Raycast(rayOrigin, horizontalDirection.Unit * distance, raycastParams)
+	PerformanceTelemetryService.Record("WorldSpawn.RaycastSeconds", os.clock() - raycastStartedAt)
+	PerformanceTelemetryService.Increment("WorldSpawn.RaycastCount")
 
 	if result == nil then
 		return nil

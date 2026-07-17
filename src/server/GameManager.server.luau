@@ -19,6 +19,7 @@ local LobbyWorldService = require(script.Parent:WaitForChild("LobbyWorldService"
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local MetaProgressionService = require(script.Parent:WaitForChild("MetaProgressionService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
+local PerformanceBenchmarkService = require(script.Parent:WaitForChild("PerformanceBenchmarkService"))
 local GameplayFeedbackService = require(script.Parent:WaitForChild("GameplayFeedbackService"))
 local PlayerPreferencesService = require(script.Parent:WaitForChild("PlayerPreferencesService"))
 local PortalService = require(script.Parent:WaitForChild("PortalService"))
@@ -221,6 +222,8 @@ DebugLog.Info("GameManager", "Start RunWorldService")
 RunWorldService.Start()
 DebugLog.Info("GameManager", "Start RunTeleportService")
 RunTeleportService.Start()
+DebugLog.Info("GameManager", "Start PerformanceBenchmarkService")
+PerformanceBenchmarkService.Start()
 
 if FeatureFlags.QuizEnabled then
 	DebugLog.Info("GameManager", "Start RoundService")

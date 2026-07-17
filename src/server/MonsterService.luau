@@ -16,6 +16,7 @@ local PerkService = require(script.Parent:WaitForChild("PerkService"))
 local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
+local PerformanceTelemetryService = require(script.Parent:WaitForChild("PerformanceTelemetryService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
 local XpService = require(script.Parent:WaitForChild("XpService"))
 
@@ -49,6 +50,7 @@ local elitePacksById = {}
 local nextElitePackId = 0
 local difficultyPercent = 0
 local runItemService = nil
+local benchmarkMode = false
 
 local function getRunItemService()
 	if runItemService == nil then
@@ -1447,6 +1449,10 @@ local function updateMonsterMovement(monsterState, targetRoot, distance, deltaTi
 end
 
 local function updateMonsterDamage(monsterState, now, playerTargets)
+	if benchmarkMode then
+		return
+	end
+
 	local root = monsterState.Root
 
 	if root == nil then
@@ -1670,6 +1676,10 @@ local function tryRecycleBehindMass(player, now)
 end
 
 local function updateSpawns(now)
+	if benchmarkMode then
+		return
+	end
+
 	local maxAliveMonsters = getCurrentWaveMaxAlive()
 	local aliveMonsterCount = getAliveMonsterCount()
 
@@ -1768,6 +1778,7 @@ local function updateMonsterStep(deltaTime)
 	lastSimulationLodCounts = lodCounts
 
 	local tickDuration = os.clock() - startedAt
+	PerformanceTelemetryService.Record("Monster.TickSeconds", tickDuration)
 	monsterTickTimeTotal += tickDuration
 	monsterTickSampleCount += 1
 	monsterTickMaxSeconds = math.max(monsterTickMaxSeconds, tickDuration)
@@ -1968,11 +1979,14 @@ local function getElitePackSurfacePosition(originPosition, index, count)
 	}
 
 	local rayOrigin = originPosition + Vector3.new(0, CombatConfig.MonsterGroundRaycastHeight, 0)
+	local raycastStartedAt = os.clock()
 	local result = Workspace:Raycast(
 		rayOrigin,
 		Vector3.new(0, -CombatConfig.MonsterGroundRaycastDepth, 0),
 		raycastParams
 	)
+	PerformanceTelemetryService.Record("Monster.RaycastSeconds", os.clock() - raycastStartedAt)
+	PerformanceTelemetryService.Increment("Monster.RaycastCount")
 
 	if result ~= nil and result.Normal.Y >= 0.65 then
 		DebugLog.ThrottledWarn("Combat", "elite_surface_fallback", 2, "Fallback sol utilise pour elite ou boss", {
@@ -2232,6 +2246,29 @@ function MonsterService.DebugKillAllMonsters()
 	return MonsterService.ClearAllMonsters("Debug")
 end
 
+function MonsterService.GetPerformanceSnapshot()
+	return {
+		Active = getAliveMonsterCount(),
+		Pool = getMonsterPoolSize(),
+		GridCells = getSpatialGridCellCount(),
+		Lod = table.clone(lastSimulationLodCounts),
+		BenchmarkMode = benchmarkMode,
+	}
+end
+
+function MonsterService.SetBenchmarkMode(isEnabled)
+	benchmarkMode = isEnabled == true
+end
+
+function MonsterService.SetBenchmarkSeed(seed)
+	if seed == nil then
+		rng = Random.new()
+		return
+	end
+
+	rng = Random.new(math.floor(tonumber(seed) or 0))
+end
+
 function MonsterService.ClearAllMonsters(reason)
 	DebugLog.Info("Combat", "Nettoyage monstres demande", {
 		Reason = reason,
@@ -2409,6 +2446,10 @@ function MonsterService.DamageMonster(monster, damage, attacker, options)
 		flashMonsterDamage(monsterState, options and options.FlashColor)
 	end
 
+	if benchmarkMode then
+		return true, math.max(0, damage)
+	end
+
 	if monsterState.Humanoid ~= nil then
 		monsterState.PendingKiller = attacker
 		local previousHealth = monsterState.Humanoid.Health
@@ -2488,6 +2529,7 @@ function MonsterService.Start()
 	end)
 
 	RunStateService.RunEnded:Connect(function(player, reason)
+		benchmarkMode = false
 		groundedSinceByUserId[player.UserId] = nil
 		lastSpawnAtByUserId[player.UserId] = nil
 		lastRecycleCheckAtByUserId[player.UserId] = nil

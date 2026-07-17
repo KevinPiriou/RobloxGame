@@ -5,6 +5,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AdminConfig = require(Shared:WaitForChild("AdminConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local FeatureFlags = require(Shared:WaitForChild("FeatureFlags"))
+local PerformanceBaselineConfig = require(Shared:WaitForChild("PerformanceBaselineConfig"))
 local UiTheme = require(Shared:WaitForChild("UiTheme"))
 
 if not FeatureFlags.AdminToolsEnabled then
@@ -22,6 +23,8 @@ local setDebugLogSettingRemote = ReplicatedStorage:WaitForChild("Admin_SetDebugL
 local debugLogStateRemote = ReplicatedStorage:WaitForChild("Admin_DebugLogState")
 local getDebugLogStateRemote = ReplicatedStorage:WaitForChild("Admin_GetDebugLogState")
 local toggleDevKitPreviewRemote = ReplicatedStorage:WaitForChild("Admin_ToggleDevKitPreview")
+local performanceBenchmarkRemote = ReplicatedStorage:WaitForChild(PerformanceBaselineConfig.AdminRemoteName)
+local performanceBenchmarkStatusRemote = ReplicatedStorage:WaitForChild(PerformanceBaselineConfig.StatusRemoteName)
 
 local DEV_KIT_PREVIEW_ATTRIBUTE = "DevKitPreviewEnabled"
 
@@ -119,12 +122,17 @@ divider.BackgroundTransparency = 0.75
 divider.BorderSizePixel = 0
 divider.Parent = inner
 
-local content = Instance.new("Frame")
+local content = Instance.new("ScrollingFrame")
 content.Name = "Content"
 content.Position = UDim2.fromOffset(14, 52)
 content.Size = UDim2.new(1, -28, 1, -64)
 content.BackgroundTransparency = 1
 content.BorderSizePixel = 0
+content.CanvasSize = UDim2.fromOffset(0, 0)
+content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+content.ScrollBarImageColor3 = Color3.fromRGB(118, 193, 255)
+content.ScrollBarThickness = 4
+content.ScrollingDirection = Enum.ScrollingDirection.Y
 content.Parent = inner
 
 local listLayout = Instance.new("UIListLayout")
@@ -159,6 +167,9 @@ local resetButton = createButton("ResetPowerUpsButton", "Reinit bonus", Color3.f
 local spawnButton = createButton("SpawnMonstersButton", "Spawn 100 ennemis", Color3.fromRGB(54, 105, 165), 2)
 local killButton = createButton("KillMonstersButton", "Tuer tous les ennemis", Color3.fromRGB(155, 65, 65), 3)
 local devKitPreviewButton = createButton("DevKitPreviewButton", "Kit UI demo : afficher", Color3.fromRGB(52, 101, 153), 4)
+local benchmarkScenarioButton = createButton("BenchmarkScenarioButton", "P0 : scenario", Color3.fromRGB(64, 109, 142), 5)
+local benchmarkStartButton = createButton("BenchmarkStartButton", "P0 : lancer", Color3.fromRGB(47, 137, 91), 6)
+local benchmarkStopButton = createButton("BenchmarkStopButton", "P0 : arreter", Color3.fromRGB(143, 70, 70), 7)
 
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Name = "StatusLabel"
@@ -170,15 +181,28 @@ statusLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
 statusLabel.TextSize = 11
 statusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-statusLabel.LayoutOrder = 5
+statusLabel.LayoutOrder = 9
 statusLabel.Parent = content
+
+local benchmarkStatusLabel = Instance.new("TextLabel")
+benchmarkStatusLabel.Name = "BenchmarkStatusLabel"
+benchmarkStatusLabel.Size = UDim2.new(1, 0, 0, 18)
+benchmarkStatusLabel.BackgroundTransparency = 1
+benchmarkStatusLabel.Font = Enum.Font.GothamMedium
+benchmarkStatusLabel.Text = "P0 : pret"
+benchmarkStatusLabel.TextColor3 = Color3.fromRGB(154, 212, 255)
+benchmarkStatusLabel.TextSize = 11
+benchmarkStatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
+benchmarkStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+benchmarkStatusLabel.LayoutOrder = 8
+benchmarkStatusLabel.Parent = content
 
 local debugSection = Instance.new("Frame")
 debugSection.Name = "DebugLogSection"
 debugSection.Size = UDim2.new(1, 0, 0, 266)
 debugSection.BackgroundTransparency = 1
 debugSection.BorderSizePixel = 0
-debugSection.LayoutOrder = 6
+debugSection.LayoutOrder = 10
 debugSection.Parent = content
 
 local debugTitle = Instance.new("TextLabel")
@@ -296,6 +320,31 @@ end
 
 local activeButton = nil
 local debugStateRequestInFlight = false
+local benchmarkScenarioIndex = 1
+local benchmarkIsActive = false
+
+local function getSelectedBenchmarkScenario()
+	return PerformanceBaselineConfig.Scenarios[benchmarkScenarioIndex]
+end
+
+local function refreshBenchmarkControls()
+	local scenario = getSelectedBenchmarkScenario()
+
+	if scenario == nil then
+		benchmarkScenarioButton.Text = "P0 : aucun scenario"
+		benchmarkStartButton.Active = false
+		benchmarkStopButton.Active = false
+		return
+	end
+
+	benchmarkScenarioButton.Text = scenario.Label
+	benchmarkStartButton.Active = not benchmarkIsActive
+	benchmarkStartButton.AutoButtonColor = not benchmarkIsActive
+	benchmarkStartButton.Text = if benchmarkIsActive then "P0 : en cours" else "P0 : lancer"
+	benchmarkStopButton.Active = benchmarkIsActive
+	benchmarkStopButton.AutoButtonColor = benchmarkIsActive
+	benchmarkStopButton.Text = "P0 : arreter"
+end
 
 local function refreshDevKitPreviewButton()
 	local isPreviewEnabled = player:GetAttribute(DEV_KIT_PREVIEW_ATTRIBUTE) == true
@@ -422,6 +471,41 @@ devKitPreviewButton.Activated:Connect(function()
 	toggleDevKitPreviewRemote:FireServer()
 end)
 
+benchmarkScenarioButton.Activated:Connect(function()
+	if benchmarkIsActive then
+		return
+	end
+
+	benchmarkScenarioIndex = (benchmarkScenarioIndex % #PerformanceBaselineConfig.Scenarios) + 1
+	refreshBenchmarkControls()
+end)
+
+benchmarkStartButton.Activated:Connect(function()
+	local scenario = getSelectedBenchmarkScenario()
+	if scenario == nil or benchmarkIsActive or not performanceBenchmarkRemote:IsA("RemoteEvent") then
+		return
+	end
+
+	benchmarkStatusLabel.Text = "P0 : demande envoyee"
+	benchmarkStatusLabel.TextColor3 = Color3.fromRGB(214, 230, 255)
+	performanceBenchmarkRemote:FireServer({
+		Action = "Start",
+		ScenarioId = scenario.Id,
+	})
+end)
+
+benchmarkStopButton.Activated:Connect(function()
+	if not benchmarkIsActive or not performanceBenchmarkRemote:IsA("RemoteEvent") then
+		return
+	end
+
+	benchmarkStatusLabel.Text = "P0 : nettoyage demande"
+	benchmarkStatusLabel.TextColor3 = Color3.fromRGB(255, 221, 150)
+	performanceBenchmarkRemote:FireServer({
+		Action = "Stop",
+	})
+end)
+
 consoleToggle.Activated:Connect(function()
 	sendDebugLogSetting("Console", nil, not debugLogState.ConsoleEnabled)
 end)
@@ -450,6 +534,24 @@ adminMessageRemote.OnClientEvent:Connect(function(payload)
 	end
 end)
 
+performanceBenchmarkStatusRemote.OnClientEvent:Connect(function(payload)
+	if typeof(payload) ~= "table" then
+		return
+	end
+
+	benchmarkIsActive = payload.Active == true
+	local phase = if typeof(payload.Phase) == "string" then payload.Phase else "Inconnu"
+	local scenarioLabel = if typeof(payload.ScenarioLabel) == "string" then payload.ScenarioLabel else "P0"
+	local elapsedSeconds = math.max(0, math.floor(tonumber(payload.ElapsedSeconds) or 0))
+	benchmarkStatusLabel.Text = ("%s | %s | %ds"):format(scenarioLabel, phase, elapsedSeconds)
+	benchmarkStatusLabel.TextColor3 = if phase == "Completed"
+		then Color3.fromRGB(145, 235, 170)
+		elseif phase == "Cleanup"
+			then Color3.fromRGB(255, 221, 150)
+			else Color3.fromRGB(154, 212, 255)
+	refreshBenchmarkControls()
+end)
+
 debugLogStateRemote.OnClientEvent:Connect(function(payload)
 	applyDebugLogState(payload)
 end)
@@ -458,6 +560,7 @@ player:GetAttributeChangedSignal("CanUseAdminTools"):Connect(updateVisibility)
 player:GetAttributeChangedSignal(DEV_KIT_PREVIEW_ATTRIBUTE):Connect(refreshDevKitPreviewButton)
 updateVisibility()
 refreshDevKitPreviewButton()
+refreshBenchmarkControls()
 
 DebugLog.Info("UI", "UI admin initialisee", {
 	Player = player.Name,

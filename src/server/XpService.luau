@@ -12,6 +12,7 @@ local CombatStateService = require(script.Parent:WaitForChild("CombatStateServic
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
 local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
+local PerformanceTelemetryService = require(script.Parent:WaitForChild("PerformanceTelemetryService"))
 
 local XpService = {}
 
@@ -745,6 +746,13 @@ function XpService.ClearRunGems()
 	end
 end
 
+function XpService.GetPerformanceSnapshot()
+	return {
+		Tracked = getTrackedGemCount(),
+		Pool = getGemPoolSize(),
+	}
+end
+
 function XpService.GetRunStats(player)
 	local profile = getOrCreateProfile(player)
 
@@ -808,14 +816,18 @@ function XpService.Start()
 			elapsedSinceScan = 0
 			local startedAt = os.clock()
 			scanGemProximity()
-			maxScanMilliseconds = math.max(maxScanMilliseconds, (os.clock() - startedAt) * 1000)
+			local scanDuration = os.clock() - startedAt
+			PerformanceTelemetryService.Record("Xp.ScanSeconds", scanDuration)
+			maxScanMilliseconds = math.max(maxScanMilliseconds, scanDuration * 1000)
 		end
 
 		if elapsedSinceMerge >= CombatConfig.XpMergeScanInterval then
 			elapsedSinceMerge = 0
 			local startedAt = os.clock()
 			mergeNearbyGems()
-			maxMergeMilliseconds = math.max(maxMergeMilliseconds, (os.clock() - startedAt) * 1000)
+			local mergeDuration = os.clock() - startedAt
+			PerformanceTelemetryService.Record("Xp.MergeSeconds", mergeDuration)
+			maxMergeMilliseconds = math.max(maxMergeMilliseconds, mergeDuration * 1000)
 		end
 
 		if elapsedSincePerfLog >= (CombatConfig.PerfLogInterval or 5) then

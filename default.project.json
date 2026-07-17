@@ -48,6 +48,229 @@
             512
           ]
         }
+      },
+      "PerformanceBaseline": {
+        "$className": "Folder",
+        "$attributes": {
+          "MegaRobloxBenchmark": true,
+          "MegaRobloxIgnoreAsSpawnSurface": true,
+          "BenchmarkVersion": "P0.1",
+          "Purpose": "Scene de mesure controlee, hors gameplay"
+        },
+        "Metadata": {
+          "$className": "Folder",
+          "$attributes": {
+            "ArenaSizeStuds": 512,
+            "ArenaAltitude": 3000,
+            "WarmupSeconds": 15,
+            "MeasurementSeconds": 90,
+            "MinimumRepetitions": 3,
+            "Seed": 17072026
+          }
+        },
+        "Arena": {
+          "$className": "Model",
+          "$attributes": {
+            "MegaRobloxBenchmark": true,
+            "MegaRobloxIgnoreAsSpawnSurface": true
+          },
+          "Floor": {
+            "$className": "Part",
+            "$properties": {
+              "Anchored": true,
+              "CanCollide": true,
+              "CanTouch": false,
+              "CanQuery": false,
+              "CastShadow": false,
+              "Material": "SmoothPlastic",
+              "Color": [
+                0.14902,
+                0.16863,
+                0.2
+              ],
+              "Position": [
+                0,
+                3000,
+                0
+              ],
+              "Size": [
+                512,
+                2,
+                512
+              ]
+            },
+            "$attributes": {
+              "MegaRobloxBenchmark": true,
+              "MegaRobloxIgnoreAsSpawnSurface": true
+            }
+          },
+          "Boundary": {
+            "$className": "Folder",
+            "North": {
+              "$className": "Part",
+              "$properties": {
+                "Anchored": true,
+                "CanCollide": true,
+                "CanTouch": false,
+                "CanQuery": false,
+                "CastShadow": false,
+                "Transparency": 1,
+                "Position": [0, 3021, -256],
+                "Size": [512, 40, 2]
+              }
+            },
+            "South": {
+              "$className": "Part",
+              "$properties": {
+                "Anchored": true,
+                "CanCollide": true,
+                "CanTouch": false,
+                "CanQuery": false,
+                "CastShadow": false,
+                "Transparency": 1,
+                "Position": [0, 3021, 256],
+                "Size": [512, 40, 2]
+              }
+            },
+            "West": {
+              "$className": "Part",
+              "$properties": {
+                "Anchored": true,
+                "CanCollide": true,
+                "CanTouch": false,
+                "CanQuery": false,
+                "CastShadow": false,
+                "Transparency": 1,
+                "Position": [-256, 3021, 0],
+                "Size": [2, 40, 512]
+              }
+            },
+            "East": {
+              "$className": "Part",
+              "$properties": {
+                "Anchored": true,
+                "CanCollide": true,
+                "CanTouch": false,
+                "CanQuery": false,
+                "CastShadow": false,
+                "Transparency": 1,
+                "Position": [256, 3021, 0],
+                "Size": [2, 40, 512]
+              }
+            }
+          }
+        },
+        "ReferencePoints": {
+          "$className": "Folder",
+          "PlayerStart": {
+            "$className": "Part",
+            "$properties": {
+              "Anchored": true,
+              "CanCollide": false,
+              "CanTouch": false,
+              "CanQuery": false,
+              "CastShadow": false,
+              "Transparency": 1,
+              "Position": [0, 3003, 0],
+              "Size": [2, 2, 2]
+            },
+            "$attributes": { "Role": "PlayerStart" }
+          },
+          "CameraReference": {
+            "$className": "Part",
+            "$properties": {
+              "Anchored": true,
+              "CanCollide": false,
+              "CanTouch": false,
+              "CanQuery": false,
+              "CastShadow": false,
+              "Transparency": 1,
+              "Position": [0, 3012, 32],
+              "Size": [2, 2, 2]
+            },
+            "$attributes": { "Role": "CameraReference" }
+          },
+          "SimulationCenter": {
+            "$className": "Part",
+            "$properties": {
+              "Anchored": true,
+              "CanCollide": false,
+              "CanTouch": false,
+              "CanQuery": false,
+              "CastShadow": false,
+              "Transparency": 1,
+              "Position": [0, 3003, 0],
+              "Size": [2, 2, 2]
+            },
+            "$attributes": { "Role": "SimulationCenter" }
+          },
+          "ProjectileOrigin": {
+            "$className": "Part",
+            "$properties": {
+              "Anchored": true,
+              "CanCollide": false,
+              "CanTouch": false,
+              "CanQuery": false,
+              "CastShadow": false,
+              "Transparency": 1,
+              "Position": [0, 3005, 12],
+              "Size": [2, 2, 2]
+            },
+            "$attributes": { "Role": "ProjectileOrigin" }
+          },
+          "CollectibleFieldCenter": {
+            "$className": "Part",
+            "$properties": {
+              "Anchored": true,
+              "CanCollide": false,
+              "CanTouch": false,
+              "CanQuery": false,
+              "CastShadow": false,
+              "Transparency": 1,
+              "Position": [0, 3003, -72],
+              "Size": [2, 2, 2]
+            },
+            "$attributes": { "Role": "CollectibleFieldCenter" }
+          }
+        },
+        "ScenarioMarkers": {
+          "$className": "Folder",
+          "Density25": {
+            "$className": "Part",
+            "$properties": { "Anchored": true, "CanCollide": false, "CanTouch": false, "CanQuery": false, "CastShadow": false, "Transparency": 1, "Position": [-160, 3003, -160], "Size": [2, 2, 2] },
+            "$attributes": { "ScenarioFamily": "MonsterDensity", "MonsterCount": 25 }
+          },
+          "Density100": {
+            "$className": "Part",
+            "$properties": { "Anchored": true, "CanCollide": false, "CanTouch": false, "CanQuery": false, "CastShadow": false, "Transparency": 1, "Position": [160, 3003, -160], "Size": [2, 2, 2] },
+            "$attributes": { "ScenarioFamily": "MonsterDensity", "MonsterCount": 100 }
+          },
+          "Density250": {
+            "$className": "Part",
+            "$properties": { "Anchored": true, "CanCollide": false, "CanTouch": false, "CanQuery": false, "CastShadow": false, "Transparency": 1, "Position": [-160, 3003, 160], "Size": [2, 2, 2] },
+            "$attributes": { "ScenarioFamily": "MonsterDensity", "MonsterCount": 250 }
+          },
+          "Density500": {
+            "$className": "Part",
+            "$properties": { "Anchored": true, "CanCollide": false, "CanTouch": false, "CanQuery": false, "CastShadow": false, "Transparency": 1, "Position": [160, 3003, 160], "Size": [2, 2, 2] },
+            "$attributes": { "ScenarioFamily": "MonsterDensity", "MonsterCount": 500 }
+          },
+          "DensityMax": {
+            "$className": "Part",
+            "$properties": { "Anchored": true, "CanCollide": false, "CanTouch": false, "CanQuery": false, "CastShadow": false, "Transparency": 1, "Position": [0, 3003, 210], "Size": [2, 2, 2] },
+            "$attributes": { "ScenarioFamily": "MonsterDensity", "MonsterCount": 1000 }
+          },
+          "ProjectileLoad": {
+            "$className": "Part",
+            "$properties": { "Anchored": true, "CanCollide": false, "CanTouch": false, "CanQuery": false, "CastShadow": false, "Transparency": 1, "Position": [-210, 3003, 0], "Size": [2, 2, 2] },
+            "$attributes": { "ScenarioFamily": "ProjectileLoad" }
+          },
+          "CollectibleLoad": {
+            "$className": "Part",
+            "$properties": { "Anchored": true, "CanCollide": false, "CanTouch": false, "CanQuery": false, "CastShadow": false, "Transparency": 1, "Position": [210, 3003, 0], "Size": [2, 2, 2] },
+            "$attributes": { "ScenarioFamily": "CollectibleLoad" }
+          }
+        }
       }
     },
     "Lighting": {

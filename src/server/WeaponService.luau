@@ -18,6 +18,7 @@ local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local ProjectileVisualService = require(script.Parent:WaitForChild("ProjectileVisualService"))
 local WeaponSkinService = require(script.Parent:WaitForChild("WeaponSkinService"))
+local PerformanceTelemetryService = require(script.Parent:WaitForChild("PerformanceTelemetryService"))
 
 local WeaponService = {}
 
@@ -531,7 +532,9 @@ local function updateWeaponStep(deltaTime)
 	updatePlayerWeapons(now)
 	updateProjectiles(deltaTime)
 
-	projectileTickTimeTotal += os.clock() - startedAt
+	local tickDuration = os.clock() - startedAt
+	PerformanceTelemetryService.Record("Weapon.TickSeconds", tickDuration)
+	projectileTickTimeTotal += tickDuration
 	projectileTickSampleCount += 1
 
 	local averageTickMs = 0
@@ -556,6 +559,27 @@ local function clearProjectiles()
 	for projectile in pairs(projectilesByInstance) do
 		destroyProjectile(projectile)
 	end
+end
+
+function WeaponService.GetPerformanceSnapshot()
+	return {
+		Active = getActiveProjectileCount(),
+		Pool = getProjectilePoolSize(),
+	}
+end
+
+function WeaponService.ClearProjectilesForBenchmark()
+	clearProjectiles()
+end
+
+function WeaponService.DebugFireballBurst(player, requestedCount)
+	local burstCount = math.clamp(math.floor(requestedCount or 0), 0, 96)
+
+	for _ = 1, burstCount do
+		fireAtClosestMonster(player)
+	end
+
+	return burstCount
 end
 
 function WeaponService.Start()
