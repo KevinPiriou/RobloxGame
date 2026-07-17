@@ -29,6 +29,12 @@ local currentOpenCost = ChestConfig.BaseOpenCost
 -- Ce bloc client reste disponible comme fallback, mais il ne dessine plus de label.
 local CLIENT_CHEST_PROMPTS_ENABLED = false
 
+-- Le rendu V2 prend le relais quand son adaptateur a termine son initialisation.
+-- Le rail historique reste volontairement disponible en secours de demarrage.
+local function isV2PresentationReady()
+	return playerGui:GetAttribute("ItemRevealV2Ready") == true
+end
+
 local CHEST_UI_COLORS = UiTheme.Contexts.Chest
 
 local addCorner = UiTheme.AddCorner
@@ -624,6 +630,12 @@ openResultRemote.OnClientEvent:Connect(function(payload)
 		setPromptVisible(payload.Chest, false)
 	end
 
+	if isV2PresentationReady() then
+		activeOpeningId = payload.OpeningId
+		isSlotPlaying = true
+		return
+	end
+
 	task.spawn(function()
 		playSlotAnimation(payload)
 	end)
@@ -631,6 +643,13 @@ end)
 
 openFailedRemote.OnClientEvent:Connect(function(payload)
 	DebugLog.Info("UI", "Ouverture coffre refusee cote client", payload)
+
+	if isV2PresentationReady() then
+		isSlotPlaying = false
+		activeOpeningId = nil
+		return
+	end
+
 	showOpenFailed(payload)
 end)
 
@@ -644,6 +663,11 @@ choiceResultRemote.OnClientEvent:Connect(function(payload)
 
 	for _, chestState in pairs(trackedChests) do
 		updatePromptLabel(chestState)
+	end
+
+	if isV2PresentationReady() then
+		closeSlotUi()
+		return
 	end
 
 	if payload.Accepted then

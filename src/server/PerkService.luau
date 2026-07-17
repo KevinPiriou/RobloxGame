@@ -13,6 +13,7 @@ local CommerceService = require(script.Parent:WaitForChild("CommerceService"))
 local GameplayFeedbackService = require(script.Parent:WaitForChild("GameplayFeedbackService"))
 local JumpBonusService = require(script.Parent:WaitForChild("JumpBonusService"))
 local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
+local RunActionCreditService = require(script.Parent:WaitForChild("RunActionCreditService"))
 
 local PerkService = {}
 
@@ -41,6 +42,8 @@ local showChoicesRemote = getOrCreateRemote("Perk_ShowChoices")
 local hideChoicesRemote = getOrCreateRemote("Perk_HideChoices")
 local selectChoiceRemote = getOrCreateRemote("Perk_SelectChoice")
 local rerollChoiceRemote = getOrCreateRemote("Perk_RerollRequest")
+local passChoiceRemote = getOrCreateRemote("Perk_PassRequest")
+local banChoiceRemote = getOrCreateRemote("Perk_BanRequest")
 local updatePerksRemote = getOrCreateRemote("Perk_UpdateStats")
 
 local function createEmptyStats()
@@ -89,6 +92,7 @@ local function getOrCreateProfile(player)
 			GoldRemainder = 0,
 			RerollsUsedThisRun = 0,
 			IsRerollPending = false,
+			BannedPerkIds = {},
 		}
 		profilesByUserId[player.UserId] = profile
 	end
@@ -493,10 +497,16 @@ local function createChoiceOption(definition, rarityId, optionIndex, profile)
 end
 
 local function createChoice(player, level, title)
-	local availableDefinitions = table.clone(Perks.Definitions)
 	local choices = {}
 	local choicesByOptionId = {}
 	local profile = getOrCreateProfile(player)
+	local availableDefinitions = {}
+
+	for _, definition in ipairs(Perks.Definitions) do
+		if profile.BannedPerkIds[definition.Id] ~= true then
+			table.insert(availableDefinitions, definition)
+		end
+	end
 
 	for optionIndex = 1, 3 do
 		if #availableDefinitions <= 0 then
@@ -601,6 +611,19 @@ local function applyChoice(player, option)
 	sendPerkStats(player)
 end
 
+local function resolveActiveChoiceWithoutSelection(player, profile)
+	profile.ActiveChoice = nil
+
+	if #profile.PendingLevels > 0 then
+		task.defer(function()
+			showNextChoice(player)
+		end)
+	else
+		CombatStateService.Resume(getPauseReason(player))
+		hideChoicesRemote:FireClient(player)
+	end
+end
+
 local function onChoiceSelected(player, choiceId, optionId)
 	local profile = getOrCreateProfile(player)
 	local activeChoice = profile.ActiveChoice
@@ -628,16 +651,99 @@ local function onChoiceSelected(player, choiceId, optionId)
 	})
 
 	applyChoice(player, option)
-	profile.ActiveChoice = nil
+	resolveActiveChoiceWithoutSelection(player, profile)
+end
 
-	if #profile.PendingLevels > 0 then
-		task.defer(function()
-			showNextChoice(player)
-		end)
-	else
-		CombatStateService.Resume(getPauseReason(player))
-		hideChoicesRemote:FireClient(player)
+local function onPassRequested(player, choiceId)
+	if typeof(choiceId) ~= "string" then
+		return
 	end
+
+	local profile = getOrCreateProfile(player)
+	local activeChoice = profile.ActiveChoice
+
+	if activeChoice == nil or activeChoice.ChoiceId ~= choiceId then
+		return
+	end
+
+	local consumed, reason = RunActionCreditService.TryConsume(player, "Pass")
+
+	if not consumed then
+		DebugLog.Warn("Perks", "Passer perk refuse", {
+			Player = player.Name,
+			ChoiceId = choiceId,
+			Reason = reason,
+		})
+		return
+	end
+
+	DebugLog.Info("Perks", "Choix de perk passe", {
+		Player = player.Name,
+		ChoiceId = choiceId,
+	})
+	resolveActiveChoiceWithoutSelection(player, profile)
+end
+
+local function onBanRequested(player, choiceId, optionId)
+	if typeof(choiceId) ~= "string" then
+		return
+	end
+
+	local profile = getOrCreateProfile(player)
+	local activeChoice = profile.ActiveChoice
+
+	if activeChoice == nil or activeChoice.ChoiceId ~= choiceId then
+		return
+	end
+
+	local option = activeChoice.ChoicesByOptionId[tostring(optionId)]
+
+	if option == nil then
+		DebugLog.Warn("Perks", "Bannissement perk refuse, option inconnue", {
+			Player = player.Name,
+			ChoiceId = choiceId,
+			OptionId = optionId,
+		})
+		return
+	end
+
+	local consumed, reason = RunActionCreditService.TryConsume(player, "Ban")
+
+	if not consumed then
+		DebugLog.Warn("Perks", "Bannissement perk refuse", {
+			Player = player.Name,
+			ChoiceId = choiceId,
+			PerkId = option.PerkId,
+			Reason = reason,
+		})
+		return
+	end
+
+	profile.BannedPerkIds[option.PerkId] = true
+	local replacementChoice = createChoice(player, activeChoice.Level, activeChoice.Title)
+
+	if #replacementChoice.Choices == 0 then
+		DebugLog.Warn("Perks", "Bannissement perk termine sans offre de remplacement", {
+			Player = player.Name,
+			PerkId = option.PerkId,
+		})
+		resolveActiveChoiceWithoutSelection(player, profile)
+		return
+	end
+
+	profile.ActiveChoice = replacementChoice
+	DebugLog.Info("Perks", "Perk banni pour la run", {
+		Player = player.Name,
+		PerkId = option.PerkId,
+		PreviousChoiceId = choiceId,
+		ChoiceId = replacementChoice.ChoiceId,
+	})
+	showChoicesRemote:FireClient(player, {
+		ChoiceId = replacementChoice.ChoiceId,
+		Level = replacementChoice.Level,
+		Title = replacementChoice.Title,
+		Choices = replacementChoice.Choices,
+	})
 end
 
 local function onRerollRequested(player, choiceId)
@@ -766,6 +872,7 @@ function PerkService.ResetRun(player)
 	profile.GoldRemainder = 0
 	profile.RerollsUsedThisRun = 0
 	profile.IsRerollPending = false
+	profile.BannedPerkIds = {}
 	publishRerollUsesThisRun(player, profile)
 	hideChoicesRemote:FireClient(player)
 	applyMovementStats(player)
@@ -1034,6 +1141,8 @@ function PerkService.Start()
 	DebugLog.Info("Perks", "PerkService demarre")
 	selectChoiceRemote.OnServerEvent:Connect(onChoiceSelected)
 	rerollChoiceRemote.OnServerEvent:Connect(onRerollRequested)
+	passChoiceRemote.OnServerEvent:Connect(onPassRequested)
+	banChoiceRemote.OnServerEvent:Connect(onBanRequested)
 
 	RunService.Heartbeat:Connect(function(deltaTime)
 		if CombatStateService.IsPaused() then

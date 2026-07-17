@@ -71,14 +71,17 @@ local function applyLayout()
 
 	local combatGui = playerGui:FindFirstChild("CombatGui")
 	local perkChoiceGui = playerGui:FindFirstChild("PerkChoiceV2")
+	local itemRevealGui = playerGui:FindFirstChild("ItemRevealV2")
 	local runStatsGui = playerGui:FindFirstChild("RunStatsGui")
 	local utilityGui = playerGui:FindFirstChild("RunUtilityGui")
 	local miniMapGui = playerGui:FindFirstChild("MiniMapGui")
 	local perkOverlay = perkChoiceGui and perkChoiceGui:FindFirstChild("Overlay")
+	local itemRevealOverlay = itemRevealGui and itemRevealGui:FindFirstChild("Overlay")
 
 	local topDock = combatGui and asGuiObject(combatGui:FindFirstChild("TopBarV2"))
 	local bottomDock = combatGui and asGuiObject(combatGui:FindFirstChild("BottomBarV2"))
 	local perkDock = perkOverlay and asGuiObject(perkOverlay:FindFirstChild("PerkChoiceDockV2"))
+	local itemRevealDock = itemRevealOverlay and asGuiObject(itemRevealOverlay:FindFirstChild("ItemRevealDockV2"))
 	local statsDock = runStatsGui and asGuiObject(runStatsGui:FindFirstChild("StatsPanel"))
 	local utilityDock = utilityGui and asGuiObject(utilityGui:FindFirstChild("UtilityDockV2"))
 	local miniMapDock = miniMapGui and asGuiObject(miniMapGui:FindFirstChild("MiniMapPanelV2"))
@@ -110,6 +113,17 @@ local function applyLayout()
 	if perkDock then
 		RunHudLayout.ApplyDock(
 			perkDock,
+			Vector2.new(0, 0),
+			Vector2.new(metrics.MainLeft, metrics.MainTop),
+			Vector2.new(metrics.MainWidth, metrics.MainHeight),
+			Vector2.new(330, 220),
+			Vector2.new(980, 900)
+		)
+	end
+
+	if itemRevealDock then
+		RunHudLayout.ApplyDock(
+			itemRevealDock,
 			Vector2.new(0, 0),
 			Vector2.new(metrics.MainLeft, metrics.MainTop),
 			Vector2.new(metrics.MainWidth, metrics.MainHeight),
@@ -190,6 +204,7 @@ playerGui.DescendantAdded:Connect(function(descendant)
 		descendant.Name == "TopBarV2"
 		or descendant.Name == "BottomBarV2"
 		or descendant.Name == "PerkChoiceDockV2"
+		or descendant.Name == "ItemRevealDockV2"
 		or descendant.Name == "StatsPanel"
 		or descendant.Name == "UtilityDockV2"
 		or descendant.Name == "MiniMapPanelV2"

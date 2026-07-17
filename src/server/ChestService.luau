@@ -11,6 +11,7 @@ local CombatStateService = require(script.Parent:WaitForChild("CombatStateServic
 local AudioService = require(script.Parent:WaitForChild("AudioService"))
 local CoinService = require(script.Parent:WaitForChild("CoinService"))
 local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
+local RunActionCreditService = require(script.Parent:WaitForChild("RunActionCreditService"))
 local RunItemService = require(script.Parent:WaitForChild("RunItemService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"))
@@ -100,6 +101,7 @@ local function getOrCreateProfile(player)
 			NextOpenCost = ChestConfig.BaseOpenCost,
 			ActiveOpening = nil,
 			NextOpeningId = 0,
+			BannedItemIds = {},
 		}
 		profilesByUserId[player.UserId] = profile
 	end
@@ -443,12 +445,13 @@ end
 
 local function getRewardOptions(player)
 	local rewards = {}
+	local profile = getOrCreateProfile(player)
 	local itemIds = RunItemService.GetEligibleRewardItemIds(player, RunItemConfig.ChestRewardIds)
 
 	for _, itemId in ipairs(itemIds) do
 		local definition = RunItemConfig.Definitions[itemId]
 
-		if definition ~= nil then
+		if definition ~= nil and profile.BannedItemIds[itemId] ~= true then
 			table.insert(rewards, definition)
 		end
 	end
@@ -498,6 +501,7 @@ local function pickReward(player)
 		Description = reward.Description,
 		Icon = reward.Icon,
 		Accent = reward.Accent,
+		Rarity = reward.Rarity,
 	}
 end
 
@@ -516,6 +520,7 @@ local function createSpinItems(player, finalReward)
 			Id = reward.Id,
 			Name = reward.Name,
 			Icon = reward.Icon,
+			Rarity = reward.Rarity,
 		}
 	end
 
@@ -603,6 +608,7 @@ local function finishOpening(player, accepted)
 	CombatStateService.Resume(getPauseReason(player))
 
 	local itemResult = if accepted then applyReward(player, activeOpening.Reward) else nil
+	local isNewItem = itemResult ~= nil and itemResult.Stacks == 1
 
 	destroyChest(activeOpening.Chest)
 	DebugLog.Info("Chest", "Ouverture coffre terminee", {
@@ -615,6 +621,7 @@ local function finishOpening(player, accepted)
 		Accepted = accepted,
 		Reward = activeOpening.Reward,
 		ItemCount = itemResult and itemResult.Stacks or nil,
+		IsNewItem = isNewItem,
 		NextOpenCost = profile.NextOpenCost,
 	})
 end
@@ -737,6 +744,42 @@ local function onChoiceRequested(player, openingId, action)
 	if action == "Accept" then
 		finishOpening(player, true)
 	elseif action == "Skip" then
+		finishOpening(player, false)
+	elseif action == "Pass" then
+		local consumed, reason = RunActionCreditService.TryConsume(player, "Pass")
+
+		if not consumed then
+			DebugLog.Warn("Chest", "Passer coffre refuse", {
+				Player = player.Name,
+				OpeningId = activeOpening.OpeningId,
+				Reason = reason,
+			})
+			return
+		end
+
+		DebugLog.Info("Chest", "Recompense coffre passee", {
+			Player = player.Name,
+			OpeningId = activeOpening.OpeningId,
+		})
+		finishOpening(player, false)
+	elseif action == "Ban" then
+		local consumed, reason = RunActionCreditService.TryConsume(player, "Ban")
+
+		if not consumed then
+			DebugLog.Warn("Chest", "Bannissement objet refuse", {
+				Player = player.Name,
+				OpeningId = activeOpening.OpeningId,
+				Reason = reason,
+			})
+			return
+		end
+
+		profile.BannedItemIds[activeOpening.Reward.Id] = true
+		DebugLog.Info("Chest", "Objet banni pour la run", {
+			Player = player.Name,
+			OpeningId = activeOpening.OpeningId,
+			ItemId = activeOpening.Reward.Id,
+		})
 		finishOpening(player, false)
 	end
 end
@@ -933,6 +976,7 @@ function ChestService.ResetRun(player)
 	CombatStateService.Resume(getPauseReason(player))
 	profile.NextOpenCost = ChestConfig.BaseOpenCost
 	profile.NextOpeningId = 0
+	profile.BannedItemIds = {}
 	sendPrice(player)
 end
 

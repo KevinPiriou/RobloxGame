@@ -16,6 +16,8 @@ local showChoicesRemote = ReplicatedStorage:WaitForChild("Perk_ShowChoices")
 local hideChoicesRemote = ReplicatedStorage:WaitForChild("Perk_HideChoices")
 local selectChoiceRemote = ReplicatedStorage:WaitForChild("Perk_SelectChoice")
 local rerollChoiceRemote = ReplicatedStorage:WaitForChild("Perk_RerollRequest")
+local passChoiceRemote = ReplicatedStorage:WaitForChild("Perk_PassRequest")
+local banChoiceRemote = ReplicatedStorage:WaitForChild("Perk_BanRequest")
 
 local PRODUCTION_TEMPLATE_GUI_NAME = UiTemplateConfig.ProductionTemplateGuiName
 local V2_GUI_NAME = "PerkChoiceV2"
@@ -270,6 +272,7 @@ local function initialise()
 			AuraCycle = 0,
 			AuraParticleTweens = {},
 			SheenTransparency = 0.46,
+			RarityColor = Color3.fromRGB(245, 246, 255),
 		}
 	end
 
@@ -280,6 +283,7 @@ local function initialise()
 	local currentChoiceId = nil
 	local isSubmitting = false
 	local isRerollPending = false
+	local isBanMode = false
 	local legacySuppressionInProgress = false
 
 	local function suppressLegacyGui()
@@ -378,18 +382,38 @@ local function initialise()
 		return math.max(0, math.min(getRerollCredits(), maxUses - used))
 	end
 
+	local function getRunActionCredits(attributeName)
+		return math.max(0, math.floor(tonumber(player:GetAttribute(attributeName)) or 0))
+	end
+
+	local function getRunActionCreditMaximum(attributeName)
+		return math.max(0, math.floor(tonumber(player:GetAttribute(attributeName)) or 0))
+	end
+
 	local function refreshActions()
 		local credits = getRerollCredits()
 		local rerollsRemaining = getRerollsRemainingThisRun()
 		local refreshAvailable = screenGui.Enabled and currentChoiceId ~= nil and rerollsRemaining > 0 and not isSubmitting and not isRerollPending
+		local passCredits = getRunActionCredits("RunPassCredits")
+		local banCredits = getRunActionCredits("RunBanCredits")
+		local passMaximum = getRunActionCreditMaximum("RunPassCreditsMax")
+		local banMaximum = getRunActionCreditMaximum("RunBanCreditsMax")
+		local canUseRunAction = screenGui.Enabled and currentChoiceId ~= nil and not isSubmitting and not isRerollPending
 
 		refreshButton.Text = string.format("%s (%d/%d)", REFRESH_ACTION_LABEL, rerollsRemaining, credits)
 		setActionState(refreshButton, if refreshAvailable then "Active" elseif rerollsRemaining <= 0 then "Consumed" else "Disabled", rerollsRemaining)
 
-		-- Aucun consommable ni endpoint serveur n'existe encore pour ces deux actions.
-		-- Les rendre inertes evite de promettre un effet local qui serait perdu a la prochaine offre.
-		setActionState(passButton, "Disabled", 0)
-		setActionState(banButton, "Disabled", 0)
+		passButton.Text = string.format("PASSER (%d/%d)", passCredits, passMaximum)
+		banButton.Text = string.format("BANNIR (%d/%d)", banCredits, banMaximum)
+		setActionState(passButton, if canUseRunAction and passCredits > 0 then "Active" elseif passCredits <= 0 then "Consumed" else "Disabled", passCredits)
+		setActionState(banButton, if canUseRunAction and banCredits > 0 then "Active" elseif banCredits <= 0 then "Consumed" else "Disabled", banCredits)
+
+		-- Le mode bannissement doit se lire sans modifier le contrat visuel du bouton.
+		banButton:SetAttribute("BanModeActive", isBanMode)
+		local accentGlow = asFrame(banButton:FindFirstChild("AccentGlow"))
+		if accentGlow then
+			accentGlow.BackgroundTransparency = if isBanMode then 0.48 else accentGlow.BackgroundTransparency
+		end
 	end
 
 	local function setCardInteractive(cardState, interactive)
@@ -709,6 +733,7 @@ local function initialise()
 
 		if cardState.Stroke and cardState.Stroke:IsA("UIStroke") then
 			tween(cardState.Stroke, HOVER_TWEEN, {
+				Color = if isBanMode and hovered then Color3.fromRGB(248, 60, 76) else cardState.RarityColor,
 				Transparency = if hovered then 0.02 else 0.12,
 				Thickness = if hovered then 2.3 else 1.5,
 			})
@@ -918,6 +943,7 @@ local function initialise()
 		end
 
 		local rarityColor = if typeof(option.RarityColor) == "Color3" then option.RarityColor else Color3.fromRGB(245, 246, 255)
+		cardState.RarityColor = rarityColor
 		local rarityName = string.upper(tostring(option.RarityName or option.Rarity or "Commun"))
 		cardState.AuraParticleLimit = AURA_PARTICLES_BY_RARITY[option.Rarity] or AURA_PARTICLES_BY_RARITY.Common
 		cardState.SheenTransparency = SHEEN_TRANSPARENCY_BY_RARITY[option.Rarity] or SHEEN_TRANSPARENCY_BY_RARITY.Common
@@ -981,6 +1007,7 @@ local function initialise()
 		currentChoiceId = payload.ChoiceId
 		isSubmitting = false
 		isRerollPending = false
+		isBanMode = false
 		screenGui.Enabled = true
 
 		setText(titleLabel, getChoiceTitle(payload))
@@ -1004,6 +1031,7 @@ local function initialise()
 		currentChoiceId = nil
 		isSubmitting = false
 		isRerollPending = false
+		isBanMode = false
 		screenGui.Enabled = false
 		for _, cardState in ipairs(cards) do
 			stopAuraParticles(cardState)
@@ -1037,6 +1065,16 @@ local function initialise()
 			isSubmitting = true
 			setCardsInteractive(false)
 			refreshActions()
+
+			if isBanMode then
+				DebugLog.Info("Perks", "Bannissement perk V2 envoye", {
+					ChoiceId = currentChoiceId,
+					OptionId = cardState.Option.OptionId,
+					PerkId = cardState.Option.PerkId,
+				})
+				banChoiceRemote:FireServer(currentChoiceId, cardState.Option.OptionId)
+				return
+			end
 
 			DebugLog.Info("Perks", "Choix perk V2 envoye", {
 				ChoiceId = currentChoiceId,
@@ -1079,9 +1117,39 @@ local function initialise()
 		end)
 	end)
 
+	passButton.Activated:Connect(function()
+		if currentChoiceId == nil or isSubmitting or isRerollPending or getRunActionCredits("RunPassCredits") <= 0 then
+			return
+		end
+
+		isSubmitting = true
+		isBanMode = false
+		setCardsInteractive(false)
+		refreshActions()
+		passChoiceRemote:FireServer(currentChoiceId)
+	end)
+
+	banButton.Activated:Connect(function()
+		if currentChoiceId == nil or isSubmitting or isRerollPending or getRunActionCredits("RunBanCredits") <= 0 then
+			return
+		end
+
+		isBanMode = not isBanMode
+		for _, cardState in ipairs(cards) do
+			if cardState.Hovered then
+				setCardHover(cardState, true)
+			end
+		end
+		refreshActions()
+	end)
+
 	player:GetAttributeChangedSignal("PerkRerollCredits"):Connect(refreshActions)
 	player:GetAttributeChangedSignal("PerkRerollsUsedThisRun"):Connect(refreshActions)
 	player:GetAttributeChangedSignal("PerkRerollsMaxUses"):Connect(refreshActions)
+	player:GetAttributeChangedSignal("RunPassCredits"):Connect(refreshActions)
+	player:GetAttributeChangedSignal("RunPassCreditsMax"):Connect(refreshActions)
+	player:GetAttributeChangedSignal("RunBanCredits"):Connect(refreshActions)
+	player:GetAttributeChangedSignal("RunBanCreditsMax"):Connect(refreshActions)
 	showChoicesRemote.OnClientEvent:Connect(showChoices)
 	hideChoicesRemote.OnClientEvent:Connect(hideChoices)
 
