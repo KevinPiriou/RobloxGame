@@ -1,0 +1,244 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000"><style>.bg{fill:#151922}.platform{fill:#4a9d59;stroke:#bde6a5;stroke-width:2}.ramp{fill:#d9aa4d;stroke:#ffe09a;opacity:.85}.link{fill:#4f83b8;stroke:#b8ddff;opacity:.75}.decor{fill:#315f38;opacity:.75}.blocker{fill:#ad4e46;opacity:.8}.arrival{fill:#fff;stroke:#00e5ff;stroke-width:4}.path{fill:none;stroke:#ff4fe1;stroke-width:4}text{fill:white;font-family:Arial}</style><rect class="bg" width="1000" height="1000"/>
+<rect class="platform" x="382.00" y="77.56" width="147.54" height="122.95"/>
+<rect class="platform" x="788.47" y="691.55" width="86.07" height="81.97"/>
+<rect class="platform" x="698.30" y="753.02" width="94.26" height="90.16"/>
+<rect class="platform" x="608.14" y="818.60" width="94.26" height="90.16"/>
+<rect class="platform" x="528.22" y="882.12" width="81.97" height="77.87"/>
+<rect class="platform" x="835.84" y="165.72" width="98.36" height="118.85"/>
+<rect class="platform" x="706.74" y="157.53" width="118.85" height="135.25"/>
+<rect class="platform" x="612.48" y="173.92" width="86.07" height="102.46"/>
+<rect class="platform" x="260.64" y="565.81" width="81.97" height="86.07"/>
+<rect class="platform" x="190.97" y="475.64" width="90.16" height="94.26"/>
+<rect class="platform" x="125.40" y="385.48" width="90.16" height="94.26"/>
+<rect class="platform" x="74.17" y="305.56" width="77.87" height="81.97"/>
+<rect class="platform" x="853.59" y="364.46" width="122.95" height="147.54"/>
+<rect class="platform" x="210.88" y="795.31" width="114.75" height="139.34"/>
+<rect class="platform" x="38.75" y="795.31" width="114.75" height="139.34"/>
+<rect class="ramp" x="382.00" y="17.21" width="147.54" height="60.35"/>
+<rect class="ramp" x="874.53" y="691.55" width="49.18" height="81.97"/>
+<rect class="ramp" x="698.30" y="843.19" width="94.26" height="55.69"/>
+<rect class="ramp" x="608.14" y="735.10" width="94.26" height="83.50"/>
+<rect class="ramp" x="423.86" y="882.12" width="104.36" height="77.87"/>
+<rect class="ramp" x="835.84" y="284.58" width="98.36" height="49.18"/>
+<rect class="ramp" x="706.74" y="104.04" width="118.85" height="53.49"/>
+<rect class="ramp" x="563.30" y="173.92" width="49.18" height="102.46"/>
+<rect class="ramp" x="260.64" y="651.87" width="81.97" height="49.18"/>
+<rect class="ramp" x="100.48" y="475.64" width="90.50" height="94.26"/>
+<rect class="ramp" x="215.56" y="385.48" width="132.23" height="94.26"/>
+<rect class="ramp" x="74.17" y="142.04" width="77.87" height="163.53"/>
+<rect class="ramp" x="736.05" y="364.46" width="117.54" height="147.54"/>
+<rect class="ramp" x="210.88" y="934.65" width="114.75" height="56.02"/>
+<rect class="ramp" x="38.75" y="739.29" width="114.75" height="56.02"/>
+<rect class="link" x="539.79" y="116.49" width="142.90" height="45.08"/>
+<rect class="link" x="682.69" y="116.49" width="142.90" height="45.08"/>
+<rect class="link" x="803.05" y="139.04" width="45.08" height="86.11"/>
+<rect class="link" x="892.53" y="294.82" width="45.08" height="59.39"/>
+<rect class="link" x="831.50" y="499.70" width="83.57" height="45.08"/>
+<rect class="link" x="808.96" y="522.24" width="45.08" height="159.06"/>
+<rect class="link" x="301.63" y="188.22" width="154.15" height="45.08"/>
+<rect class="link" x="279.09" y="210.76" width="45.08" height="172.40"/>
+<rect class="link" x="279.09" y="383.16" width="45.08" height="172.40"/>
+<rect class="link" x="245.71" y="662.12" width="45.08" height="122.94"/>
+<circle class="blocker" cx="461.49" cy="174.92" r="36.89"/>
+<circle class="blocker" cx="775.34" cy="210.98" r="36.89"/>
+<circle class="blocker" cx="880.78" cy="483.76" r="36.89"/>
+<circle class="blocker" cx="244.39" cy="836.06" r="36.89"/>
+<circle class="blocker" cx="86.96" cy="861.15" r="36.89"/>
+<circle class="blocker" cx="125.27" cy="760.08" r="36.89"/>
+<circle class="blocker" cx="896.56" cy="77.13" r="36.89"/>
+<circle class="blocker" cx="777.73" cy="549.27" r="36.89"/>
+<circle class="blocker" cx="243.55" cy="966.04" r="36.89"/>
+<circle class="blocker" cx="514.32" cy="348.96" r="36.89"/>
+<circle class="blocker" cx="709.95" cy="677.95" r="36.89"/>
+<circle class="blocker" cx="457.06" cy="679.14" r="36.89"/>
+<circle class="blocker" cx="791.63" cy="936.05" r="36.89"/>
+<circle class="blocker" cx="952.75" cy="205.74" r="36.89"/>
+<circle class="blocker" cx="909.33" cy="948.03" r="36.89"/>
+<circle class="blocker" cx="951.96" cy="802.10" r="36.89"/>
+<circle class="blocker" cx="340.80" cy="906.46" r="36.89"/>
+<circle class="blocker" cx="772.52" cy="389.47" r="36.89"/>
+<circle class="blocker" cx="42.67" cy="39.96" r="36.89"/>
+<circle class="blocker" cx="167.98" cy="926.07" r="36.89"/>
+<circle class="blocker" cx="54.43" cy="139.66" r="36.89"/>
+<circle class="blocker" cx="265.96" cy="108.63" r="36.89"/>
+<circle class="decor" cx="756.79" cy="822.02" r="7.79"/>
+<circle class="decor" cx="904.80" cy="227.37" r="7.79"/>
+<circle class="decor" cx="726.96" cy="205.35" r="7.79"/>
+<circle class="decor" cx="273.15" cy="880.81" r="7.79"/>
+<circle class="decor" cx="84.57" cy="909.05" r="7.79"/>
+<circle class="decor" cx="417.38" cy="890.06" r="7.79"/>
+<circle class="decor" cx="617.57" cy="328.71" r="7.79"/>
+<circle class="decor" cx="108.82" cy="274.20" r="7.79"/>
+<circle class="decor" cx="103.94" cy="676.56" r="7.79"/>
+<circle class="decor" cx="392.93" cy="893.48" r="7.79"/>
+<circle class="decor" cx="452.12" cy="892.83" r="7.79"/>
+<circle class="blocker" cx="957.48" cy="32.79" r="14.75"/>
+<circle class="decor" cx="373.77" cy="52.50" r="11.07"/>
+<circle class="decor" cx="28.00" cy="481.59" r="11.07"/>
+<circle class="decor" cx="189.24" cy="659.23" r="11.07"/>
+<circle class="blocker" cx="431.06" cy="140.02" r="6.97"/>
+<circle class="blocker" cx="713.71" cy="795.82" r="6.97"/>
+<circle class="blocker" cx="918.33" cy="244.73" r="6.97"/>
+<circle class="blocker" cx="807.16" cy="176.35" r="6.97"/>
+<circle class="blocker" cx="648.72" cy="210.08" r="6.97"/>
+<circle class="blocker" cx="298.33" cy="620.82" r="6.97"/>
+<circle class="blocker" cx="899.46" cy="437.40" r="6.97"/>
+<circle class="blocker" cx="289.88" cy="843.15" r="6.97"/>
+<circle class="blocker" cx="101.03" cy="810.51" r="6.97"/>
+<circle class="blocker" cx="683.71" cy="325.34" r="6.97"/>
+<circle class="blocker" cx="457.17" cy="790.37" r="6.97"/>
+<circle class="blocker" cx="718.97" cy="86.35" r="6.97"/>
+<circle class="blocker" cx="132.32" cy="153.24" r="6.97"/>
+<circle class="blocker" cx="836.66" cy="459.51" r="6.97"/>
+<circle class="blocker" cx="571.19" cy="315.17" r="6.97"/>
+<circle class="blocker" cx="195.86" cy="677.99" r="6.97"/>
+<circle class="blocker" cx="143.56" cy="44.67" r="6.97"/>
+<circle class="blocker" cx="44.35" cy="345.39" r="6.97"/>
+<circle class="blocker" cx="813.98" cy="499.10" r="6.97"/>
+<circle class="decor" cx="499.78" cy="153.13" r="2.00"/>
+<circle class="decor" cx="464.46" cy="126.68" r="2.00"/>
+<circle class="decor" cx="413.56" cy="101.93" r="2.00"/>
+<circle class="decor" cx="411.49" cy="154.93" r="2.00"/>
+<circle class="decor" cx="512.83" cy="133.12" r="2.00"/>
+<circle class="decor" cx="833.26" cy="716.01" r="2.00"/>
+<circle class="decor" cx="831.52" cy="723.12" r="2.00"/>
+<circle class="decor" cx="737.30" cy="782.10" r="2.00"/>
+<circle class="decor" cx="756.90" cy="783.27" r="2.00"/>
+<circle class="decor" cx="758.56" cy="788.07" r="2.00"/>
+<circle class="decor" cx="627.93" cy="855.08" r="2.00"/>
+<circle class="decor" cx="682.10" cy="877.05" r="2.00"/>
+<circle class="decor" cx="674.42" cy="840.28" r="2.00"/>
+<circle class="decor" cx="575.32" cy="942.32" r="2.00"/>
+<circle class="decor" cx="565.24" cy="923.79" r="2.00"/>
+<circle class="decor" cx="887.02" cy="210.31" r="2.00"/>
+<circle class="decor" cx="871.15" cy="252.71" r="2.00"/>
+<circle class="decor" cx="872.71" cy="200.34" r="2.00"/>
+<circle class="decor" cx="735.63" cy="244.01" r="2.00"/>
+<circle class="decor" cx="774.85" cy="252.54" r="2.00"/>
+<circle class="decor" cx="803.83" cy="262.05" r="2.00"/>
+<circle class="decor" cx="736.54" cy="230.96" r="2.00"/>
+<circle class="decor" cx="734.34" cy="196.13" r="2.00"/>
+<circle class="decor" cx="678.08" cy="258.91" r="2.00"/>
+<circle class="decor" cx="651.41" cy="236.73" r="2.00"/>
+<circle class="decor" cx="675.88" cy="228.98" r="2.00"/>
+<circle class="decor" cx="321.13" cy="607.45" r="2.00"/>
+<circle class="decor" cx="302.51" cy="593.76" r="2.00"/>
+<circle class="decor" cx="214.52" cy="497.94" r="2.00"/>
+<circle class="decor" cx="260.87" cy="544.45" r="2.00"/>
+<circle class="decor" cx="141.21" cy="453.62" r="2.00"/>
+<circle class="decor" cx="144.85" cy="458.48" r="2.00"/>
+<circle class="decor" cx="199.60" cy="441.89" r="2.00"/>
+<circle class="decor" cx="105.99" cy="337.10" r="2.00"/>
+<circle class="decor" cx="89.92" cy="346.40" r="2.00"/>
+<circle class="decor" cx="923.21" cy="465.89" r="2.00"/>
+<circle class="decor" cx="949.35" cy="442.72" r="2.00"/>
+<circle class="decor" cx="925.77" cy="404.06" r="2.00"/>
+<circle class="decor" cx="927.20" cy="474.45" r="2.00"/>
+<circle class="decor" cx="883.28" cy="387.55" r="2.00"/>
+<circle class="decor" cx="305.04" cy="825.62" r="2.00"/>
+<circle class="decor" cx="281.00" cy="901.34" r="2.00"/>
+<circle class="decor" cx="285.33" cy="890.58" r="2.00"/>
+<circle class="decor" cx="286.52" cy="878.48" r="2.00"/>
+<circle class="decor" cx="118.97" cy="886.15" r="2.00"/>
+<circle class="decor" cx="92.87" cy="814.91" r="2.00"/>
+<circle class="decor" cx="115.27" cy="917.87" r="2.00"/>
+<circle class="decor" cx="130.03" cy="839.38" r="2.00"/>
+<circle class="decor" cx="464.09" cy="349.01" r="2.00"/>
+<circle class="decor" cx="158.68" cy="530.66" r="2.00"/>
+<circle class="decor" cx="714.53" cy="977.58" r="2.00"/>
+<circle class="decor" cx="611.25" cy="306.43" r="2.00"/>
+<circle class="decor" cx="262.68" cy="157.61" r="2.00"/>
+<circle class="decor" cx="359.08" cy="107.57" r="2.00"/>
+<circle class="decor" cx="85.27" cy="548.45" r="2.00"/>
+<circle class="decor" cx="753.47" cy="517.38" r="2.00"/>
+<circle class="decor" cx="617.50" cy="633.52" r="2.00"/>
+<circle class="decor" cx="59.04" cy="255.25" r="2.00"/>
+<circle class="decor" cx="124.94" cy="238.04" r="2.00"/>
+<circle class="decor" cx="776.31" cy="50.96" r="2.00"/>
+<circle class="decor" cx="406.84" cy="722.76" r="2.00"/>
+<circle class="decor" cx="185.52" cy="321.90" r="2.00"/>
+<circle class="decor" cx="724.81" cy="900.52" r="2.00"/>
+<circle class="decor" cx="391.61" cy="392.62" r="2.00"/>
+<circle class="decor" cx="655.17" cy="727.43" r="2.00"/>
+<circle class="decor" cx="79.35" cy="718.11" r="2.00"/>
+<circle class="decor" cx="830.95" cy="962.80" r="2.00"/>
+<circle class="decor" cx="945.99" cy="965.19" r="2.00"/>
+<circle class="decor" cx="246.61" cy="160.10" r="2.00"/>
+<circle class="decor" cx="718.77" cy="483.64" r="2.00"/>
+<circle class="decor" cx="431.89" cy="900.41" r="2.00"/>
+<circle class="decor" cx="36.00" cy="970.26" r="2.00"/>
+<circle class="decor" cx="163.63" cy="182.84" r="2.00"/>
+<circle class="decor" cx="175.26" cy="527.50" r="2.00"/>
+<circle class="decor" cx="662.66" cy="92.36" r="2.00"/>
+<circle class="decor" cx="213.09" cy="316.67" r="2.00"/>
+<circle class="decor" cx="547.12" cy="740.48" r="2.00"/>
+<circle class="decor" cx="746.42" cy="646.71" r="2.00"/>
+<circle class="decor" cx="496.64" cy="826.67" r="2.00"/>
+<circle class="decor" cx="567.60" cy="860.85" r="2.00"/>
+<circle class="decor" cx="85.51" cy="47.76" r="2.00"/>
+<circle class="decor" cx="357.79" cy="977.58" r="2.00"/>
+<circle class="decor" cx="734.06" cy="363.43" r="2.00"/>
+<circle class="decor" cx="518.20" cy="776.22" r="2.00"/>
+<circle class="decor" cx="141.58" cy="686.21" r="2.00"/>
+<circle class="decor" cx="159.24" cy="780.38" r="2.00"/>
+<circle class="decor" cx="365.43" cy="285.76" r="2.00"/>
+<circle class="decor" cx="453.21" cy="858.13" r="2.00"/>
+<circle class="decor" cx="715.47" cy="527.09" r="2.00"/>
+<circle class="decor" cx="262.82" cy="174.16" r="2.00"/>
+<circle class="decor" cx="572.93" cy="48.95" r="2.00"/>
+<circle class="decor" cx="506.00" cy="137.06" r="2.00"/>
+<circle class="decor" cx="422.39" cy="134.58" r="2.00"/>
+<circle class="decor" cx="755.03" cy="779.65" r="2.00"/>
+<circle class="decor" cx="653.21" cy="838.37" r="2.00"/>
+<circle class="decor" cx="579.74" cy="925.52" r="2.00"/>
+<circle class="decor" cx="871.16" cy="184.55" r="2.00"/>
+<circle class="decor" cx="737.28" cy="191.70" r="2.00"/>
+<circle class="decor" cx="789.24" cy="268.91" r="2.00"/>
+<circle class="decor" cx="651.99" cy="248.88" r="2.00"/>
+<circle class="decor" cx="282.76" cy="584.26" r="2.00"/>
+<circle class="decor" cx="240.32" cy="534.20" r="2.00"/>
+<circle class="decor" cx="172.09" cy="461.74" r="2.00"/>
+<circle class="decor" cx="126.20" cy="330.71" r="2.00"/>
+<circle class="decor" cx="882.09" cy="423.49" r="2.00"/>
+<circle class="decor" cx="944.41" cy="462.81" r="2.00"/>
+<circle class="decor" cx="227.56" cy="888.66" r="2.00"/>
+<circle class="decor" cx="134.61" cy="848.27" r="2.00"/>
+<circle class="decor" cx="130.08" cy="888.24" r="2.00"/>
+<circle class="decor" cx="640.87" cy="798.33" r="2.00"/>
+<circle class="decor" cx="548.16" cy="730.63" r="2.00"/>
+<circle class="decor" cx="147.89" cy="33.22" r="2.00"/>
+<circle class="decor" cx="823.42" cy="430.39" r="2.00"/>
+<circle class="decor" cx="828.52" cy="423.40" r="2.00"/>
+<circle class="decor" cx="391.66" cy="613.05" r="2.00"/>
+<circle class="decor" cx="632.80" cy="347.58" r="2.00"/>
+<circle class="decor" cx="652.14" cy="339.36" r="2.00"/>
+<circle class="decor" cx="27.33" cy="739.43" r="2.00"/>
+<circle class="decor" cx="331.34" cy="683.84" r="2.00"/>
+<circle class="decor" cx="366.33" cy="790.91" r="2.00"/>
+<circle class="decor" cx="404.57" cy="929.81" r="2.00"/>
+<circle class="decor" cx="585.42" cy="212.31" r="2.00"/>
+<circle class="decor" cx="394.77" cy="303.54" r="2.00"/>
+<circle class="decor" cx="312.20" cy="79.46" r="2.00"/>
+<circle class="decor" cx="356.55" cy="832.60" r="2.00"/>
+<circle class="decor" cx="200.09" cy="716.01" r="2.00"/>
+<circle class="decor" cx="419.13" cy="140.73" r="2.00"/>
+<circle class="decor" cx="831.56" cy="728.24" r="2.00"/>
+<circle class="decor" cx="642.95" cy="844.95" r="2.00"/>
+<circle class="decor" cx="575.86" cy="897.36" r="2.00"/>
+<circle class="decor" cx="746.60" cy="172.85" r="2.00"/>
+<circle class="decor" cx="649.17" cy="194.30" r="2.00"/>
+<circle class="decor" cx="297.22" cy="597.72" r="2.00"/>
+<circle class="decor" cx="950.98" cy="487.67" r="2.00"/>
+<circle class="decor" cx="234.49" cy="906.59" r="2.00"/>
+<circle class="decor" cx="70.35" cy="823.39" r="2.00"/>
+<circle class="decor" cx="246.65" cy="420.60" r="2.00"/>
+<circle class="decor" cx="22.16" cy="227.86" r="2.00"/>
+<circle class="decor" cx="383.32" cy="779.79" r="2.00"/>
+<circle class="decor" cx="692.63" cy="542.18" r="2.00"/>
+<circle class="decor" cx="97.30" cy="584.61" r="2.00"/>
+<circle class="decor" cx="421.63" cy="786.72" r="2.00"/>
+<circle class="decor" cx="854.70" cy="938.88" r="2.00"/>
+<circle class="decor" cx="202.84" cy="595.62" r="2.00"/>
+<circle class="arrival" cx="500.00" cy="500.00" r="10"/>
+<polyline class="path" points="504.1,495.9 495.9,495.9 487.7,495.9 479.5,495.9 471.3,495.9 463.1,495.9 454.9,495.9 446.7,495.9 438.5,495.9 430.3,495.9 422.1,495.9 413.9,495.9 405.7,495.9 397.5,495.9 389.3,495.9 389.3,504.1 389.3,512.3 389.3,520.5 389.3,528.7 389.3,536.9 389.3,545.1 389.3,553.3 389.3,561.5 389.3,569.7 389.3,577.9 389.3,586.1 389.3,594.3 389.3,602.5 389.3,610.7 389.3,618.9 389.3,627.0 389.3,635.2 389.3,643.4 389.3,651.6 389.3,659.8 389.3,668.0 389.3,676.2 389.3,684.4 389.3,692.6 389.3,700.8 389.3,709.0 389.3,717.2 389.3,725.4 389.3,733.6 389.3,741.8 389.3,750.0 389.3,758.2 389.3,766.4 389.3,774.6 389.3,782.8 389.3,791.0 389.3,799.2 389.3,807.4 389.3,815.6 389.3,823.8 389.3,832.0 389.3,840.2 389.3,848.4 389.3,856.6 389.3,864.8 389.3,873.0 389.3,881.1 389.3,889.3 389.3,897.5 389.3,905.7 389.3,913.9 381.1,913.9 381.1,922.1 381.1,930.3 381.1,938.5 373.0,938.5 373.0,946.7 364.8,946.7 356.6,946.7 356.6,954.9 348.4,954.9 340.2,954.9 332.0,954.9 323.8,954.9 315.6,954.9 307.4,954.9 299.2,954.9 291.0,954.9 291.0,963.1 291.0,971.3 291.0,979.5 282.8,979.5 282.8,987.7 282.8,995.9 274.6,995.9"/>
+<text x="24" y="38" font-size="28" font-weight="bold">Seed 500 — VALID — score 77.9</text><text x="24" y="68" font-size="18">Layouts 6 | plateformes 15 | couverture 16.6% | base 99.9%</text></svg>

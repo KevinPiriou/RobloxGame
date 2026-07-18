@@ -1,0 +1,14 @@
+{
+  "repository": "KevinPiriou/RobloxGame",
+  "branch": "Mymain",
+  "commit": "88c73cac324f733d3603c5c707b838a08a0c1a9f",
+  "config_hash": "4776297899c1b4f6bc04a8caf2981b27c42f3971fcb29530c7ab674d72e443c0",
+  "rng_mode": "portable",
+  "start_seed": 1531,
+  "count": 1000,
+  "workers": 15,
+  "elapsed_seconds": 5.012,
+  "valid": 94,
+  "invalid": 906,
+  "errors": 0
+}
