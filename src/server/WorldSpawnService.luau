@@ -47,6 +47,23 @@ local function getDefaultExcludeInstances(extraExcludeInstances)
 	return excludeInstances
 end
 
+-- Le tag est purement observatoire : il ne modifie jamais le rayon ni ses filtres.
+local function recordRaycastTelemetry(options, duration)
+	if not PerformanceTelemetryService.IsCapturing() then
+		return
+	end
+
+	PerformanceTelemetryService.Record("WorldSpawn.RaycastSeconds", duration)
+	PerformanceTelemetryService.Increment("WorldSpawn.RaycastCount")
+
+	local telemetryTag = if options ~= nil then options.TelemetryTag else nil
+
+	if typeof(telemetryTag) == "string" and telemetryTag ~= "" then
+		PerformanceTelemetryService.Record(telemetryTag .. ".RaycastSeconds", duration)
+		PerformanceTelemetryService.Increment(telemetryTag .. ".RaycastCount")
+	end
+end
+
 local function isNameRejected(instance, rejectedNameContains)
 	local current = instance
 
@@ -325,8 +342,7 @@ function WorldSpawnService.FindSurfacePositionAtXZ(x, z, options)
 
 	local raycastStartedAt = os.clock()
 	local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-	PerformanceTelemetryService.Record("WorldSpawn.RaycastSeconds", os.clock() - raycastStartedAt)
-	PerformanceTelemetryService.Increment("WorldSpawn.RaycastCount")
+	recordRaycastTelemetry(options, os.clock() - raycastStartedAt)
 
 	if isSurfaceAllowed(result, options) then
 		return result.Position, result.Instance
@@ -339,8 +355,7 @@ function WorldSpawnService.FindSurfacePositionAtXZ(x, z, options)
 		raycastParams.FilterDescendantsInstances = getDefaultExcludeInstances(options.ExcludeInstances)
 		local fallbackStartedAt = os.clock()
 		local fallbackResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-		PerformanceTelemetryService.Record("WorldSpawn.RaycastSeconds", os.clock() - fallbackStartedAt)
-		PerformanceTelemetryService.Increment("WorldSpawn.RaycastCount")
+		recordRaycastTelemetry(options, os.clock() - fallbackStartedAt)
 
 		if isSurfaceAllowed(fallbackResult, options) then
 			return fallbackResult.Position, fallbackResult.Instance
@@ -560,8 +575,7 @@ function WorldSpawnService.FindGeneratedTerrainBarrier(origin, direction, distan
 	local rayOrigin = origin + Vector3.new(0, rayHeight, 0)
 	local raycastStartedAt = os.clock()
 	local result = Workspace:Raycast(rayOrigin, horizontalDirection.Unit * distance, raycastParams)
-	PerformanceTelemetryService.Record("WorldSpawn.RaycastSeconds", os.clock() - raycastStartedAt)
-	PerformanceTelemetryService.Increment("WorldSpawn.RaycastCount")
+	recordRaycastTelemetry(options, os.clock() - raycastStartedAt)
 
 	if result == nil then
 		return nil

@@ -13,11 +13,25 @@ return {
 	PlayerBaseWalkSpeed = 15,
 	PlayerBaseJumpPower = 55,
 	PlayerBaseJumpHeight = 8,
+	-- Course locale additive : elle complete les animations Roblox sans modifier
+	-- les regles de mouvement, les sauts ni les etats serveur du personnage.
+	PlayerRunAnimationEnabled = true,
+	PlayerRunAnimationMinSpeed = 2.5,
+	PlayerRunAnimationBaseStrideHz = 2.35,
+	PlayerRunAnimationMaxStrideHz = 3.25,
+	PlayerRunAnimationArmDegrees = 38,
+	PlayerRunAnimationLegDegrees = 31,
+	PlayerRunAnimationTorsoLeanDegrees = 9,
+	PlayerRunAnimationKneeDegrees = 17,
+	PlayerRunAnimationBlendSpeed = 15,
 
 	-- Zero utilise le Heartbeat directement pour que le visuel reste aligne aux hitboxes serveur.
 	MonsterSimulationHz = 0,
 	-- Zero utilise le Heartbeat directement pour que le projectile replique reste fluide pour son proprietaire.
 	ProjectileSimulationHz = 0,
+	-- Chaque run est instanciee en solo : le noyau visuel est donc construit uniquement chez son proprietaire.
+	-- Remettre ReplicatedCore constitue le rollback immediat si un mode cooperatif est introduit plus tard.
+	ProjectilePresentationMode = "ClientPilot",
 	MonsterSpatialCellSize = 8,
 	MonsterPoolPrewarm = 0,
 	ProjectilePoolPrewarm = 24,
@@ -61,11 +75,14 @@ return {
 	WaveSpawnBatchBase = 2,
 	WaveSpawnBatchIncreaseEvery = 2,
 	WaveSpawnBatchMax = 8,
+	-- Une vague peut demander jusqu'a huit monstres, mais le cout de creation est
+	-- reparti dans plusieurs frames afin d'eviter un pic unique.
+	WaveSpawnDispatchBudget = 4,
 	-- Repositionne une petite partie d'une masse intacte, hors champ, sans creer d'Instances.
 	MonsterRecycleCheckInterval = 1.5,
 	MonsterRecycleCooldown = 4,
 	MonsterRecycleMinimumBacklineCount = 12,
-	MonsterRecycleBatchSize = 4,
+	MonsterRecycleBatchSize = 2,
 	MonsterRecycleUndamagedSeconds = 8,
 	MonsterRecycleMinBehindDistance = 56,
 	MonsterRecycleMaxBehindDistance = 180,
@@ -145,6 +162,10 @@ return {
 	CoinDropsMax = 1,
 
 	FireballCooldown = 0.95,
+	-- Une attaque reste une salve : le premier projectile part immediatement, les
+	-- suivants sont legerement echelonnés sans depasser le prochain cooldown.
+	FireballVolleyProjectileInterval = 0.055,
+	FireballVolleyEndGuard = 0.025,
 	FireballRange = 90,
 	FireballDamage = 24,
 	-- La vitesse de base est volontairement moderee : les perks et objets restent la source principale d'acceleration.

@@ -171,12 +171,25 @@ function AdminService.Start()
 
 	spawnMonstersRemote.OnServerEvent:Connect(function(player)
 		runAdminAction(player, "Spawn admin", function()
-			local spawnedCount, maxToSpawn = MonsterService.DebugSpawnMonstersNearPlayer(
+			local queuedCount, pendingCount, isAlreadyQueued = MonsterService.QueueDebugSpawnMonstersNearPlayer(
 				player,
-				AdminConfig.DebugSpawnMonsterCount
+				AdminConfig.DebugSpawnMonsterCount,
+				AdminConfig.DebugSpawnMonsterBatchSize,
+				AdminConfig.DebugSpawnMonsterBatchInterval
 			)
 
-			return ("Spawn debug : %d/%d ennemis"):format(spawnedCount, maxToSpawn)
+			if isAlreadyQueued then
+				return ("Spawn debug deja en cours : %d ennemis restants"):format(pendingCount)
+			end
+
+			if queuedCount <= 0 then
+				return "Spawn debug impossible : joueur indisponible ou plafond atteint"
+			end
+
+			return ("Spawn debug file : %d ennemis, lots de %d"):format(
+				queuedCount,
+				AdminConfig.DebugSpawnMonsterBatchSize
+			)
 		end)
 	end)
 

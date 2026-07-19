@@ -308,7 +308,23 @@ local function finalizeSession(player, outcome, resultSummary)
 		return false
 	end
 
-	RunLoadingService.Cancel(player, outcome)
+	local cleanupFailures = {}
+
+	-- La persistance d'une run ne doit jamais rester bloquee par le nettoyage d'un sous-systeme runtime.
+	local function cleanupStep(name, callback)
+		local success, errorMessage = pcall(callback)
+
+		if not success then
+			table.insert(cleanupFailures, {
+				Step = name,
+				Error = tostring(errorMessage),
+			})
+		end
+	end
+
+	cleanupStep("RunLoading", function()
+		RunLoadingService.Cancel(player, outcome)
+	end)
 
 	session.Outcome = outcome or "Unknown"
 	session.EndReason = outcome or "Unknown"
@@ -318,11 +334,15 @@ local function finalizeSession(player, outcome, resultSummary)
 	saveProfile(player)
 
 	if worldOwnerUserId == player.UserId then
-		if runWorldService ~= nil then
-			runWorldService.Clear()
-		end
+		cleanupStep("RunWorld", function()
+			if runWorldService ~= nil then
+				runWorldService.Clear()
+			end
+		end)
 
-		RunMapService.Destroy(session.RunId)
+		cleanupStep("RunMap", function()
+			RunMapService.Destroy(session.RunId)
+		end)
 		worldOwnerUserId = nil
 	end
 
@@ -339,7 +359,16 @@ local function finalizeSession(player, outcome, resultSummary)
 		RunId = session.RunId,
 		Outcome = session.Outcome,
 		ChapterValidated = session.ChapterValidated,
+		CleanupFailureCount = #cleanupFailures,
 	})
+
+	if #cleanupFailures > 0 then
+		DebugLog.Warn("RunSession", "Nettoyage runtime partiellement en erreur, session liberee", {
+			Player = player.Name,
+			RunId = session.RunId,
+			Failures = cleanupFailures,
+		})
+	end
 
 	return true
 end

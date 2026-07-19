@@ -2,6 +2,8 @@ return {
 	AllowStudioAdmin = true,
 	AdminUserIds = {},
 	DebugSpawnMonsterCount = 100,
+	DebugSpawnMonsterBatchSize = 5,
+	DebugSpawnMonsterBatchInterval = 0.05,
 	DebugLogCategories = {
 		{ Id = "LobbyWorld", Label = "Lobby runtime" },
 		{ Id = "Environment", Label = "Ambiance" },

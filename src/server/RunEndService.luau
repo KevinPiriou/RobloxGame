@@ -240,7 +240,14 @@ function RunEndService.Start()
 	RunStateService.RunEnded:Connect(function(player, reason)
 		local summary = buildSummary(player, reason)
 		local state = getOrCreateState(player)
-		RunSessionService.CompleteRun(player, reason, summary.RunResult)
+		local sessionCompleted = RunSessionService.CompleteRun(player, reason, summary.RunResult)
+
+		if not sessionCompleted then
+			DebugLog.Warn("RunEnd", "Fin de run sans session active a finaliser", {
+				Player = player.Name,
+				Reason = reason,
+			})
+		end
 		RunAnalyticsService.ClearRun(player)
 		summary.RunResult = nil
 
@@ -251,7 +258,7 @@ function RunEndService.Start()
 		state.ChapterId = nil
 		player:SetAttribute("RunLevelValidated", false)
 
-		if reason == "Death" and RunTeleportService.ReturnToLobby(player, summary) then
+		if RunTeleportService.ReturnToLobby(player, summary) then
 			return
 		end
 

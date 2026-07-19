@@ -191,6 +191,7 @@ type ChapterCard = {
 local cards: {ChapterCard} = {}
 local selectedChapterId: number? = nil
 local isBusy = false
+local wasRunActive = player:GetAttribute("IsRunActive") == true
 local responsiveScale = 1
 
 local function refreshCards()
@@ -380,6 +381,17 @@ end)
 
 local function refreshVisibility()
 	local isRunActive = player:GetAttribute("IsRunActive") == true
+
+	if wasRunActive and not isRunActive then
+		-- Le LocalScript persiste apres le retour lobby : son verrou doit suivre le cycle de run.
+		isBusy = false
+		launchButton.Text = "LANCER LE CHAPITRE"
+		statusLabel.Text = "Selectionne la map de ta prochaine run."
+		statusLabel.TextColor3 = COLORS.Muted
+		refreshCards()
+	end
+
+	wasRunActive = isRunActive
 	openButton.Visible = not isRunActive
 
 	if isRunActive then

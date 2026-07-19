@@ -263,3 +263,40 @@ Decision P1.4 : `Keep`.
 ### Etat P1 restant
 
 Les normalisations a faible risque prevues sont terminees. La cloture de P1 reste bloquee par un seul proof of done : plusieurs cycles comparables de creation puis destruction de map, avec audit apres chaque cycle, afin de verifier que les proprietes runtime et les memoires `PhysicsParts`/`PhysicsCollision` ne montent pas residuellement.
+
+---
+
+## Validation multi-run intermediaire - 2026-07-18 09:45:00
+
+Le cycle de vie de run a ete redresse puis valide par plusieurs morts et relances successives. Trois inventaires ont ete produits sur les trois variantes de map testees :
+
+| Audit | Memoire totale avant -> apres | PhysicsParts | PhysicsCollision | Parties runtime | MapRuntime |
+| --- | --- | --- | --- | --- | --- |
+| `P1-Physics-64730161` | `2451.32 -> 2451.37 MB` | `51.49 MB` | `0.24 MB` | `3196` | `3042` |
+| `P1-Physics-64854003` | `2500.59 -> 2500.71 MB` | `61.56 MB` | `0.25 MB` | `3380` | `3261` |
+| `P1-Physics-64937262` | `2520.21 -> 2520.21 MB` | `64.75 MB` | `0.25 MB` | `3019` | `2886` |
+
+Les trois audits confirment les invariants runtime P1 :
+
+- monstres, projectiles et loot actifs : ancres, `CanCollide=0`, `CanTouch=0`, `CanQuery=0` ;
+- interactables ordinaires : `CanTouch=0`, `CanQuery=0` ;
+- `MapRuntime` : `CanTouch=0` ; seules les surfaces sollicitees par les raycasts de spawn conservent `CanQuery` ;
+- aucune partie non ancree ne reste dans le runtime audite.
+
+Les variations de `PhysicsParts` et du total memoire entre les trois releves ne prouvent ni un gain ni une fuite : les variantes produisent chacune un volume de map, de mesh et de collision different. La stabilite avant/apres de chaque audit prouve seulement que le scan lui-meme n'ajoute pas de cout residuel mesurable.
+
+### Etat de validation
+
+Le proof de regeneration est valide : le passage a la variante suivante a bien necessite la destruction du monde precedent, sans accumulation visible des parties runtime. La cloture P1 reste cependant bloquee par un dernier releve volontairement simple : terminer la troisieme run, revenir au lobby, lancer l'inventaire P1, puis verifier que les dossiers runtime sont vides ou retombes au pool attendu et que `PhysicsParts`/`PhysicsCollision` ne conservent pas de volume de map runtime.
+
+---
+
+## Cloture P1 - 2026-07-18 10:15:00
+
+Audit final hors run : `P1-Physics-65580531`.
+
+Le retour lobby apres une mort rapide confirme la destruction complete du monde de run : `runtimeParts=0`, et chacune des familles `CombatMonsters`, `CombatProjectiles`, `CombatLoot`, `ShrinesRuntime`, `ChestsRuntime`, `JarsRuntime`, `TotemsRuntime`, `PortalsRuntime` et `MapRuntime` contient `0` partie, `0` contrainte et `0` joint.
+
+Les mesures globales sont stables pendant le scan (`2600.50 -> 2600.50 MB`, `PhysicsParts=67.79 MB`, `PhysicsCollision=0.25 MB`). Ce resultat ne doit pas etre lu comme un gain absolu compare aux runs actifs, qui utilisent des variantes de map differentes. Il valide en revanche le proof de destruction demande : aucun volume physique de la map de run ne reste dans le runtime apres retour lobby.
+
+Decision P1 : `Keep`, phase cloturee dans son perimetre d'inventaire et de normalisation physique. Le detail complet est consigne dans `post_audit_2026-07-18_101500_performance_p1_physics_cloture.md`.

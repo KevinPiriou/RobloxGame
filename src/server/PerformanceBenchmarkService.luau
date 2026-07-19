@@ -5,6 +5,7 @@ local Stats = game:GetService("Stats")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local PerformanceBaselineConfig = require(Shared:WaitForChild("PerformanceBaselineConfig"))
 
@@ -242,6 +243,18 @@ local function recordServerSample()
 	PerformanceTelemetryService.Record("Server.Monsters.Pool", monsterSnapshot.Pool)
 	PerformanceTelemetryService.Record("Server.Projectiles.Active", weaponSnapshot.Active)
 	PerformanceTelemetryService.Record("Server.Projectiles.Pool", weaponSnapshot.Pool)
+	PerformanceTelemetryService.Record("Server.Network.DataSendKbps", readNumber(function()
+		return Stats.DataSendKbps
+	end) or -1)
+	PerformanceTelemetryService.Record("Server.Network.DataReceiveKbps", readNumber(function()
+		return Stats.DataReceiveKbps
+	end) or -1)
+	PerformanceTelemetryService.Record("Server.Network.PhysicsSendKbps", readNumber(function()
+		return Stats.PhysicsSendKbps
+	end) or -1)
+	PerformanceTelemetryService.Record("Server.Network.PhysicsReceiveKbps", readNumber(function()
+		return Stats.PhysicsReceiveKbps
+	end) or -1)
 	PerformanceTelemetryService.Record("Server.Xp.Tracked", xpSnapshot.Tracked)
 	PerformanceTelemetryService.Record("Server.Xp.Pool", xpSnapshot.Pool)
 	PerformanceTelemetryService.Record("Server.Coins.Tracked", coinSnapshot.Tracked)
@@ -267,6 +280,71 @@ local function spawnCollectibles(benchmark)
 	end
 end
 
+local function clearProjectileTargets(benchmark)
+	local targetFolder = benchmark.ProjectileTargetFolder
+
+	if targetFolder ~= nil and targetFolder.Parent ~= nil then
+		targetFolder:Destroy()
+	end
+
+	benchmark.ProjectileTargetFolder = nil
+	benchmark.ProjectileTargetPositions = nil
+end
+
+local function spawnProjectileTargets(benchmark, root)
+	local targetCount = math.max(0, math.floor(benchmark.Scenario.ProjectileTargetCount or 0))
+
+	if targetCount <= 0 or root == nil then
+		return
+	end
+
+	local targetDistance = math.clamp(tonumber(benchmark.Scenario.ProjectileTargetDistance) or 54, 18, 120)
+	local targetFolder = Instance.new("Folder")
+	targetFolder.Name = "ProjectileBenchmarkTargets"
+	targetFolder.Parent = benchmark.Arena
+
+	local positions = {}
+	local origin = root.Position + Vector3.new(0, CombatConfig.FireballSpawnHeightOffset, 0)
+	local forward = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+	local right = Vector3.new(root.CFrame.RightVector.X, 0, root.CFrame.RightVector.Z)
+
+	if forward.Magnitude <= 0.001 then
+		forward = Vector3.new(0, 0, -1)
+	else
+		forward = forward.Unit
+	end
+
+	if right.Magnitude <= 0.001 then
+		right = Vector3.new(1, 0, 0)
+	else
+		right = right.Unit
+	end
+
+	for index = 1, targetCount do
+		local progress = if targetCount <= 1 then 0.5 else (index - 1) / (targetCount - 1)
+		local angle = (progress - 0.5) * math.rad(120)
+		local direction = ((forward * math.cos(angle)) + (right * math.sin(angle))).Unit
+		local position = origin + (direction * targetDistance)
+		local target = Instance.new("Part")
+		target.Name = "ProjectileBenchmarkTarget"
+		target.Anchored = true
+		target.CanCollide = false
+		target.CanTouch = false
+		target.CanQuery = false
+		target.CastShadow = false
+		target.Material = Enum.Material.Neon
+		target.Color = Color3.fromRGB(120, 220, 255)
+		target.Transparency = 0.12
+		target.Size = Vector3.new(4.5, 4.5, 0.4)
+		target.CFrame = CFrame.lookAt(position, origin)
+		target.Parent = targetFolder
+		table.insert(positions, position)
+	end
+
+	benchmark.ProjectileTargetFolder = targetFolder
+	benchmark.ProjectileTargetPositions = positions
+end
+
 local function restoreRunContext(benchmark)
 	local originalMap = benchmark.OriginalMap
 
@@ -288,6 +366,7 @@ local function cleanupBenchmark(benchmark, preserveArenaContext)
 		MonsterService.SetBenchmarkSeed(nil)
 	end
 	WeaponService.ClearProjectilesForBenchmark()
+	clearProjectileTargets(benchmark)
 	MonsterService.ClearAllMonsters("PerformanceBaseline")
 	XpService.ClearRunGems()
 	CoinService.ClearRunCoins()
@@ -401,6 +480,7 @@ local function buildScenarioExport(report)
 		"comparable=" .. tostring(comparable),
 		"validation=" .. reason,
 		"seed=" .. tostring(report.Seed),
+		"run_seed=" .. tostring(report.RunSeed),
 		"coeur_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Server.HeartbeatSeconds", "P95"))),
 		"monstres_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.TickSeconds", "P95"))),
 		"projectiles_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Weapon.TickSeconds", "P95"))),
@@ -409,8 +489,11 @@ local function buildScenarioExport(report)
 		"draw_calls_moy=" .. formatNumber(getClientMetric(report, "Client.DrawCalls", "Average"), 0),
 		"triangles_moy=" .. formatNumber(getClientMetric(report, "Client.Triangles", "Average"), 0),
 		"instances_client_p95=" .. formatNumber(getClientMetric(report, "Client.Instances", "P95"), 0),
-		"vfx_particules_p95=" .. formatNumber(getClientMetric(report, "Client.Vfx.ParticleEmitters", "P95"), 0),
-		"vfx_lumieres_p95=" .. formatNumber(getClientMetric(report, "Client.Vfx.Lights", "P95"), 0),
+		"vfx_particules_allouees_p95=" .. formatNumber(getClientMetric(report, "Client.Vfx.ParticleEmitters", "P95"), 0),
+		"vfx_particules_actives_p95=" .. formatNumber(getClientMetric(report, "Client.Vfx.ActiveParticleEmitters", "P95"), 0),
+		"vfx_lumieres_allouees_p95=" .. formatNumber(getClientMetric(report, "Client.Vfx.Lights", "P95"), 0),
+		"vfx_lumieres_actives_p95=" .. formatNumber(getClientMetric(report, "Client.Vfx.ActiveLights", "P95"), 0),
+		"vfx_trails_actifs_p95=" .. formatNumber(getClientMetric(report, "Client.Vfx.ActiveTrails", "P95"), 0),
 		"memoire_serveur_avant_mb=" .. formatNumber(report.Memory.ServerBeforeMb),
 		"memoire_serveur_pic_mb=" .. formatNumber(report.Memory.ServerPeakMb),
 		"memoire_serveur_cleanup_mb=" .. formatNumber(report.Memory.ServerAfterCleanupMb),
@@ -420,6 +503,81 @@ local function buildScenarioExport(report)
 		"memoire_client_cleanup_mb=" .. formatNumber(clientSummary.MemoryAfterCleanupMb),
 		"memoire_client_repos_mb=" .. formatNumber(clientSummary.MemoryAfterIdleMb),
 		"vfx_verrouille=" .. tostring(clientSummary.Vfx and clientSummary.Vfx.BenchmarkLockEnabled == true),
+	}, "\n")
+end
+
+local function buildMonsterSimulationExport(report)
+	local visitedStates = getMetricValue(report.Server, "Monster.VisitedStatesPerTick", "P95")
+
+	if visitedStates == nil then
+		return nil
+	end
+
+	return table.concat({
+		"scenario=" .. report.Scenario.Id,
+		"presentation=" .. tostring(report.Scenario.ProjectilePresentationMode or "ReplicatedCore"),
+		"visites_p95=" .. formatNumber(visitedStates, 0),
+		"joueurs_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.PlayerTargetCollectionSeconds", "P95"))),
+		"ciblage_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.TargetingSeconds", "P95"))),
+		"lod_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.LodSeconds", "P95"))),
+		"lod_full_p95=" .. formatNumber(getMetricValue(report.Server, "Monster.LodFullStatesPerTick", "P95"), 0),
+		"lod_reduit_p95=" .. formatNumber(getMetricValue(report.Server, "Monster.LodReducedStatesPerTick", "P95"), 0),
+		"lod_lointain_p95=" .. formatNumber(getMetricValue(report.Server, "Monster.LodDistantStatesPerTick", "P95"), 0),
+		"pas_full_p95=" .. formatNumber(getMetricValue(report.Server, "Monster.LodFullStepsPerTick", "P95"), 0),
+		"pas_reduit_p95=" .. formatNumber(getMetricValue(report.Server, "Monster.LodReducedStepsPerTick", "P95"), 0),
+		"pas_lointain_p95=" .. formatNumber(getMetricValue(report.Server, "Monster.LodDistantStepsPerTick", "P95"), 0),
+		"mouvement_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.MovementSeconds", "P95"))),
+		"direction_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.MoveDirectionSeconds", "P95"))),
+		"separation_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.SeparationSeconds", "P95"))),
+		"separation_voisins_p95=" .. formatNumber(getMetricValue(report.Server, "Monster.SeparationNeighborCandidatesPerTick", "P95"), 0),
+		"separation_proches_p95=" .. formatNumber(getMetricValue(report.Server, "Monster.SeparationNeighborsInRadiusPerTick", "P95"), 0),
+		"sol_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.GroundFollowSeconds", "P95"))),
+		"sol_echantillons_p95=" .. formatNumber(getMetricValue(report.Server, "Monster.GroundSamplesPerTick", "P95"), 0),
+		"sol_cache_p95=" .. formatNumber(getMetricValue(report.Server, "Monster.GroundCacheHitsPerTick", "P95"), 0),
+		"sol_cache_partage_p95=" .. formatNumber(getMetricValue(report.Server, "Monster.GroundSharedSurfaceCacheHitsPerTick", "P95"), 0),
+		"sol_raycasts=" .. formatNumber(getCounterValue(report.Server, "Monster.Ground.RaycastCount"), 0),
+		"evitement_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.TerrainAvoidanceSeconds", "P95"))),
+		"evitement_echantillons_p95=" .. formatNumber(getMetricValue(report.Server, "Monster.TerrainAvoidanceSamplesPerTick", "P95"), 0),
+		"evitement_raycasts=" .. formatNumber(getCounterValue(report.Server, "Monster.Avoidance.RaycastCount"), 0),
+		"transform_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.VisualTransformSeconds", "P95"))),
+		"pivot_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.PivotSeconds", "P95"))),
+		"grille_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.SpatialGridUpdateSeconds", "P95"))),
+		"degats_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.DamageSeconds", "P95"))),
+		"spawn_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.SpawnSeconds", "P95"))),
+		"vague_spawn_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.WaveSpawnSeconds", "P95"))),
+		"recyclage_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Monster.RecycleSeconds", "P95"))),
+	}, "\n")
+end
+
+local function buildProjectileP3Export(report)
+	if (report.Scenario.ProjectileTargetCount or 0) <= 0 then
+		return nil
+	end
+
+	return table.concat({
+		"scenario=" .. report.Scenario.Id,
+		"cibles=" .. formatNumber(report.Scenario.ProjectileTargetCount, 0),
+		"tirs_demandes=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.BenchmarkShotsRequested"), 0),
+		"tirs_emis=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.BenchmarkShotsEmitted"), 0),
+		"projectiles_crees=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.Created"), 0),
+		"projectiles_reutilises=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.ReusedFromPool"), 0),
+		"projectiles_clones=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.Cloned"), 0),
+		"projectiles_recycles=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.BenchmarkReleased"), 0),
+		"transforms_repliques=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.TransformUpdates"), 0),
+		"transforms_logiques=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.LogicalUpdates"), 0),
+		"pilot_spawns=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.ClientPilotSpawns"), 0),
+		"pilot_destroys=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.ClientPilotDestroys"), 0),
+		"impacts=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.BenchmarkImpacts"), 0),
+		"expires=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.BenchmarkExpired"), 0),
+		"audio_cast=" .. formatNumber(getCounterValue(report.Server, "Weapon.Projectiles.CastAudioEvents"), 0),
+		"actifs_p95=" .. formatNumber(getMetricValue(report.Server, "Server.Projectiles.Active", "P95"), 0),
+		"pool_p95=" .. formatNumber(getMetricValue(report.Server, "Server.Projectiles.Pool", "P95"), 0),
+		"tick_ms_p95=" .. formatNumber(secondsToMilliseconds(getMetricValue(report.Server, "Weapon.TickSeconds", "P95"))),
+		"serveur_envoi_kbps_p95=" .. formatNumber(getMetricValue(report.Server, "Server.Network.DataSendKbps", "P95")),
+		"serveur_recoit_kbps_p95=" .. formatNumber(getMetricValue(report.Server, "Server.Network.DataReceiveKbps", "P95")),
+		"client_recoit_kbps_p95=" .. formatNumber(getClientMetric(report, "Client.Network.DataReceiveKbps", "P95")),
+		"client_envoi_kbps_p95=" .. formatNumber(getClientMetric(report, "Client.Network.DataSendKbps", "P95")),
+		"client_frame_ms_p95=" .. formatNumber(secondsToMilliseconds(report.Client.Summary and report.Client.Summary.FrameP95Seconds)),
 	}, "\n")
 end
 
@@ -485,16 +643,20 @@ local function finishBenchmark(benchmark, reason)
 					}
 					else nil,
 				RunId = benchmark.Session.RunId,
-				Seed = benchmark.Session.Seed,
+				-- Le seed de benchmark pilote la population, les positions et les tirs
+				-- synthetiques. Le seed de run reste trace separatement pour retrouver
+				-- la session Roblox qui a porte la campagne.
+				Seed = PerformanceBaselineConfig.Seed,
+				RunSeed = benchmark.Session.Seed,
 				Environment = if RunService:IsStudio() then "Studio" else "Published",
 				Server = telemetry,
 				Client = {
 					Metrics = getClientMetricsSummary(),
 					Summary = clientSummary,
 				},
-				Network = {
-					RealtimeBytesAvailable = false,
-					RequiredCapture = "MicroProfiler network or Developer Console",
+		Network = {
+			RealtimeKbpsAvailable = true,
+			RequiredAttributionCapture = "MicroProfiler network or Developer Console",
 				},
 				Memory = {
 					ServerBeforeMb = benchmark.ServerMemoryBeforeMb,
@@ -518,6 +680,16 @@ local function finishBenchmark(benchmark, reason)
 			writeReportValue("LatestScenario", export)
 			writeReportValue("Scenario_" .. benchmark.Scenario.Id, export)
 			print("[MegaRoblox][P0_EXPORT] " .. export:gsub("\n", " | "))
+
+			local monsterSimulationExport = buildMonsterSimulationExport(report)
+			if monsterSimulationExport ~= nil then
+				print("[MegaRoblox][P2_SIMULATION] " .. monsterSimulationExport:gsub("\n", " | "))
+			end
+
+			local projectileP3Export = buildProjectileP3Export(report)
+			if projectileP3Export ~= nil then
+				print("[MegaRoblox][P3_PROJECTILES] " .. projectileP3Export:gsub("\n", " | "))
+			end
 
 			latestReport = report
 			activeBenchmark = nil
@@ -608,7 +780,19 @@ local function startProjectileCadence(benchmark)
 			return false
 		end
 
-		WeaponService.DebugFireballBurst(benchmark.Owner, burstCount)
+		local targetPositions = benchmark.ProjectileTargetPositions
+
+		if targetPositions ~= nil and #targetPositions > 0 then
+			WeaponService.DebugFireballBurstAtPositions(
+				benchmark.Owner,
+				targetPositions,
+				burstCount,
+				benchmark.Scenario.ProjectilePresentationMode
+			)
+		else
+			WeaponService.DebugFireballBurst(benchmark.Owner, burstCount)
+		end
+
 		return true
 	end
 
@@ -726,6 +910,7 @@ local function startBenchmark(player, scenarioId, campaign)
 	MonsterService.SetBenchmarkSeed(PerformanceBaselineConfig.Seed)
 	WorldSpawnService.SetRunContext(arena, PerformanceBaselineConfig.Seed, simulationCenter.Position)
 	root:PivotTo(playerStart.CFrame + Vector3.new(0, 3, 0))
+	spawnProjectileTargets(benchmark, root)
 
 	local spawnedCount = 0
 	if (scenario.MonsterCount or 0) > 0 then
@@ -746,6 +931,7 @@ local function startBenchmark(player, scenarioId, campaign)
 		SpawnedMonsters = spawnedCount,
 		ProjectileBurst = scenario.ProjectileBurst or 0,
 		ProjectileBurstIntervalSeconds = scenario.ProjectileBurstIntervalSeconds,
+		ProjectileTargets = scenario.ProjectileTargetCount or 0,
 		XpGems = scenario.XpGemCount or 0,
 		Coins = scenario.CoinCount or 0,
 		Seed = PerformanceBaselineConfig.Seed,

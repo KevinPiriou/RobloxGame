@@ -1,6 +1,7 @@
 -- Echantillonnage client P0. Ce script ne modifie jamais le rendu ni le gameplay.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 local Stats = game:GetService("Stats")
 local UserInputService = game:GetService("UserInputService")
@@ -57,27 +58,40 @@ local function readMemoryTag(tagName)
 end
 
 local function countMegaRobloxVfx()
-	local root = Workspace:FindFirstChild(VfxConfig.RuntimeFolderName)
-
-	if root == nil then
-		return 0, 0, 0
-	end
-
 	local particles = 0
+	local activeParticles = 0
 	local lights = 0
+	local activeLights = 0
 	local trails = 0
+	local activeTrails = 0
 
-	for _, descendant in ipairs(root:GetDescendants()) do
+	for _, descendant in ipairs(CollectionService:GetTagged(VfxConfig.TelemetryTag)) do
+		if not descendant:IsDescendantOf(Workspace) then
+			continue
+		end
+
 		if descendant:IsA("ParticleEmitter") then
 			particles += 1
+
+			if descendant.Enabled then
+				activeParticles += 1
+			end
 		elseif descendant:IsA("Trail") then
 			trails += 1
+
+			if descendant.Enabled then
+				activeTrails += 1
+			end
 		elseif descendant:IsA("PointLight") or descendant:IsA("SpotLight") or descendant:IsA("SurfaceLight") then
 			lights += 1
+
+			if descendant.Enabled then
+				activeLights += 1
+			end
 		end
 	end
 
-	return particles, lights, trails
+	return particles, activeParticles, lights, activeLights, trails, activeTrails
 end
 
 local function getPercentile(samples, percentage)
@@ -122,7 +136,7 @@ local function sendPeriodicSample()
 		return
 	end
 
-	local particles, lights, trails = countMegaRobloxVfx()
+	local particles, activeParticles, lights, activeLights, trails, activeTrails = countMegaRobloxVfx()
 	local totalMemory = readNumber(function()
 		return Stats:GetTotalMemoryUsageMb()
 	end)
@@ -144,6 +158,18 @@ local function sendPeriodicSample()
 			["Client.PhysicsSeconds"] = readNumber(function()
 				return Stats.PhysicsStepTime
 			end) or -1,
+			["Client.Network.DataSendKbps"] = readNumber(function()
+				return Stats.DataSendKbps
+			end) or -1,
+			["Client.Network.DataReceiveKbps"] = readNumber(function()
+				return Stats.DataReceiveKbps
+			end) or -1,
+			["Client.Network.PhysicsSendKbps"] = readNumber(function()
+				return Stats.PhysicsSendKbps
+			end) or -1,
+			["Client.Network.PhysicsReceiveKbps"] = readNumber(function()
+				return Stats.PhysicsReceiveKbps
+			end) or -1,
 			["Client.DrawCalls"] = readNumber(function()
 				return Stats.SceneDrawcallCount
 			end) or -1,
@@ -161,8 +187,11 @@ local function sendPeriodicSample()
 			["Client.Memory.PhysicsPartsMb"] = readMemoryTag("PhysicsParts") or -1,
 			["Client.Memory.PhysicsCollisionMb"] = readMemoryTag("PhysicsCollision") or -1,
 			["Client.Vfx.ParticleEmitters"] = particles,
+			["Client.Vfx.ActiveParticleEmitters"] = activeParticles,
 			["Client.Vfx.Lights"] = lights,
+			["Client.Vfx.ActiveLights"] = activeLights,
 			["Client.Vfx.Trails"] = trails,
+			["Client.Vfx.ActiveTrails"] = activeTrails,
 			["Client.FrameSpikes"] = frameSpikeCount,
 		},
 	})

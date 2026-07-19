@@ -37,8 +37,9 @@ local monsterTickMaxSeconds = 0
 local elapsedSincePerfLog = 0
 local waveStartedAt = CombatStateService.GetTime()
 local monstersByInstance = {}
-local nextRuntimeMonsterId = 0
 local monsterSpatialGrid = {}
+local monsterSeparationGrid = {}
+local groundSurfaceCellCache = {}
 local killsByUserId = {}
 local lastSpawnAtByUserId = {}
 local lastRecycleCheckAtByUserId = {}
@@ -51,6 +52,18 @@ local nextElitePackId = 0
 local difficultyPercent = 0
 local runItemService = nil
 local benchmarkMode = false
+local activeSimulationTelemetry = nil
+local pendingDebugSpawnsByUserId = {}
+local pendingWaveSpawnsByUserId = {}
+local waveSpawnDispatchAllowance = 0
+
+local function addSimulationTelemetry(metricName, amount)
+	if activeSimulationTelemetry == nil then
+		return
+	end
+
+	activeSimulationTelemetry[metricName] = (activeSimulationTelemetry[metricName] or 0) + (amount or 0)
+end
 
 local function getRunItemService()
 	if runItemService == nil then
@@ -66,6 +79,15 @@ local function createSpawnActivity()
 		Requested = 0,
 		Spawned = 0,
 		Failed = 0,
+		LargestRequestedBatch = 0,
+		LargestSpawnedBatch = 0,
+		TotalBatchSeconds = 0,
+		MaxBatchSeconds = 0,
+		DebugBatches = 0,
+		DebugRequested = 0,
+		DebugSpawned = 0,
+		DebugTotalSeconds = 0,
+		DebugMaxSeconds = 0,
 		Fallbacks = 0,
 		Recycled = 0,
 		RecycleCandidates = 0,
@@ -73,6 +95,44 @@ local function createSpawnActivity()
 end
 
 local spawnActivity = createSpawnActivity()
+
+local function getPendingDebugSpawnCount()
+	local pendingCount = 0
+
+	for _, request in pairs(pendingDebugSpawnsByUserId) do
+		pendingCount += math.max(0, request.Remaining or 0)
+	end
+
+	return pendingCount
+end
+
+local function getPendingWaveSpawnCount()
+	local pendingCount = 0
+
+	for _, request in pairs(pendingWaveSpawnsByUserId) do
+		pendingCount += math.max(0, request.Remaining or 0)
+	end
+
+	return pendingCount
+end
+
+local function recordWaveSpawnBatch(requestedCount, spawnedCount, elapsedSeconds)
+	spawnActivity.Batches += 1
+	spawnActivity.Requested += requestedCount
+	spawnActivity.Spawned += spawnedCount
+	spawnActivity.LargestRequestedBatch = math.max(spawnActivity.LargestRequestedBatch, requestedCount)
+	spawnActivity.LargestSpawnedBatch = math.max(spawnActivity.LargestSpawnedBatch, spawnedCount)
+	spawnActivity.TotalBatchSeconds += elapsedSeconds
+	spawnActivity.MaxBatchSeconds = math.max(spawnActivity.MaxBatchSeconds, elapsedSeconds)
+end
+
+local function recordDebugSpawnBatch(requestedCount, spawnedCount, elapsedSeconds)
+	spawnActivity.DebugBatches += 1
+	spawnActivity.DebugRequested += requestedCount
+	spawnActivity.DebugSpawned += spawnedCount
+	spawnActivity.DebugTotalSeconds += elapsedSeconds
+	spawnActivity.DebugMaxSeconds = math.max(spawnActivity.DebugMaxSeconds, elapsedSeconds)
+end
 
 local function createSimulationLodCounts(playerTargetCount)
 	return {
@@ -613,34 +673,45 @@ local function getSpatialCellSize()
 	return math.max(1, CombatConfig.MonsterSpatialCellSize or CombatConfig.MonsterSeparationRadius or 8)
 end
 
+-- La grille de ciblage reste large pour les requetes d'armes. La separation
+-- utilise sa propre maille, bornee par son rayon, afin de ne pas visiter des
+-- voisins qui ne peuvent pas contribuer au deplacement.
+local function getSeparationCellSize()
+	return math.max(0.5, CombatConfig.MonsterSeparationRadius or 4.5)
+end
+
 local function getGridKey(cellX, cellZ)
 	return tostring(cellX) .. ":" .. tostring(cellZ)
 end
 
-local function getSpatialCell(position)
-	local cellSize = getSpatialCellSize()
+local function getSpatialCell(position, cellSize)
+	local resolvedCellSize = cellSize or getSpatialCellSize()
 
-	return math.floor(position.X / cellSize), math.floor(position.Z / cellSize)
+	return math.floor(position.X / resolvedCellSize), math.floor(position.Z / resolvedCellSize)
 end
 
-local function removeMonsterFromSpatialGrid(monsterState)
-	local key = monsterState.SpatialGridKey
-
+local function removeMonsterFromGrid(grid, key, monsterState)
 	if key == nil then
 		return
 	end
 
-	local cell = monsterSpatialGrid[key]
+	local cell = grid[key]
 
 	if cell ~= nil then
 		cell[monsterState] = nil
 
 		if next(cell) == nil then
-			monsterSpatialGrid[key] = nil
+			grid[key] = nil
 		end
 	end
+end
+
+local function removeMonsterFromSpatialGrid(monsterState)
+	removeMonsterFromGrid(monsterSpatialGrid, monsterState.SpatialGridKey, monsterState)
+	removeMonsterFromGrid(monsterSeparationGrid, monsterState.SeparationGridKey, monsterState)
 
 	monsterState.SpatialGridKey = nil
+	monsterState.SeparationGridKey = nil
 	monsterState.SeparationCellX = nil
 	monsterState.SeparationCellZ = nil
 end
@@ -653,23 +724,39 @@ local function updateMonsterSpatialCell(monsterState, position)
 	local cellX, cellZ = getSpatialCell(position)
 	local key = getGridKey(cellX, cellZ)
 
-	if monsterState.SpatialGridKey == key then
-		return
+	if monsterState.SpatialGridKey ~= key then
+		removeMonsterFromGrid(monsterSpatialGrid, monsterState.SpatialGridKey, monsterState)
+
+		local cell = monsterSpatialGrid[key]
+
+		if cell == nil then
+			cell = {}
+			monsterSpatialGrid[key] = cell
+		end
+
+		cell[monsterState] = true
+		monsterState.SpatialGridKey = key
 	end
 
-	removeMonsterFromSpatialGrid(monsterState)
+	local separationCellX, separationCellZ = getSpatialCell(position, getSeparationCellSize())
+	local separationKey = getGridKey(separationCellX, separationCellZ)
 
-	local cell = monsterSpatialGrid[key]
+	if monsterState.SeparationGridKey ~= separationKey then
+		removeMonsterFromGrid(monsterSeparationGrid, monsterState.SeparationGridKey, monsterState)
 
-	if cell == nil then
-		cell = {}
-		monsterSpatialGrid[key] = cell
+		local separationCell = monsterSeparationGrid[separationKey]
+
+		if separationCell == nil then
+			separationCell = {}
+			monsterSeparationGrid[separationKey] = separationCell
+		end
+
+		separationCell[monsterState] = true
+		monsterState.SeparationGridKey = separationKey
 	end
 
-	cell[monsterState] = true
-	monsterState.SpatialGridKey = key
-	monsterState.SeparationCellX = cellX
-	monsterState.SeparationCellZ = cellZ
+	monsterState.SeparationCellX = separationCellX
+	monsterState.SeparationCellZ = separationCellZ
 end
 
 local function getMonsterPoolFolder(templateName)
@@ -702,6 +789,99 @@ local function getSpatialGridCellCount()
 	end
 
 	return count
+end
+
+local function getSeparationGridCellCount()
+	local count = 0
+
+	for _ in pairs(monsterSeparationGrid) do
+		count += 1
+	end
+
+	return count
+end
+
+local function getGroundSurfaceCacheCellKey(position)
+	local cellX, cellZ = getSpatialCell(position, getSeparationCellSize())
+
+	return getGridKey(cellX, cellZ)
+end
+
+local function getGroundSurfaceCacheCellCount()
+	local count = 0
+
+	for _ in pairs(groundSurfaceCellCache) do
+		count += 1
+	end
+
+	return count
+end
+
+local function getSurfacePivotPosition(monster, surfacePosition)
+	if monster:IsA("BasePart") then
+		return surfacePosition + Vector3.new(0, (monster.Size.Y * 0.5) + CombatConfig.MonsterSpawnSurfaceOffset, 0)
+	end
+
+	local pivot = monster:GetPivot()
+	local boundingCFrame, size = monster:GetBoundingBox()
+	local bottomY = boundingCFrame.Position.Y - (size.Y * 0.5)
+	local pivotToBottomOffset = pivot.Position.Y - bottomY
+
+	return Vector3.new(
+		surfacePosition.X,
+		surfacePosition.Y + pivotToBottomOffset + CombatConfig.MonsterSpawnSurfaceOffset,
+		surfacePosition.Z
+	)
+end
+
+local function getCachedGroundSurfacePosition(monsterState, candidatePosition)
+	local key = getGroundSurfaceCacheCellKey(candidatePosition)
+	local cachedSurface = groundSurfaceCellCache[key]
+
+	if cachedSurface == nil then
+		return nil
+	end
+
+	local surfacePart = cachedSurface.Part
+
+	if surfacePart == nil or surfacePart.Parent == nil then
+		groundSurfaceCellCache[key] = nil
+		return nil
+	end
+
+	local localPosition = surfacePart.CFrame:PointToObjectSpace(candidatePosition)
+	local halfSize = surfacePart.Size * 0.5
+
+	if math.abs(localPosition.X) > halfSize.X or math.abs(localPosition.Z) > halfSize.Z then
+		groundSurfaceCellCache[key] = nil
+		return nil
+	end
+
+	local surfacePosition = Vector3.new(candidatePosition.X, cachedSurface.Height, candidatePosition.Z)
+	local groundedPosition = getSurfacePivotPosition(monsterState.Template, surfacePosition)
+	local verticalTolerance = math.max(2, CombatConfig.MonsterDirectMoveSpeed * 0.25)
+
+	if math.abs(groundedPosition.Y - candidatePosition.Y) > verticalTolerance then
+		return nil
+	end
+
+	return groundedPosition, surfacePosition
+end
+
+local function cacheGroundSurfacePosition(candidatePosition, surfacePosition, surfaceInstance)
+	if surfaceInstance == nil or not surfaceInstance:IsA("BasePart") then
+		return
+	end
+
+	-- Les rampes, les pentes et les pieces physiques restent raycastees exactement.
+	if not surfaceInstance.Anchored or not surfaceInstance.CanCollide or surfaceInstance.CFrame.UpVector.Y < 0.999 then
+		return
+	end
+
+	groundSurfaceCellCache[getGroundSurfaceCacheCellKey(candidatePosition)] = {
+		Part = surfaceInstance,
+		Height = surfacePosition.Y,
+	}
 end
 
 local function acquireMonsterInstance(template, templateName)
@@ -799,7 +979,6 @@ local function releaseMonsterToPool(monsterState)
 	monster:SetAttribute("IsBoss", false)
 	monster:SetAttribute("BossName", nil)
 	monster:SetAttribute("ElitePackId", nil)
-	monster:SetAttribute("RuntimeMonsterId", nil)
 	monster:SetAttribute("PoisonStacks", 0)
 	monster:SetAttribute("MonsterHealth", 0)
 
@@ -1038,6 +1217,7 @@ local function getSpawnSurfacePositionNearPlayer(player, options)
 				MinSurfaceNormalY = 0.65,
 				ExcludeInstances = { player.Character, runtimeFolder },
 				AllowWorkspaceSurfaceFallback = true,
+				TelemetryTag = "Monster.Spawn",
 			})
 
 			if surfacePosition ~= nil then
@@ -1066,28 +1246,12 @@ local function getSpawnSurfacePositionNearPlayer(player, options)
 	return fallbackSurfacePosition, fallbackSurfacePosition ~= nil
 end
 
-local function getSurfacePivotPosition(monster, surfacePosition)
-	if monster:IsA("BasePart") then
-		return surfacePosition + Vector3.new(0, (monster.Size.Y * 0.5) + CombatConfig.MonsterSpawnSurfaceOffset, 0)
-	end
-
-	local pivot = monster:GetPivot()
-	local boundingCFrame, size = monster:GetBoundingBox()
-	local bottomY = boundingCFrame.Position.Y - (size.Y * 0.5)
-	local pivotToBottomOffset = pivot.Position.Y - bottomY
-
-	return Vector3.new(
-		surfacePosition.X,
-		surfacePosition.Y + pivotToBottomOffset + CombatConfig.MonsterSpawnSurfaceOffset,
-		surfacePosition.Z
-	)
-end
-
 local function getHorizontalDistance(firstPosition, secondPosition)
 	return (Vector2.new(firstPosition.X, firstPosition.Z) - Vector2.new(secondPosition.X, secondPosition.Z)).Magnitude
 end
 
 local function getGroundedMonsterPosition(monsterState, candidatePosition, now)
+	local telemetryStartedAt = if activeSimulationTelemetry ~= nil then os.clock() else nil
 	local lastSamplePosition = monsterState.LastGroundSamplePosition
 	local lastSampleAt = monsterState.LastGroundSampleAt or 0
 	local sampleDistance = math.max(0.25, CombatConfig.MonsterGroundFollowSampleDistance or 1)
@@ -1097,10 +1261,30 @@ local function getGroundedMonsterPosition(monsterState, candidatePosition, now)
 		and getHorizontalDistance(candidatePosition, lastSamplePosition) < sampleDistance
 		and now - lastSampleAt < sampleInterval
 	then
+		addSimulationTelemetry("GroundCacheHits", 1)
+		if telemetryStartedAt ~= nil then
+			addSimulationTelemetry("GroundFollowSeconds", os.clock() - telemetryStartedAt)
+		end
 		return Vector3.new(candidatePosition.X, monsterState.BasePosition.Y, candidatePosition.Z)
 	end
 
-	local surfacePosition = WorldSpawnService.FindSurfacePositionAtXZ(candidatePosition.X, candidatePosition.Z, {
+	addSimulationTelemetry("GroundSamples", 1)
+
+	local cachedGroundPosition, cachedSurfacePosition = getCachedGroundSurfacePosition(monsterState, candidatePosition)
+
+	if cachedGroundPosition ~= nil then
+		addSimulationTelemetry("GroundSharedSurfaceCacheHits", 1)
+		monsterState.LastGroundSamplePosition = cachedSurfacePosition
+		monsterState.LastGroundSampleAt = now
+
+		if telemetryStartedAt ~= nil then
+			addSimulationTelemetry("GroundFollowSeconds", os.clock() - telemetryStartedAt)
+		end
+
+		return cachedGroundPosition
+	end
+
+	local surfacePosition, surfaceInstance = WorldSpawnService.FindSurfacePositionAtXZ(candidatePosition.X, candidatePosition.Z, {
 		Center = candidatePosition,
 		RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
 		RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
@@ -1108,15 +1292,26 @@ local function getGroundedMonsterPosition(monsterState, candidatePosition, now)
 		AllowGeneratedRampSurface = true,
 		ExcludeInstances = { monsterFolder },
 		AllowWorkspaceSurfaceFallback = true,
+		TelemetryTag = "Monster.Ground",
 	})
 
 	if surfacePosition == nil then
+		if telemetryStartedAt ~= nil then
+			addSimulationTelemetry("GroundFollowSeconds", os.clock() - telemetryStartedAt)
+		end
 		return nil
 	end
 
 	monsterState.LastGroundSamplePosition = surfacePosition
 	monsterState.LastGroundSampleAt = now
-	return getSurfacePivotPosition(monsterState.Template, surfacePosition)
+	cacheGroundSurfacePosition(candidatePosition, surfacePosition, surfaceInstance)
+	local groundedPosition = getSurfacePivotPosition(monsterState.Template, surfacePosition)
+
+	if telemetryStartedAt ~= nil then
+		addSimulationTelemetry("GroundFollowSeconds", os.clock() - telemetryStartedAt)
+	end
+
+	return groundedPosition
 end
 
 local function spawnMonsterAtSurface(surfacePosition, options)
@@ -1152,9 +1347,7 @@ local function spawnMonsterAtSurface(surfacePosition, options)
 	local useProceduralMotion = resolveProceduralMotion(monster, options.UseProceduralMotion)
 
 	monster.Name = templateName
-	nextRuntimeMonsterId += 1
 	monster:SetAttribute("RuntimeMonster", true)
-	monster:SetAttribute("RuntimeMonsterId", nextRuntimeMonsterId)
 	monster:SetAttribute("IsElite", isElite)
 	monster:SetAttribute("IsBoss", isBoss)
 	monster:SetAttribute("BossName", options.BossName)
@@ -1287,6 +1480,9 @@ local function spawnMonsterNearPlayer(player, spawnOptions)
 end
 
 local function getMonsterSeparation(monsterState)
+	local telemetryStartedAt = if activeSimulationTelemetry ~= nil then os.clock() else nil
+	local neighborCandidates = 0
+	local neighborsInRadius = 0
 	local root = monsterState.Root
 
 	if root == nil or monsterState.SeparationCellX == nil or monsterState.SeparationCellZ == nil then
@@ -1299,18 +1495,30 @@ local function getMonsterSeparation(monsterState)
 	for offsetX = -1, 1 do
 		for offsetZ = -1, 1 do
 			local key = getGridKey(monsterState.SeparationCellX + offsetX, monsterState.SeparationCellZ + offsetZ)
-			local cell = monsterSpatialGrid[key]
+			local cell = monsterSeparationGrid[key]
 
 			if cell ~= nil then
 				for otherState in pairs(cell) do
 					if otherState ~= monsterState and not otherState.IsDead and otherState.Root ~= nil then
+						if telemetryStartedAt ~= nil then
+							neighborCandidates += 1
+						end
+
 						local offset = root.Position - otherState.Root.Position
 						local horizontalOffset = Vector3.new(offset.X, 0, offset.Z)
 						local distance = horizontalOffset.Magnitude
 
 						if distance > 0.05 and distance < radius then
+							if telemetryStartedAt ~= nil then
+								neighborsInRadius += 1
+							end
+
 							separation += horizontalOffset.Unit * ((radius - distance) / radius)
 						elseif distance <= 0.05 then
+							if telemetryStartedAt ~= nil then
+								neighborsInRadius += 1
+							end
+
 							local randomAngle = rng:NextNumber(0, math.pi * 2)
 							separation += Vector3.new(math.cos(randomAngle), 0, math.sin(randomAngle))
 						end
@@ -1318,6 +1526,13 @@ local function getMonsterSeparation(monsterState)
 				end
 			end
 		end
+	end
+
+	if telemetryStartedAt ~= nil then
+		addSimulationTelemetry("SeparationQueries", 1)
+		addSimulationTelemetry("SeparationNeighborCandidates", neighborCandidates)
+		addSimulationTelemetry("SeparationNeighborsInRadius", neighborsInRadius)
+		addSimulationTelemetry("SeparationSeconds", os.clock() - telemetryStartedAt)
 	end
 
 	return separation
@@ -1353,12 +1568,17 @@ local function getTerrainMoveDirection(monsterState, position, requestedDirectio
 	local shouldSample = now - (monsterState.LastTerrainAvoidanceAt or 0) >= interval
 
 	if shouldSample then
+		local telemetryStartedAt = if activeSimulationTelemetry ~= nil then os.clock() else nil
 		monsterState.LastTerrainAvoidanceAt = now
+		addSimulationTelemetry("TerrainAvoidanceSamples", 1)
 		local barrier = WorldSpawnService.FindGeneratedTerrainBarrier(
 			position,
 			requestedDirection,
 			step + math.max(0, CombatConfig.MonsterTerrainAvoidanceLookahead or 0),
-			{ Height = CombatConfig.MonsterTerrainAvoidanceHeight }
+			{
+				Height = CombatConfig.MonsterTerrainAvoidanceHeight,
+				TelemetryTag = "Monster.Avoidance",
+			}
 		)
 
 		if barrier == nil then
@@ -1378,6 +1598,10 @@ local function getTerrainMoveDirection(monsterState, position, requestedDirectio
 			else
 				monsterState.TerrainAvoidanceDirection = nil
 			end
+		end
+
+		if telemetryStartedAt ~= nil then
+			addSimulationTelemetry("TerrainAvoidanceSeconds", os.clock() - telemetryStartedAt)
 		end
 	end
 
@@ -1416,7 +1640,12 @@ local function updateMonsterMovement(monsterState, targetRoot, distance, deltaTi
 	local separation = if useSeparation then getMonsterSeparation(monsterState) else Vector3.zero
 
 	local basePosition = monsterState.BasePosition or root.Position
+	local directionStartedAt = if activeSimulationTelemetry ~= nil then os.clock() else nil
 	local moveDirection = getMoveDirection(basePosition, targetRoot.Position, separation)
+
+	if directionStartedAt ~= nil then
+		addSimulationTelemetry("MoveDirectionSeconds", os.clock() - directionStartedAt)
+	end
 
 	if moveDirection.Magnitude <= 0.1 then
 		return true
@@ -1436,15 +1665,34 @@ local function updateMonsterMovement(monsterState, targetRoot, distance, deltaTi
 
 	monsterState.BasePosition = nextPosition
 
+	local transformStartedAt = if activeSimulationTelemetry ~= nil then os.clock() else nil
+	local targetCFrame
+
 	if monsterState.UseProceduralMotion ~= true or useProceduralMotion ~= true then
 		local lookTarget = nextPosition + moveDirection
 		local pivotRotation = monsterState.PivotRotation or CFrame.new()
-		pivotInstance(monsterState.Instance, CFrame.lookAt(nextPosition, lookTarget) * pivotRotation)
+		targetCFrame = CFrame.lookAt(nextPosition, lookTarget) * pivotRotation
 	else
-		pivotInstance(monsterState.Instance, getProceduralAnimationCFrame(monsterState, nextPosition, moveDirection, deltaTime))
+		targetCFrame = getProceduralAnimationCFrame(monsterState, nextPosition, moveDirection, deltaTime)
 	end
 
+	if transformStartedAt ~= nil then
+		addSimulationTelemetry("VisualTransformSeconds", os.clock() - transformStartedAt)
+	end
+
+	local pivotStartedAt = if activeSimulationTelemetry ~= nil then os.clock() else nil
+	pivotInstance(monsterState.Instance, targetCFrame)
+
+	if pivotStartedAt ~= nil then
+		addSimulationTelemetry("PivotSeconds", os.clock() - pivotStartedAt)
+	end
+
+	local gridUpdateStartedAt = if activeSimulationTelemetry ~= nil then os.clock() else nil
 	updateMonsterSpatialCell(monsterState, nextPosition)
+
+	if gridUpdateStartedAt ~= nil then
+		addSimulationTelemetry("SpatialGridUpdateSeconds", os.clock() - gridUpdateStartedAt)
+	end
 	return true
 end
 
@@ -1681,13 +1929,16 @@ local function updateSpawns(now)
 	end
 
 	local maxAliveMonsters = getCurrentWaveMaxAlive()
-	local aliveMonsterCount = getAliveMonsterCount()
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		if isPlayerAlive(player) and hasPlayerBeenGroundedLongEnough(player, now) then
+			local recycleStartedAt = if activeSimulationTelemetry ~= nil then os.clock() else nil
 			tryRecycleBehindMass(player, now)
+			if recycleStartedAt ~= nil then
+				addSimulationTelemetry("RecycleSeconds", os.clock() - recycleStartedAt)
+			end
 
-			if aliveMonsterCount >= maxAliveMonsters then
+			if getAliveMonsterCount() >= maxAliveMonsters then
 				continue
 			end
 
@@ -1697,26 +1948,150 @@ local function updateSpawns(now)
 			if now - lastSpawnAt >= spawnInterval then
 				lastSpawnAtByUserId[player.UserId] = now
 
-				local spawnBatch = math.max(
+				local requestedSpawnCount = math.max(
 					1,
 					math.floor(getCurrentWaveSpawnBatch() * PerkService.GetEnemyCountMultiplier(player))
 				)
-				spawnActivity.Batches += 1
-				spawnActivity.Requested += spawnBatch
+				local availableCapacity = math.max(
+					0,
+					maxAliveMonsters - getAliveMonsterCount() - getPendingWaveSpawnCount()
+				)
+				local pendingRequest = pendingWaveSpawnsByUserId[player.UserId]
+				local queuedCount = math.min(requestedSpawnCount, availableCapacity)
 
-				for _ = 1, spawnBatch do
-					if aliveMonsterCount >= maxAliveMonsters then
-						break
+				if queuedCount > 0 then
+					if pendingRequest == nil then
+						pendingRequest = {
+							Player = player,
+							Remaining = 0,
+						}
+						pendingWaveSpawnsByUserId[player.UserId] = pendingRequest
 					end
 
-					if spawnMonsterNearPlayer(player) then
-						aliveMonsterCount += 1
-						spawnActivity.Spawned += 1
-					else
-						spawnActivity.Failed += 1
-					end
+					pendingRequest.Remaining += queuedCount
 				end
 			end
+		end
+	end
+end
+
+local function updateQueuedWaveSpawns()
+	if benchmarkMode then
+		return
+	end
+
+	if waveSpawnDispatchAllowance <= 0 then
+		return
+	end
+
+	local maxAliveMonsters = getCurrentWaveMaxAlive()
+
+	for userId, request in pairs(pendingWaveSpawnsByUserId) do
+		local player = request.Player
+
+		if player.Parent ~= Players or not isPlayerAlive(player) then
+			pendingWaveSpawnsByUserId[userId] = nil
+			continue
+		end
+
+		local availableCapacity = math.max(0, maxAliveMonsters - getAliveMonsterCount())
+
+		if availableCapacity <= 0 then
+			continue
+		end
+
+		local requestedInBatch = math.min(request.Remaining, waveSpawnDispatchAllowance, availableCapacity)
+		local spawnedInBatch = 0
+		local startedAt = os.clock()
+
+		for _ = 1, requestedInBatch do
+			if spawnMonsterNearPlayer(player) then
+				spawnedInBatch += 1
+			else
+				spawnActivity.Failed += 1
+			end
+		end
+
+		request.Remaining -= requestedInBatch
+		waveSpawnDispatchAllowance -= requestedInBatch
+		local waveSpawnSeconds = os.clock() - startedAt
+		recordWaveSpawnBatch(requestedInBatch, spawnedInBatch, waveSpawnSeconds)
+
+		if activeSimulationTelemetry ~= nil then
+			addSimulationTelemetry("WaveSpawnSeconds", waveSpawnSeconds)
+		end
+
+		if request.Remaining <= 0 then
+			pendingWaveSpawnsByUserId[userId] = nil
+		end
+
+		if waveSpawnDispatchAllowance <= 0 then
+			break
+		end
+	end
+end
+
+local function updateQueuedDebugSpawns(now)
+	if benchmarkMode then
+		return
+	end
+
+	for userId, request in pairs(pendingDebugSpawnsByUserId) do
+		local player = request.Player
+
+		if player.Parent ~= Players or not isPlayerAlive(player) then
+			pendingDebugSpawnsByUserId[userId] = nil
+			DebugLog.Info("Combat", "Spawn debug annule", {
+				Player = player.Name,
+				Reason = "PlayerUnavailable",
+				Spawned = request.Spawned,
+				Remaining = request.Remaining,
+			})
+			continue
+		end
+
+		if now < request.NextBatchAt then
+			continue
+		end
+
+		local availableCapacity = math.max(0, CombatConfig.MonsterMaxAlive - getAliveMonsterCount())
+
+		if availableCapacity <= 0 then
+			request.NextBatchAt = now + request.BatchInterval
+			continue
+		end
+
+		local requestedInBatch = math.min(request.Remaining, request.BatchSize, availableCapacity)
+		local spawnedInBatch = 0
+		local attempts = 0
+		local maxAttempts = math.max(requestedInBatch * 5, requestedInBatch)
+		local startedAt = os.clock()
+
+		while spawnedInBatch < requestedInBatch and attempts < maxAttempts do
+			attempts += 1
+
+			if spawnMonsterNearPlayer(player) then
+				spawnedInBatch += 1
+			end
+		end
+
+		request.Remaining -= requestedInBatch
+		request.Spawned += spawnedInBatch
+		request.NextBatchAt = now + request.BatchInterval
+		recordDebugSpawnBatch(requestedInBatch, spawnedInBatch, os.clock() - startedAt)
+
+		if request.Remaining <= 0 then
+			pendingDebugSpawnsByUserId[userId] = nil
+
+			if request.Spawned > 0 then
+				sendStatsToAll()
+			end
+
+			DebugLog.Info("Combat", "Spawn debug termine", {
+				Player = player.Name,
+				Requested = request.Requested,
+				Spawned = request.Spawned,
+			})
 		end
 	end
 end
@@ -1724,12 +2099,26 @@ end
 local function updateMonsterStep(deltaTime)
 	local now = CombatStateService.GetTime()
 	local startedAt = os.clock()
+	local simulationTelemetry = if PerformanceTelemetryService.IsCapturing() then {} else nil
+	activeSimulationTelemetry = simulationTelemetry
+	local playerTargetsStartedAt = if simulationTelemetry ~= nil then os.clock() else nil
 	local playerTargets = getAlivePlayerTargets()
+	if playerTargetsStartedAt ~= nil then
+		addSimulationTelemetry("PlayerTargetCollectionSeconds", os.clock() - playerTargetsStartedAt)
+	end
 	local lodCounts = createSimulationLodCounts(#playerTargets)
 
+	local spawnStartedAt = if simulationTelemetry ~= nil then os.clock() else nil
 	updateSpawns(now)
+	updateQueuedWaveSpawns()
+	updateQueuedDebugSpawns(now)
+	if spawnStartedAt ~= nil then
+		addSimulationTelemetry("SpawnSeconds", os.clock() - spawnStartedAt)
+	end
 
 	for _, monsterState in pairs(monstersByInstance) do
+		addSimulationTelemetry("VisitedStates", 1)
+
 		if not monsterState.IsDead then
 			local root = monsterState.Root
 
@@ -1739,7 +2128,12 @@ local function updateMonsterStep(deltaTime)
 				continue
 			end
 
+			local targetingStartedAt = if simulationTelemetry ~= nil then os.clock() else nil
 			local _, targetRoot, distance = getClosestAlivePlayer(root.Position, playerTargets)
+			if targetingStartedAt ~= nil then
+				addSimulationTelemetry("TargetQueries", 1)
+				addSimulationTelemetry("TargetingSeconds", os.clock() - targetingStartedAt)
+			end
 
 			if targetRoot == nil then
 				continue
@@ -1751,29 +2145,103 @@ local function updateMonsterStep(deltaTime)
 				continue
 			end
 
+			local lodStartedAt = if simulationTelemetry ~= nil then os.clock() else nil
 			local lod = getMonsterSimulationLod(monsterState, distance)
 			lodCounts[lod] += 1
 
 			local lodDeltaTime = getLodStepDelta(monsterState, lod, now, deltaTime)
+			if lodStartedAt ~= nil then
+				addSimulationTelemetry("LodEvaluations", 1)
+				addSimulationTelemetry("LodSeconds", os.clock() - lodStartedAt)
+			end
 
 			if lodDeltaTime ~= nil then
 				lodCounts[lod .. "Steps"] += 1
+				local movementStartedAt = if simulationTelemetry ~= nil then os.clock() else nil
 				local stillActive = updateMonsterMovement(
 					monsterState,
 					targetRoot,
 					distance,
 					lodDeltaTime,
-				lod == "Full",
-				lod == "Full",
-				now
-			)
+					lod == "Full",
+					lod == "Full",
+					now
+				)
+				if movementStartedAt ~= nil then
+					addSimulationTelemetry("MovementUpdates", 1)
+					addSimulationTelemetry("MovementSeconds", os.clock() - movementStartedAt)
+				end
 
 				if stillActive and lod == "Full" and not monsterState.IsDead then
+					local damageStartedAt = if simulationTelemetry ~= nil then os.clock() else nil
 					updateMonsterDamage(monsterState, now, playerTargets)
+					if damageStartedAt ~= nil then
+						addSimulationTelemetry("DamageUpdates", 1)
+						addSimulationTelemetry("DamageSeconds", os.clock() - damageStartedAt)
+					end
 				end
 			end
 		end
 	end
+
+	if simulationTelemetry ~= nil then
+		addSimulationTelemetry("LodFullStates", lodCounts.Full)
+		addSimulationTelemetry("LodReducedStates", lodCounts.Reduced)
+		addSimulationTelemetry("LodDistantStates", lodCounts.Distant)
+		addSimulationTelemetry("LodFullSteps", lodCounts.FullSteps)
+		addSimulationTelemetry("LodReducedSteps", lodCounts.ReducedSteps)
+		addSimulationTelemetry("LodDistantSteps", lodCounts.DistantSteps)
+
+		local numberMetrics = {
+			"VisitedStates",
+			"TargetQueries",
+			"LodEvaluations",
+			"LodFullStates",
+			"LodReducedStates",
+			"LodDistantStates",
+			"LodFullSteps",
+			"LodReducedSteps",
+			"LodDistantSteps",
+			"MovementUpdates",
+			"SeparationQueries",
+			"SeparationNeighborCandidates",
+			"SeparationNeighborsInRadius",
+			"GroundSamples",
+			"GroundCacheHits",
+			"GroundSharedSurfaceCacheHits",
+			"TerrainAvoidanceSamples",
+			"DamageUpdates",
+		}
+		local durationMetrics = {
+			"SpawnSeconds",
+			"WaveSpawnSeconds",
+			"RecycleSeconds",
+			"PlayerTargetCollectionSeconds",
+			"TargetingSeconds",
+			"LodSeconds",
+			"MovementSeconds",
+			"MoveDirectionSeconds",
+			"SeparationSeconds",
+			"GroundFollowSeconds",
+			"TerrainAvoidanceSeconds",
+			"VisualTransformSeconds",
+			"PivotSeconds",
+			"SpatialGridUpdateSeconds",
+			"DamageSeconds",
+		}
+
+		for _, metricName in ipairs(numberMetrics) do
+			local value = simulationTelemetry[metricName] or 0
+			PerformanceTelemetryService.Record("Monster." .. metricName .. "PerTick", value)
+			PerformanceTelemetryService.Increment("Monster." .. metricName, value)
+		end
+
+		for _, metricName in ipairs(durationMetrics) do
+			PerformanceTelemetryService.Record("Monster." .. metricName, simulationTelemetry[metricName] or 0)
+		end
+	end
+
+	activeSimulationTelemetry = nil
 
 	lastSimulationLodCounts = lodCounts
 
@@ -1800,6 +2268,8 @@ local function updateMonsterStep(deltaTime)
 		DebugLog.Info("Perf", "Perf monstres serveur", {
 			Alive = getAliveMonsterCount(),
 			GridCells = getSpatialGridCellCount(),
+			SeparationGridCells = getSeparationGridCellCount(),
+			GroundSurfaceCacheCells = getGroundSurfaceCacheCellCount(),
 			Pool = getMonsterPoolSize(),
 			SimulationMode = if (CombatConfig.MonsterSimulationHz or 0) <= 0 then "Heartbeat" else "FixedHz",
 			SimulationHz = CombatConfig.MonsterSimulationHz,
@@ -1817,10 +2287,49 @@ local function updateMonsterStep(deltaTime)
 			SpawnRequested = spawnActivity.Requested,
 			Spawned = spawnActivity.Spawned,
 			SpawnFailed = spawnActivity.Failed,
+			SpawnLargestRequestedBatch = spawnActivity.LargestRequestedBatch,
+			SpawnLargestSpawnedBatch = spawnActivity.LargestSpawnedBatch,
+			SpawnBatchAverageMs = if spawnActivity.Batches > 0
+				then (spawnActivity.TotalBatchSeconds / spawnActivity.Batches) * 1000
+				else 0,
+			SpawnBatchMaxMs = spawnActivity.MaxBatchSeconds * 1000,
+			SpawnPending = getPendingWaveSpawnCount(),
+			DebugSpawnBatches = spawnActivity.DebugBatches,
+			DebugSpawnRequested = spawnActivity.DebugRequested,
+			DebugSpawned = spawnActivity.DebugSpawned,
+			DebugSpawnAverageMs = if spawnActivity.DebugBatches > 0
+				then (spawnActivity.DebugTotalSeconds / spawnActivity.DebugBatches) * 1000
+				else 0,
+			DebugSpawnMaxMs = spawnActivity.DebugMaxSeconds * 1000,
+			DebugSpawnPending = getPendingDebugSpawnCount(),
 			SpawnFallbacks = spawnActivity.Fallbacks,
 			Recycled = spawnActivity.Recycled,
 			RecycleCandidates = spawnActivity.RecycleCandidates,
 		})
+
+		-- La ligne generale est volontairement riche mais Studio tronque les tables longues.
+		-- Ce resume conserve les valeurs necessaires pour relier un pic a un lot de spawn.
+		if spawnActivity.Batches > 0 or spawnActivity.DebugBatches > 0 then
+			DebugLog.Info("Perf", "Perf lots de spawn serveur", {
+				PeakTickMs = monsterTickMaxSeconds * 1000,
+				WaveBatches = spawnActivity.Batches,
+				WaveLargestRequested = spawnActivity.LargestRequestedBatch,
+				WaveLargestSpawned = spawnActivity.LargestSpawnedBatch,
+				WaveAverageMs = if spawnActivity.Batches > 0
+					then (spawnActivity.TotalBatchSeconds / spawnActivity.Batches) * 1000
+					else 0,
+				WaveMaxMs = spawnActivity.MaxBatchSeconds * 1000,
+				WavePending = getPendingWaveSpawnCount(),
+				DebugBatches = spawnActivity.DebugBatches,
+				DebugRequested = spawnActivity.DebugRequested,
+				DebugSpawned = spawnActivity.DebugSpawned,
+				DebugAverageMs = if spawnActivity.DebugBatches > 0
+					then (spawnActivity.DebugTotalSeconds / spawnActivity.DebugBatches) * 1000
+					else 0,
+				DebugMaxMs = spawnActivity.DebugMaxSeconds * 1000,
+				DebugPending = getPendingDebugSpawnCount(),
+			})
+		end
 		elapsedSincePerfLog = 0
 		monsterTickTimeTotal = 0
 		monsterTickSampleCount = 0
@@ -1831,13 +2340,17 @@ end
 
 local function updateMonsters(deltaTime)
 	if CombatStateService.IsPaused() then
+		waveSpawnDispatchAllowance = 0
 		return
 	end
+
+	waveSpawnDispatchAllowance = math.max(1, math.floor(CombatConfig.WaveSpawnDispatchBudget or 1))
 
 	local configuredSimulationHz = CombatConfig.MonsterSimulationHz
 
 	if configuredSimulationHz == nil or configuredSimulationHz <= 0 then
 		updateMonsterStep(deltaTime)
+		waveSpawnDispatchAllowance = 0
 		return
 	end
 
@@ -1857,6 +2370,8 @@ local function updateMonsters(deltaTime)
 	if steps >= maxStepsPerHeartbeat and simulationAccumulator >= fixedStep then
 		simulationAccumulator = fixedStep
 	end
+
+	waveSpawnDispatchAllowance = 0
 end
 
 local function bindCharacter(player, character)
@@ -1889,6 +2404,7 @@ function MonsterService.SetupPlayer(player)
 	lastSpawnAtByUserId[player.UserId] = os.clock() + CombatConfig.MonsterInitialSpawnDelay - CombatConfig.MonsterSpawnInterval
 	lastRecycleCheckAtByUserId[player.UserId] = nil
 	lastRecycleAtByUserId[player.UserId] = nil
+	pendingWaveSpawnsByUserId[player.UserId] = nil
 
 	if characterConnectionsByUserId[player.UserId] ~= nil then
 		characterConnectionsByUserId[player.UserId]:Disconnect()
@@ -1913,6 +2429,8 @@ function MonsterService.RemovePlayer(player)
 	groundedSinceByUserId[player.UserId] = nil
 	lastRecycleCheckAtByUserId[player.UserId] = nil
 	lastRecycleAtByUserId[player.UserId] = nil
+	pendingDebugSpawnsByUserId[player.UserId] = nil
+	pendingWaveSpawnsByUserId[player.UserId] = nil
 
 	if characterConnectionsByUserId[player.UserId] ~= nil then
 		characterConnectionsByUserId[player.UserId]:Disconnect()
@@ -1947,6 +2465,7 @@ local function getElitePackSurfacePosition(originPosition, index, count)
 			RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
 			RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
 			ExcludeInstances = { monsterFolder },
+			TelemetryTag = "Monster.Spawn",
 		})
 
 		if surfacePosition ~= nil then
@@ -1959,6 +2478,7 @@ local function getElitePackSurfacePosition(originPosition, index, count)
 		RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
 		RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
 		ExcludeInstances = { monsterFolder },
+		TelemetryTag = "Monster.Spawn",
 	})
 
 	if surfacePosition ~= nil then
@@ -2035,6 +2555,7 @@ local function getElitePackCenterPosition(originPosition, player, minimumSafetyD
 		RaycastHeight = CombatConfig.MonsterGroundRaycastHeight,
 		RaycastDepth = CombatConfig.MonsterGroundRaycastDepth,
 		ExcludeInstances = { monsterFolder },
+		TelemetryTag = "Monster.Spawn",
 	})
 
 	return surfacePosition or getElitePackSurfacePosition(candidatePosition, 1, 1) or candidatePosition
@@ -2224,6 +2745,7 @@ function MonsterService.DebugSpawnMonstersNearPlayer(player, requestedCount)
 	local spawnedCount = 0
 	local attempts = 0
 	local maxAttempts = math.max(maxToSpawn * 5, maxToSpawn)
+	local startedAt = os.clock()
 
 	while spawnedCount < maxToSpawn and attempts < maxAttempts do
 		attempts += 1
@@ -2237,7 +2759,48 @@ function MonsterService.DebugSpawnMonstersNearPlayer(player, requestedCount)
 		sendStatsToAll()
 	end
 
+	recordDebugSpawnBatch(maxToSpawn, spawnedCount, os.clock() - startedAt)
+
 	return spawnedCount, maxToSpawn
+end
+
+function MonsterService.QueueDebugSpawnMonstersNearPlayer(player, requestedCount, batchSize, batchInterval)
+	if player == nil or player.Parent ~= Players or not isPlayerAlive(player) then
+		return 0, 0, false
+	end
+
+	local existingRequest = pendingDebugSpawnsByUserId[player.UserId]
+
+	if existingRequest ~= nil then
+		return 0, existingRequest.Remaining, true
+	end
+
+	local count = math.clamp(math.floor(requestedCount or 0), 0, CombatConfig.MonsterMaxAlive)
+	local availableCapacity = math.max(0, CombatConfig.MonsterMaxAlive - getAliveMonsterCount())
+	local maxToSpawn = math.max(0, math.min(count, availableCapacity))
+
+	if maxToSpawn <= 0 then
+		return 0, 0, false
+	end
+
+	pendingDebugSpawnsByUserId[player.UserId] = {
+		Player = player,
+		Requested = maxToSpawn,
+		Remaining = maxToSpawn,
+		Spawned = 0,
+		BatchSize = math.max(1, math.floor(batchSize or 1)),
+		BatchInterval = math.max(0, batchInterval or 0),
+		NextBatchAt = CombatStateService.GetTime(),
+	}
+
+	DebugLog.Info("Combat", "Spawn debug mis en file", {
+		Player = player.Name,
+		Requested = maxToSpawn,
+		BatchSize = math.max(1, math.floor(batchSize or 1)),
+		BatchInterval = math.max(0, batchInterval or 0),
+	})
+
+	return maxToSpawn, maxToSpawn, false
 end
 
 function MonsterService.DebugKillAllMonsters()
@@ -2251,6 +2814,8 @@ function MonsterService.GetPerformanceSnapshot()
 		Active = getAliveMonsterCount(),
 		Pool = getMonsterPoolSize(),
 		GridCells = getSpatialGridCellCount(),
+		SeparationGridCells = getSeparationGridCellCount(),
+		GroundSurfaceCacheCells = getGroundSurfaceCacheCellCount(),
 		Lod = table.clone(lastSimulationLodCounts),
 		BenchmarkMode = benchmarkMode,
 	}
@@ -2291,9 +2856,15 @@ function MonsterService.ClearAllMonsters(reason)
 		end
 	end
 
+	elitePacksById = {}
+	monsterSpatialGrid = {}
+	monsterSeparationGrid = {}
+	groundSurfaceCellCache = {}
+	pendingDebugSpawnsByUserId = {}
+	pendingWaveSpawnsByUserId = {}
+	waveSpawnDispatchAllowance = 0
+
 	if killedCount > 0 then
-		elitePacksById = {}
-		monsterSpatialGrid = {}
 		sendStatsToAll()
 	end
 
@@ -2519,6 +3090,8 @@ function MonsterService.Start()
 		lastSpawnAtByUserId[player.UserId] = now + CombatConfig.MonsterInitialSpawnDelay - CombatConfig.MonsterSpawnInterval
 		lastRecycleCheckAtByUserId[player.UserId] = nil
 		lastRecycleAtByUserId[player.UserId] = nil
+		pendingDebugSpawnsByUserId[player.UserId] = nil
+		pendingWaveSpawnsByUserId[player.UserId] = nil
 		spawnActivity = createSpawnActivity()
 		sendStats(player)
 		DebugLog.Info("Combat", "Combat run demarre pour joueur", {
@@ -2534,6 +3107,8 @@ function MonsterService.Start()
 		lastSpawnAtByUserId[player.UserId] = nil
 		lastRecycleCheckAtByUserId[player.UserId] = nil
 		lastRecycleAtByUserId[player.UserId] = nil
+		pendingDebugSpawnsByUserId[player.UserId] = nil
+		pendingWaveSpawnsByUserId[player.UserId] = nil
 		simulationAccumulator = 0
 		monsterTickTimeTotal = 0
 		monsterTickSampleCount = 0

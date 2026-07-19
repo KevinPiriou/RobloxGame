@@ -94,4 +94,32 @@ function ProjectileVisualService.PlayProjectileImpact(player, profileId, positio
 	})
 end
 
+function ProjectileVisualService.PlayClientProjectileSpawn(player, payload)
+	if player == nil or player.Parent == nil or typeof(payload) ~= "table" then
+		return
+	end
+
+	impactRemote:FireClient(player, payload)
+end
+
+function ProjectileVisualService.PlayClientProjectileDestroy(player, visualSerial)
+	if player == nil or player.Parent == nil then
+		return
+	end
+
+	impactRemote:FireClient(player, {
+		Type = "ProjectileDestroy",
+		VisualSerial = math.max(0, math.floor(tonumber(visualSerial) or 0)),
+	})
+end
+
+-- Le rebond reste une decision serveur ; le client ne recoit qu'une correction visuelle fiable.
+function ProjectileVisualService.PlayClientProjectileRetarget(player, payload)
+	if player == nil or player.Parent == nil or typeof(payload) ~= "table" then
+		return
+	end
+
+	impactRemote:FireClient(player, payload)
+end
+
 return ProjectileVisualService

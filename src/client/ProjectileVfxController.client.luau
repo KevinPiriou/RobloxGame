@@ -1,12 +1,15 @@
 -- Presentation locale des projectiles. Le serveur garde toute la logique de combat.
 
 local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local VfxConfig = require(Shared:WaitForChild("VfxConfig"))
 
@@ -19,6 +22,7 @@ local observedConnections = {}
 local packagePool = {}
 local activeImpactStates = {}
 local impactPool = {}
+local pilotStatesBySerial = {}
 local packageSerial = 0
 local impactSerial = 0
 local runtimeFolder = nil
@@ -144,6 +148,13 @@ local function createVisualPackage()
 	light.Shadows = false
 	light.Enabled = false
 	light.Parent = poolAnchor
+
+	CollectionService:AddTag(trail, VfxConfig.TelemetryTag)
+	CollectionService:AddTag(flameShell, VfxConfig.TelemetryTag)
+	CollectionService:AddTag(flameTail, VfxConfig.TelemetryTag)
+	CollectionService:AddTag(smoke, VfxConfig.TelemetryTag)
+	CollectionService:AddTag(spark, VfxConfig.TelemetryTag)
+	CollectionService:AddTag(light, VfxConfig.TelemetryTag)
 
 	return {
 		Id = packageSerial,
@@ -453,6 +464,208 @@ local function observeProjectile(projectile)
 	task.defer(refresh)
 end
 
+local function clampPilotDirection(direction)
+	local minimumVerticalDirection = CombatConfig.FireballMinimumVerticalDirection or -0.05
+
+	if direction.Y >= minimumVerticalDirection then
+		return direction.Unit
+	end
+
+	return Vector3.new(direction.X, minimumVerticalDirection, direction.Z).Unit
+end
+
+local function getPilotTargetPosition(state)
+	local targetRoot = state.TargetRoot
+
+	if typeof(targetRoot) == "Instance" and targetRoot.Parent ~= nil then
+		local targetPart = findRoot(targetRoot)
+
+		if targetPart ~= nil then
+			return targetPart.Position
+		end
+	end
+
+	return state.TargetPosition
+end
+
+local function releasePilotState(visualSerial)
+	local state = pilotStatesBySerial[visualSerial]
+
+	if state == nil then
+		return
+	end
+
+	pilotStatesBySerial[visualSerial] = nil
+	releaseProjectileState(state.Core)
+
+	if state.Core.Parent ~= nil then
+		state.Core:Destroy()
+	end
+end
+
+local function advancePilotState(state, deltaTime)
+	if deltaTime <= 0 then
+		return
+	end
+
+	state.Age += deltaTime
+
+	if state.Age >= state.Lifetime then
+		releasePilotState(state.VisualSerial)
+		return
+	end
+
+	local targetPosition = getPilotTargetPosition(state)
+	local desiredDirection = targetPosition - state.Position
+
+	if desiredDirection.Magnitude > 0.1 then
+		local targetDirection = desiredDirection.Unit
+		local sideDirection = Vector3.new(-targetDirection.Z, 0, targetDirection.X)
+
+		if sideDirection.Magnitude <= 0.001 then
+			sideDirection = Vector3.new(1, 0, 0)
+		else
+			sideDirection = sideDirection.Unit
+		end
+
+		local speedRatio = math.max(0.25, state.Speed / math.max(1, CombatConfig.FireballSpeed))
+		local curveDuration = math.max(0.08, (CombatConfig.FireballCurveDuration or 1) / speedRatio)
+		local curveProgress = math.clamp((state.Age - state.HomingDelay) / curveDuration, 0, 1)
+		local curveWeight = (1 - curveProgress) * (CombatConfig.FireballCurveStrength or 0)
+		local pattern = state.FlightPattern
+		local oscillation = state.FlightPhase
+			+ (state.Age * (CombatConfig.FireballCurveFrequency or 1) * pattern.FrequencyMultiplier)
+		local lateralCurve = math.sin(oscillation) * curveWeight * pattern.SideMultiplier
+		local verticalCurve = math.cos(oscillation * 0.82) * (CombatConfig.FireballVerticalCurveStrength or 0)
+			* curveWeight
+			* pattern.VerticalMultiplier
+		local curvedDirection = clampPilotDirection(
+			targetDirection + (sideDirection * lateralCurve) + Vector3.new(0, verticalCurve, 0)
+		)
+		local steeringWeight = 0.2 + (0.8 * curveProgress)
+		local homingAlpha = math.clamp(
+			deltaTime * (CombatConfig.FireballHomingStrength or 1) * math.sqrt(speedRatio) * steeringWeight,
+			0,
+			1
+		)
+		state.Direction = clampPilotDirection(state.Direction:Lerp(curvedDirection, homingAlpha))
+	end
+
+	state.Position += state.Direction * state.Speed * deltaTime
+
+	if state.Core.Parent ~= nil then
+		state.Core.CFrame = CFrame.lookAt(state.Position, state.Position + state.Direction)
+	end
+end
+
+local function spawnPilotProjectile(payload)
+	if typeof(payload) ~= "table"
+		or typeof(payload.VisualSerial) ~= "number"
+		or typeof(payload.Position) ~= "Vector3"
+		or typeof(payload.Direction) ~= "Vector3"
+		or typeof(payload.TargetPosition) ~= "Vector3"
+	then
+		return
+	end
+
+	local visualSerial = math.max(0, math.floor(payload.VisualSerial))
+	releasePilotState(visualSerial)
+	setupRuntime()
+
+	local profile = VfxConfig.GetProjectileProfile(payload.ProfileId)
+	local core = Instance.new("Part")
+	core.Name = "ClientProjectileCore"
+	core.Shape = Enum.PartType.Ball
+	core.Size = if typeof(payload.CoreSize) == "Vector3" then payload.CoreSize else Vector3.new(1.4, 1.4, 1.4)
+	core.Material = Enum.Material.Neon
+	core.Color = profile.CoreColor
+	core.Transparency = profile.CoreTransparency
+	core.Anchored = true
+	core.CanCollide = false
+	core.CanTouch = false
+	core.CanQuery = false
+	core.CastShadow = false
+	core.CFrame = CFrame.lookAt(payload.Position, payload.Position + payload.Direction)
+	core:SetAttribute("RuntimeProjectile", true)
+	core:SetAttribute("ProjectileOwnerUserId", player.UserId)
+	core:SetAttribute("VfxProfileId", payload.ProfileId)
+	core:SetAttribute("ProjectileVisualSerial", visualSerial)
+	core.Parent = runtimeFolder
+
+	local flightPattern = if typeof(payload.FlightPattern) == "table" then payload.FlightPattern else {}
+	local state = {
+		VisualSerial = visualSerial,
+		Core = core,
+		Position = payload.Position,
+		Direction = clampPilotDirection(payload.Direction),
+		TargetPosition = payload.TargetPosition,
+		TargetRoot = payload.TargetRoot,
+		Speed = math.max(1, tonumber(payload.Speed) or 58),
+		Lifetime = math.max(0.1, tonumber(payload.Lifetime) or 3.8),
+		HomingDelay = math.max(0, tonumber(payload.HomingDelay) or 0.22),
+		FlightPattern = {
+			SideMultiplier = tonumber(flightPattern.SideMultiplier) or 1,
+			VerticalMultiplier = tonumber(flightPattern.VerticalMultiplier) or 1,
+			FrequencyMultiplier = tonumber(flightPattern.FrequencyMultiplier) or 1,
+		},
+		FlightPhase = tonumber(payload.FlightPhase) or 0,
+		Age = 0,
+	}
+
+	pilotStatesBySerial[visualSerial] = state
+	attachProjectile(core)
+
+	local serverStartTime = tonumber(payload.ServerStartTime)
+	if serverStartTime ~= nil then
+		local elapsed = math.clamp(Workspace:GetServerTimeNow() - serverStartTime, 0, 0.25)
+		local remaining = elapsed
+
+		while remaining > 0 and pilotStatesBySerial[visualSerial] == state do
+			local step = math.min(remaining, 1 / 60)
+			advancePilotState(state, step)
+			remaining -= step
+		end
+	end
+end
+
+local function retargetPilotProjectile(payload)
+	if typeof(payload) ~= "table"
+		or typeof(payload.VisualSerial) ~= "number"
+		or typeof(payload.Position) ~= "Vector3"
+		or typeof(payload.Direction) ~= "Vector3"
+		or typeof(payload.TargetPosition) ~= "Vector3"
+	then
+		return
+	end
+
+	local visualSerial = math.max(0, math.floor(payload.VisualSerial))
+	local state = pilotStatesBySerial[visualSerial]
+
+	if state == nil then
+		return
+	end
+
+	state.Position = payload.Position
+	state.Direction = clampPilotDirection(payload.Direction)
+	state.TargetPosition = payload.TargetPosition
+	state.TargetRoot = payload.TargetRoot
+
+	if state.Core.Parent ~= nil then
+		state.Core.CFrame = CFrame.lookAt(state.Position, state.Position + state.Direction)
+	end
+end
+
+local function updatePilotProjectiles(deltaTime)
+	for visualSerial, state in pairs(pilotStatesBySerial) do
+		if state.Core.Parent == nil then
+			pilotStatesBySerial[visualSerial] = nil
+			releaseProjectileState(state.Core)
+		else
+			advancePilotState(state, math.min(deltaTime, 0.05))
+		end
+	end
+end
+
 local function createImpactPart()
 	setupRuntime()
 	local impact = Instance.new("Part")
@@ -471,6 +684,7 @@ local function createImpactPart()
 	light.Shadows = false
 	light.Enabled = false
 	light.Parent = impact
+	CollectionService:AddTag(light, VfxConfig.TelemetryTag)
 
 	impact.Parent = impactPoolFolder
 	return impact
@@ -618,11 +832,26 @@ local function connectProjectileFolder()
 end
 
 VfxQualityController.Changed.Event:Connect(refreshProjectileBudgets)
+RunService.RenderStepped:Connect(updatePilotProjectiles)
 
 local impactRemote = ReplicatedStorage:WaitForChild(VfxConfig.ImpactRemoteName, 30)
 
 if impactRemote ~= nil and impactRemote:IsA("RemoteEvent") then
-	impactRemote.OnClientEvent:Connect(playImpact)
+	impactRemote.OnClientEvent:Connect(function(payload)
+		if typeof(payload) ~= "table" then
+			return
+		end
+
+		if payload.Type == "ProjectileSpawn" then
+			spawnPilotProjectile(payload)
+		elseif payload.Type == "ProjectileRetarget" then
+			retargetPilotProjectile(payload)
+		elseif payload.Type == "ProjectileDestroy" then
+			releasePilotState(math.max(0, math.floor(tonumber(payload.VisualSerial) or 0)))
+		else
+			playImpact(payload)
+		end
+	end)
 else
 	DebugLog.Warn("Vfx", "Remote des impacts projectile introuvable", {
 		Remote = VfxConfig.ImpactRemoteName,

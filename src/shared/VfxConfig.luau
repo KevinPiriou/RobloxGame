@@ -4,12 +4,18 @@ local VfxConfig = {
 	ImpactRemoteName = "CombatVfx_Play",
 	RuntimeFolderName = "MegaRobloxClientVfxRuntime",
 	ProjectileVisualFolderName = "MegaRobloxClientProjectileVfx",
+	TelemetryTag = "MegaRobloxProjectileVfx",
 
 	PresentationKinds = {
 		Projectile = "Projectile",
 		Persistent = "Persistant",
 		Instant = "Instantane",
 		Area = "Zone",
+	},
+
+	ProjectilePresentationModes = {
+		ReplicatedCore = "ReplicatedCore",
+		ClientPilot = "ClientPilot",
 	},
 
 	QualityOrder = {

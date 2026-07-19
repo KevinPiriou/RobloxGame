@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
@@ -25,6 +26,7 @@ local WeaponService = {}
 local runtimeFolder = nil
 local projectileFolder = nil
 local projectilePoolFolder = nil
+local projectileSimulationFolder = nil
 local fireballTemplate = nil
 local heartbeatConnection = nil
 local projectileAccumulator = 0
@@ -32,8 +34,8 @@ local projectileTickTimeTotal = 0
 local projectileTickSampleCount = 0
 local cooldownsByUserId = {}
 local projectilesByInstance = {}
+local pendingFireballVolleysByUserId = {}
 local projectileSerial = 0
-
 -- Les profils donnent des tirs lisibles mais jamais parfaitement rectilignes.
 local FIREBALL_FLIGHT_PATTERNS = {
 	{ SideMultiplier = 1, VerticalMultiplier = 0.62, FrequencyMultiplier = 0.9 },
@@ -58,6 +60,7 @@ local function setupFolders()
 	runtimeFolder = TemplateService.GetCombatRuntimeFolder()
 	projectileFolder = TemplateService.GetCombatProjectileFolder()
 	projectilePoolFolder = getOrCreateFolder(ServerStorage, "ProjectilePools")
+	projectileSimulationFolder = getOrCreateFolder(ServerStorage, "ProjectileSimulation")
 end
 
 local function createFallbackFireballTemplate(templateStorage)
@@ -171,7 +174,7 @@ local function getProjectilePoolSize()
 	return #projectilePoolFolder:GetChildren()
 end
 
-local function acquireProjectileInstance()
+local function acquireProjectileInstance(activeFolder)
 	local projectile = projectilePoolFolder:FindFirstChild(CombatConfig.FireballTemplateName)
 
 	if projectile == nil then
@@ -180,12 +183,12 @@ local function acquireProjectileInstance()
 	end
 
 	if projectile ~= nil then
-		projectile.Parent = projectileFolder
+		projectile.Parent = activeFolder
 		return projectile, true
 	end
 
 	projectile = fireballTemplate:Clone()
-	projectile.Parent = projectileFolder
+	projectile.Parent = activeFolder
 
 	return projectile, false
 end
@@ -195,8 +198,13 @@ local function releaseProjectileInstance(projectile)
 		return
 	end
 
+	if projectile:GetAttribute("BenchmarkProjectile") == true then
+		PerformanceTelemetryService.Increment("Weapon.Projectiles.BenchmarkReleased")
+	end
+
 	projectile.Name = CombatConfig.FireballTemplateName
 	projectile:SetAttribute("RuntimeProjectile", false)
+	projectile:SetAttribute("BenchmarkProjectile", nil)
 	projectile:SetAttribute("WeaponId", nil)
 	projectile:SetAttribute("VfxProfileId", nil)
 	projectile:SetAttribute("ProjectileSkinId", nil)
@@ -226,16 +234,48 @@ local function prewarmProjectilePool(count)
 end
 
 local function destroyProjectile(projectile)
+	local state = projectilesByInstance[projectile]
+
+	if state ~= nil and state.ClientPresentationMode == "ClientPilot" then
+		ProjectileVisualService.PlayClientProjectileDestroy(state.Owner, state.VisualSerial)
+		PerformanceTelemetryService.Increment("Weapon.Projectiles.ClientPilotDestroys")
+	end
+
 	projectilesByInstance[projectile] = nil
 
 	releaseProjectileInstance(projectile)
 end
 
-local function createProjectile(player, spawnPosition, targetMonster, targetRoot, direction, pattern, phase)
-	local projectile, reusedFromPool = acquireProjectileInstance()
+local function resolveProjectilePresentationMode(_player, requestedPresentationMode)
+	if requestedPresentationMode == "ClientPilot" or requestedPresentationMode == "ReplicatedCore" then
+		return requestedPresentationMode
+	end
+
+	return if CombatConfig.ProjectilePresentationMode == "ReplicatedCore" then "ReplicatedCore" else "ClientPilot"
+end
+
+local function createProjectile(
+	player,
+	spawnPosition,
+	targetMonster,
+	targetRoot,
+	direction,
+	pattern,
+	phase,
+	benchmarkTargetPosition,
+	presentationMode
+)
+	local clientPresentationMode = resolveProjectilePresentationMode(player, presentationMode)
+	local activeFolder = if clientPresentationMode == "ClientPilot" then projectileSimulationFolder else projectileFolder
+	local projectile, reusedFromPool = acquireProjectileInstance(activeFolder)
+	PerformanceTelemetryService.Increment("Weapon.Projectiles.Created")
+	PerformanceTelemetryService.Increment(
+		if reusedFromPool then "Weapon.Projectiles.ReusedFromPool" else "Weapon.Projectiles.Cloned"
+	)
 
 	projectile.Name = CombatConfig.FireballTemplateName
 	projectile:SetAttribute("RuntimeProjectile", true)
+	projectile:SetAttribute("BenchmarkProjectile", benchmarkTargetPosition ~= nil)
 
 	local projectileRoot = prepareProjectile(projectile)
 
@@ -244,7 +284,7 @@ local function createProjectile(player, spawnPosition, targetMonster, targetRoot
 			Projectile = projectile,
 		})
 		releaseProjectileInstance(projectile)
-		return
+		return false
 	end
 
 	local vfxProfileId = ProjectileVisualService.PrepareFireball(
@@ -257,15 +297,18 @@ local function createProjectile(player, spawnPosition, targetMonster, targetRoot
 
 	if vfxProfileId == nil then
 		releaseProjectileInstance(projectile)
-		return
+		return false
 	end
 
-	pivotInstance(projectile, CFrame.lookAt(spawnPosition, spawnPosition + direction))
+	if clientPresentationMode == "ReplicatedCore" then
+		pivotInstance(projectile, CFrame.lookAt(spawnPosition, spawnPosition + direction))
+	end
 
-	projectilesByInstance[projectile] = {
+	local projectileState = {
 		Instance = projectile,
 		Owner = player,
 		TargetMonster = targetMonster,
+		BenchmarkTargetPosition = benchmarkTargetPosition,
 		Position = spawnPosition,
 		Direction = direction.Unit,
 		Age = 0,
@@ -279,7 +322,42 @@ local function createProjectile(player, spawnPosition, targetMonster, targetRoot
 		ReusedFromPool = reusedFromPool,
 		VfxProfileId = vfxProfileId,
 		VisualSerial = projectileSerial,
+		ClientPresentationMode = clientPresentationMode,
 	}
+	projectilesByInstance[projectile] = projectileState
+
+	if clientPresentationMode == "ClientPilot" then
+		local initialTargetPosition = benchmarkTargetPosition
+
+		if initialTargetPosition == nil and targetRoot ~= nil then
+			initialTargetPosition = targetRoot.Position
+		end
+
+		if initialTargetPosition == nil then
+			DebugLog.Warn("Vfx", "Pilote projectile annule sans cible visuelle", {
+				Player = player.Name,
+				VisualSerial = projectileSerial,
+			})
+		else
+			ProjectileVisualService.PlayClientProjectileSpawn(player, {
+				Type = "ProjectileSpawn",
+				VisualSerial = projectileSerial,
+				ProfileId = vfxProfileId,
+				Position = spawnPosition,
+				Direction = direction,
+				TargetPosition = initialTargetPosition,
+				TargetRoot = targetRoot,
+				Speed = projectileState.Speed,
+				Lifetime = projectileState.Lifetime,
+				HomingDelay = projectileState.HomingDelay,
+				FlightPattern = pattern,
+				FlightPhase = phase,
+				CoreSize = projectileRoot.Size,
+				ServerStartTime = Workspace:GetServerTimeNow(),
+			})
+			PerformanceTelemetryService.Increment("Weapon.Projectiles.ClientPilotSpawns")
+		end
+	end
 
 	DebugLog.ThrottledInfo("Weapon", "fireball_created_" .. player.UserId, 1, "Projectile cree", {
 		Player = player.Name,
@@ -287,6 +365,8 @@ local function createProjectile(player, spawnPosition, targetMonster, targetRoot
 		ProjectileCount = PerkService.GetProjectileCount(player),
 		Target = targetMonster,
 	})
+
+	return true
 end
 
 local function rotateDirection(direction, radians)
@@ -331,15 +411,120 @@ local function getTargetCandidates(position)
 	return targets
 end
 
-local function fireAtClosestMonster(player)
+local function getFireballSpawnPosition(player)
+	local root = getCharacterRoot(player)
+
+	if root == nil then
+		return nil
+	end
+
+	return root.Position
+		+ (root.CFrame.LookVector * CombatConfig.FireballSpawnForwardOffset)
+		+ Vector3.new(0, CombatConfig.FireballSpawnHeightOffset, 0)
+end
+
+local function playFireballCast(player)
+	if AudioService.PlayForPlayer(player, "FireballCast") then
+		PerformanceTelemetryService.Increment("Weapon.Projectiles.CastAudioEvents")
+	end
+end
+
+local function emitFireballVolleyShot(player, targetData, projectileIndex)
+	if not isPlayerAlive(player) or targetData == nil then
+		return false
+	end
+
+	local spawnPosition = getFireballSpawnPosition(player)
+	local targetPosition = MonsterService.GetMonsterPosition(targetData.Monster)
+
+	if spawnPosition == nil or targetPosition == nil then
+		return false
+	end
+
+	local direction = targetPosition - spawnPosition
+
+	if direction.Magnitude <= 0.1 then
+		return false
+	end
+
+	local projectileDirection, pattern, phase = createInitialProjectileDirection(direction.Unit, projectileIndex)
+	local didCreate = createProjectile(
+		player,
+		spawnPosition,
+		targetData.Monster,
+		targetData.Root,
+		projectileDirection,
+		pattern,
+		phase
+	)
+
+	if didCreate then
+		playFireballCast(player)
+	end
+
+	return didCreate
+end
+
+local function getFireballVolleyShotDelay(projectileCount, cooldown)
+	if projectileCount <= 1 then
+		return 0
+	end
+
+	local desiredInterval = math.max(0, CombatConfig.FireballVolleyProjectileInterval or 0)
+	local endGuard = math.max(0, CombatConfig.FireballVolleyEndGuard or 0)
+	local availableDuration = math.max(0, cooldown - endGuard)
+	local maximumInterval = availableDuration / (projectileCount - 1)
+
+	return math.min(desiredInterval, maximumInterval)
+end
+
+local function getPendingVolleyCounts()
+	local activeVolleys = 0
+	local pendingShots = 0
+
+	for _, volley in pairs(pendingFireballVolleysByUserId) do
+		activeVolleys += 1
+		pendingShots += math.max(0, #volley.Targets - volley.NextShotIndex + 1)
+	end
+
+	return activeVolleys, pendingShots
+end
+
+local function updatePendingFireballVolleys(now)
+	for userId, volley in pairs(pendingFireballVolleysByUserId) do
+		if not isPlayerAlive(volley.Player) then
+			pendingFireballVolleysByUserId[userId] = nil
+			continue
+		end
+
+		if now < volley.NextShotAt then
+			continue
+		end
+
+		local targetData = volley.Targets[volley.NextShotIndex]
+		emitFireballVolleyShot(volley.Player, targetData, volley.NextShotIndex)
+		volley.NextShotIndex += 1
+		volley.NextShotAt += volley.Interval
+
+		-- Une frame retardee ne transforme jamais les tirs dus en nouvelle rafale.
+		-- Le reste de la salve reprend un projectile par frame apres le retard.
+		if volley.NextShotIndex > #volley.Targets then
+			pendingFireballVolleysByUserId[userId] = nil
+		end
+	end
+end
+
+local function fireAtClosestMonster(player, now, cooldown, emitAllImmediately)
 	if fireballTemplate == nil or not isPlayerAlive(player) then
 		return
 	end
 
-	local root = getCharacterRoot(player)
-	local spawnPosition = root.Position
-		+ (root.CFrame.LookVector * CombatConfig.FireballSpawnForwardOffset)
-		+ Vector3.new(0, CombatConfig.FireballSpawnHeightOffset, 0)
+	local spawnPosition = getFireballSpawnPosition(player)
+
+	if spawnPosition == nil then
+		return
+	end
+
 	local targets = getTargetCandidates(spawnPosition)
 	local firstTarget = targets[1]
 	local targetMonster = if firstTarget ~= nil then firstTarget.Monster else nil
@@ -354,31 +539,46 @@ local function fireAtClosestMonster(player)
 		return
 	end
 
-	local direction = targetRoot.Position - spawnPosition
-
-	if direction.Magnitude <= 0.1 then
-		return
-	end
-
 	local projectileCount = PerkService.GetProjectileCount(player)
+	local volleyTargets = {}
 
 	for projectileIndex = 1, projectileCount do
 		-- On couvre les cibles proches avant de repasser sur la premiere si les projectiles sont plus nombreux.
-		local targetData = targets[((projectileIndex - 1) % #targets) + 1]
-		local projectileDirection, pattern, phase = createInitialProjectileDirection(
-			(targetData.Root.Position - spawnPosition).Unit,
-			projectileIndex
-		)
-
-		createProjectile(player, spawnPosition, targetData.Monster, targetData.Root, projectileDirection, pattern, phase)
+		volleyTargets[projectileIndex] = targets[((projectileIndex - 1) % #targets) + 1]
 	end
 
-	AudioService.PlayForPlayer(player, "FireballCast")
+	if not emitFireballVolleyShot(player, volleyTargets[1], 1) then
+		return
+	end
+
+	if projectileCount > 1 then
+		if emitAllImmediately then
+			for projectileIndex = 2, projectileCount do
+				emitFireballVolleyShot(player, volleyTargets[projectileIndex], projectileIndex)
+			end
+		else
+			local volleyInterval = getFireballVolleyShotDelay(projectileCount, cooldown)
+			pendingFireballVolleysByUserId[player.UserId] = {
+				Player = player,
+				Targets = volleyTargets,
+				NextShotIndex = 2,
+				NextShotAt = now + volleyInterval,
+				Interval = volleyInterval,
+			}
+		end
+	end
+
 end
 
 local function updatePlayerWeapons(now)
+	updatePendingFireballVolleys(now)
+
 	for _, player in ipairs(Players:GetPlayers()) do
 		if not RunStateService.IsRunActive(player) then
+			continue
+		end
+
+		if pendingFireballVolleysByUserId[player.UserId] ~= nil then
 			continue
 		end
 
@@ -387,7 +587,7 @@ local function updatePlayerWeapons(now)
 
 		if now - lastFireAt >= cooldown then
 			cooldownsByUserId[player.UserId] = now
-			fireAtClosestMonster(player)
+			fireAtClosestMonster(player, now, cooldown)
 		end
 	end
 end
@@ -403,11 +603,18 @@ local function updateProjectile(projectileState, deltaTime)
 	projectileState.Age += deltaTime
 
 	if projectileState.Age >= projectileState.Lifetime then
+		if projectileState.BenchmarkTargetPosition ~= nil then
+			PerformanceTelemetryService.Increment("Weapon.Projectiles.BenchmarkExpired")
+		end
 		destroyProjectile(projectile)
 		return
 	end
 
-	local targetPosition = MonsterService.GetMonsterPosition(projectileState.TargetMonster)
+	local targetPosition = projectileState.BenchmarkTargetPosition
+
+	if targetPosition == nil then
+		targetPosition = MonsterService.GetMonsterPosition(projectileState.TargetMonster)
+	end
 
 	if targetPosition ~= nil then
 		local desiredDirection = targetPosition - projectileState.Position
@@ -450,9 +657,34 @@ local function updateProjectile(projectileState, deltaTime)
 	local nextPosition = projectileState.Position + (projectileState.Direction * projectileState.Speed * deltaTime)
 	projectileState.Position = nextPosition
 
-	pivotInstance(projectile, CFrame.lookAt(nextPosition, nextPosition + projectileState.Direction))
+	PerformanceTelemetryService.Increment("Weapon.Projectiles.LogicalUpdates")
 
-	local hitMonster = MonsterService.GetClosestMonster(nextPosition, CombatConfig.FireballHitRadius, projectileState.HitMonsters)
+	if projectileState.ClientPresentationMode == "ReplicatedCore" then
+		pivotInstance(projectile, CFrame.lookAt(nextPosition, nextPosition + projectileState.Direction))
+		PerformanceTelemetryService.Increment("Weapon.Projectiles.TransformUpdates")
+	end
+
+	local didReachBenchmarkTarget = false
+	local hitMonster = nil
+
+	if projectileState.BenchmarkTargetPosition ~= nil then
+		didReachBenchmarkTarget = (nextPosition - projectileState.BenchmarkTargetPosition).Magnitude
+			<= CombatConfig.FireballHitRadius
+	else
+		hitMonster = MonsterService.GetClosestMonster(nextPosition, CombatConfig.FireballHitRadius, projectileState.HitMonsters)
+	end
+
+	if didReachBenchmarkTarget then
+		ProjectileVisualService.PlayProjectileImpact(
+			projectileState.Owner,
+			projectileState.VfxProfileId,
+			nextPosition,
+			projectileState.VisualSerial
+		)
+		PerformanceTelemetryService.Increment("Weapon.Projectiles.BenchmarkImpacts")
+		destroyProjectile(projectile)
+		return
+	end
 
 	if hitMonster ~= nil then
 		projectileState.HitMonsters[hitMonster] = true
@@ -500,6 +732,20 @@ local function updateProjectile(projectileState, deltaTime)
 					projectileState.BounceRemaining -= 1
 					projectileState.TargetMonster = nextMonster
 					projectileState.Direction = nextDirection.Unit
+
+					if projectileState.ClientPresentationMode == "ClientPilot" then
+						ProjectileVisualService.PlayClientProjectileRetarget(projectileState.Owner, {
+							Type = "ProjectileRetarget",
+							VisualSerial = projectileState.VisualSerial,
+							Position = nextPosition,
+							Direction = projectileState.Direction,
+							TargetPosition = nextRoot.Position,
+							TargetRoot = nextRoot,
+							ServerTime = Workspace:GetServerTimeNow(),
+						})
+						PerformanceTelemetryService.Increment("Weapon.Projectiles.ClientPilotRetargets")
+					end
+
 					return
 				end
 			end
@@ -543,16 +789,21 @@ local function updateWeaponStep(deltaTime)
 		averageTickMs = (projectileTickTimeTotal / projectileTickSampleCount) * 1000
 	end
 
+	local activeVolleys, pendingVolleyShots = getPendingVolleyCounts()
+
 	DebugLog.ThrottledInfo("Perf", "projectile_tick", CombatConfig.PerfLogInterval or 5, "Perf projectiles serveur", {
 		Active = getActiveProjectileCount(),
 		Pool = getProjectilePoolSize(),
 		SimulationHz = CombatConfig.ProjectileSimulationHz,
 		AverageTickMs = averageTickMs,
+		ActiveVolleys = activeVolleys,
+		PendingVolleyShots = pendingVolleyShots,
 	})
 end
 
 function WeaponService.RemovePlayer(player)
 	cooldownsByUserId[player.UserId] = nil
+	pendingFireballVolleysByUserId[player.UserId] = nil
 end
 
 local function clearProjectiles()
@@ -574,12 +825,73 @@ end
 
 function WeaponService.DebugFireballBurst(player, requestedCount)
 	local burstCount = math.clamp(math.floor(requestedCount or 0), 0, 96)
+	local now = CombatStateService.GetTime()
+	local cooldown = PerkService.GetAttackCooldown(player, CombatConfig.FireballCooldown)
 
 	for _ = 1, burstCount do
-		fireAtClosestMonster(player)
+		fireAtClosestMonster(player, now, cooldown, true)
 	end
 
 	return burstCount
+end
+
+function WeaponService.DebugFireballBurstAtPositions(player, targetPositions, requestedCount, presentationMode)
+	if not isPlayerAlive(player) or typeof(targetPositions) ~= "table" then
+		return 0
+	end
+
+	local burstCount = math.clamp(math.floor(requestedCount or 0), 0, 96)
+	local availableTargets = {}
+
+	for _, targetPosition in ipairs(targetPositions) do
+		if typeof(targetPosition) == "Vector3" then
+			table.insert(availableTargets, targetPosition)
+		end
+	end
+
+	if burstCount <= 0 or #availableTargets <= 0 then
+		return 0
+	end
+
+	local emittedCount = 0
+
+	for projectileIndex = 1, burstCount do
+		local spawnPosition = getFireballSpawnPosition(player)
+		local targetPosition = availableTargets[((projectileIndex - 1) % #availableTargets) + 1]
+
+		if spawnPosition == nil then
+			break
+		end
+
+		local direction = targetPosition - spawnPosition
+
+		if direction.Magnitude <= 0.1 then
+			continue
+		end
+
+		local projectileDirection, pattern, phase = createInitialProjectileDirection(direction.Unit, projectileIndex)
+		local didCreate = createProjectile(
+			player,
+			spawnPosition,
+			nil,
+			nil,
+			projectileDirection,
+			pattern,
+			phase,
+			targetPosition,
+			presentationMode
+		)
+
+		if didCreate then
+			playFireballCast(player)
+			emittedCount += 1
+		end
+	end
+
+	PerformanceTelemetryService.Increment("Weapon.Projectiles.BenchmarkShotsRequested", burstCount)
+	PerformanceTelemetryService.Increment("Weapon.Projectiles.BenchmarkShotsEmitted", emittedCount)
+
+	return emittedCount
 end
 
 function WeaponService.Start()
@@ -598,6 +910,7 @@ function WeaponService.Start()
 
 	RunStateService.RunStarted:Connect(function(player)
 		cooldownsByUserId[player.UserId] = CombatStateService.GetTime()
+		pendingFireballVolleysByUserId[player.UserId] = nil
 		projectileAccumulator = 0
 		projectileTickTimeTotal = 0
 		projectileTickSampleCount = 0
@@ -605,6 +918,7 @@ function WeaponService.Start()
 
 	RunStateService.RunEnded:Connect(function(player)
 		cooldownsByUserId[player.UserId] = nil
+		pendingFireballVolleysByUserId[player.UserId] = nil
 		projectileAccumulator = 0
 		clearProjectiles()
 	end)

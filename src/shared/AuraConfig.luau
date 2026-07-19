@@ -3,6 +3,8 @@
 local AuraConfig = {
 	VisualTemplatesFolderName = "VisualTemplates",
 	AuraTemplatesFolderName = "AuraTemplates",
+	EffectTemplatesFolderName = "EffectTemplates",
+	CompositionTemplatesFolderName = "CompositionTemplates",
 	ParticleTexturesFolderName = "ParticleTextures",
 	RuntimeFolderName = "MegaRobloxAuras",
 	BuiltinTextureIds = {
@@ -25,10 +27,11 @@ local AuraConfig = {
 	Families = {
 		Mobility = {
 			DisplayName = "Mobilite",
-			Style = "Feet",
+			Style = "Composition",
+			CompositionTemplate = "MobilityV2",
 			Color = Color3.fromRGB(54, 220, 255),
-			PrimaryTexture = "WindStreak",
-			SecondaryTexture = "SoftGlow",
+			TemplateRateMultiplier = 1,
+			TemplateSizeMultiplier = 1,
 			Stats = {
 				{ Name = "MoveSpeedPercent", Saturation = 0.55, Weight = 0.85 },
 				{ Name = "JumpPercent", Saturation = 0.5, Weight = 0.15 },
@@ -38,6 +41,12 @@ local AuraConfig = {
 			DisplayName = "Magnetisme",
 			Style = "Magnetism",
 			Color = Color3.fromRGB(55, 255, 188),
+			-- Effet de traction horizontal : les flux convergent vers le personnage.
+			-- Il ne partage pas le template d'orbite de l'arsenal afin de garder
+			-- une lecture spatiale propre a la collecte.
+			EffectTemplates = { Primary = "MagnetismInwardSpiral", Secondary = "MagnetismGroundCore" },
+			TemplateRateMultiplier = 0.78,
+			TemplateSizeMultiplier = 0.92,
 			PrimaryTexture = "ArcaneGlyph",
 			SecondaryTexture = "Spark",
 			Stats = {
@@ -46,20 +55,22 @@ local AuraConfig = {
 		},
 		AttackSpeed = {
 			DisplayName = "Vitesse d'attaque",
-			Style = "Hands",
+			Style = "Composition",
+			CompositionTemplate = "AttackSpeedV2",
 			Color = Color3.fromRGB(227, 255, 122),
-			PrimaryTexture = "Spark",
-			SecondaryTexture = "WindStreak",
+			TemplateRateMultiplier = 1,
+			TemplateSizeMultiplier = 1,
 			Stats = {
 				{ Name = "AttackSpeedPercent", Saturation = 0.6, Weight = 1 },
 			},
 		},
 		Arsenal = {
 			DisplayName = "Arsenal",
-			Style = "Orbit",
+			Style = "Composition",
+			CompositionTemplate = "ArsenalV2",
 			Color = Color3.fromRGB(160, 92, 255),
-			PrimaryTexture = "ArcaneGlyph",
-			SecondaryTexture = "Spark",
+			TemplateRateMultiplier = 1,
+			TemplateSizeMultiplier = 1,
 			Stats = {
 				{ Name = "ProjectileCount", Saturation = 6, Weight = 0.4 },
 				{ Name = "ProjectileSpeedPercent", Saturation = 0.75, Weight = 0.3 },
@@ -69,11 +80,11 @@ local AuraConfig = {
 		},
 		Power = {
 			DisplayName = "Puissance",
-			Style = "BodyFlame",
+			Style = "Composition",
+			CompositionTemplate = "PowerV2",
 			Color = Color3.fromRGB(255, 88, 74),
-			PrimaryTexture = "AuraFlame",
-			FallbackPrimaryTexture = "SoftGlow",
-			SecondaryTexture = "Spark",
+			TemplateRateMultiplier = 1,
+			TemplateSizeMultiplier = 1,
 			Stats = {
 				{ Name = "DamagePercent", Saturation = 0.75, Weight = 0.4 },
 				{ Name = "FlatDamage", Saturation = 30, Weight = 0.2 },
@@ -86,6 +97,9 @@ local AuraConfig = {
 			DisplayName = "Protection",
 			Style = "Armor",
 			Color = Color3.fromRGB(62, 177, 255),
+			EffectTemplates = { Primary = "ShieldField", Secondary = "ShieldSpecs" },
+			TemplateRateMultiplier = 0.2,
+			TemplateSizeMultiplier = 1.0,
 			PrimaryTexture = "SoftGlow",
 			SecondaryTexture = "HexShield",
 			Stats = {
@@ -95,11 +109,12 @@ local AuraConfig = {
 		},
 		Sustain = {
 			DisplayName = "Sustain",
-			Style = "Sustain",
+			Style = "Composition",
+			CompositionTemplate = "SustainV2",
 			Color = Color3.fromRGB(76, 255, 147),
 			SecondaryColor = Color3.fromRGB(246, 66, 90),
-			PrimaryTexture = "SoftSmoke",
-			SecondaryTexture = "SoftGlow",
+			TemplateRateMultiplier = 1,
+			TemplateSizeMultiplier = 1,
 			Stats = {
 				{ Name = "HealthRegen", Saturation = 1, Weight = 0.5 },
 				{ Name = "LifeStealPercent", Saturation = 0.12, Weight = 0.5 },
@@ -107,8 +122,18 @@ local AuraConfig = {
 		},
 		Fortune = {
 			DisplayName = "Fortune",
-			Style = "Head",
+			Style = "Fortune",
 			Color = Color3.fromRGB(255, 188, 54),
+			-- La fortune est une lecture de richesse : sceau au sol et eclats
+			-- precieux. Ce vocabulaire reste distinct du simple arcane.
+			EffectTemplates = {
+				FloorInner = "FortuneFloorInner",
+				FloorCore = "FortuneFloorCore",
+				FloorOuter = "FortuneFloorOuter",
+				Spark = "FortuneStar",
+			},
+			TemplateRateMultiplier = 0.58,
+			TemplateSizeMultiplier = 0.94,
 			PrimaryTexture = "ArcaneGlyph",
 			SecondaryTexture = "Spark",
 			Stats = {

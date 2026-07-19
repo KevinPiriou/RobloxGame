@@ -66,6 +66,25 @@ local PerformanceBaselineConfig = {
 			XpGemCount = 150,
 			CoinCount = 150,
 		},
+		{
+			Id = "projectiles_isoles_24",
+			Label = "P3 - trajectoires isolees (24/s)",
+			ProjectileBurst = 8,
+			ProjectileBurstIntervalSeconds = 1 / 3,
+			ProjectileTargetCount = 8,
+			ProjectileTargetDistance = 54,
+			-- Conserve la reference historique P3 malgre le pilote client actif en production solo.
+			ProjectilePresentationMode = "ReplicatedCore",
+		},
+		{
+			Id = "projectiles_isoles_24_client_pilot",
+			Label = "P3 - pilote visuel local (24/s)",
+			ProjectileBurst = 8,
+			ProjectileBurstIntervalSeconds = 1 / 3,
+			ProjectileTargetCount = 8,
+			ProjectileTargetDistance = 54,
+			ProjectilePresentationMode = "ClientPilot",
+		},
 	},
 
 	-- Une campagne enchainee sert a relever la stabilite sur une meme run.
