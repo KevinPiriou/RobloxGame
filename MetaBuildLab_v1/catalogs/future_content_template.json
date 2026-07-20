@@ -1,0 +1,150 @@
+{
+  "schema_version": 2,
+  "supported_categories": [
+    "weapon",
+    "perk",
+    "item",
+    "relic",
+    "curse",
+    "status",
+    "synergy",
+    "character",
+    "gem"
+  ],
+  "supported_triggers": [
+    "OnRunStart",
+    "OnAcquire",
+    "OnAttack",
+    "OnProjectileCreated",
+    "OnHit",
+    "OnCrit",
+    "OnBounce",
+    "OnKill",
+    "OnEliteKill",
+    "OnDamageTaken",
+    "OnHeal",
+    "OnLowHealth",
+    "OnChestOpened",
+    "OnLevelUp",
+    "OnWaveStart",
+    "OnWaveEnd"
+  ],
+  "supported_effect_types": [
+    "stat",
+    "counter_reward",
+    "apply_status",
+    "proc_multiplier"
+  ],
+  "supported_stack_rules": [
+    "additive",
+    "multiplicative",
+    "diminishing",
+    "capped",
+    "threshold",
+    "exponential",
+    "cooldown_reduction",
+    "charges"
+  ],
+  "supported_weapon_behaviors": [
+    "projectile",
+    "homing",
+    "bounce",
+    "pierce",
+    "explosion",
+    "persistent_area",
+    "chain",
+    "orbital",
+    "summon",
+    "contact",
+    "beam",
+    "dot",
+    "return",
+    "fragmentation",
+    "distance_scaling",
+    "health_scaling",
+    "execute"
+  ],
+  "weapon_example": {
+    "id": "example_arc_orb",
+    "name": "Orbe d'arc",
+    "category": "weapon",
+    "tags": [
+      "weapon",
+      "projectile",
+      "chain"
+    ],
+    "base": {
+      "damage": 12,
+      "cooldown": 1.2,
+      "range": 80,
+      "speed": 70,
+      "lifetime": 3,
+      "hit_radius": 3,
+      "projectiles": 1,
+      "crit_enabled": true
+    },
+    "behaviors": [
+      {
+        "type": "projectile"
+      },
+      {
+        "type": "homing",
+        "accuracy_bonus": 0.08
+      },
+      {
+        "type": "chain",
+        "targets": 3,
+        "damage_multiplier": 0.72
+      },
+      {
+        "type": "dot",
+        "status": "burn",
+        "chance": 0.25
+      }
+    ],
+    "levels": [
+      {
+        "level": 1,
+        "effects": []
+      },
+      {
+        "level": 2,
+        "effects": [
+          {
+            "type": "stat",
+            "stat": "DamagePercent",
+            "operation": "add",
+            "value": 0.15
+          }
+        ]
+      }
+    ]
+  },
+  "item_example": {
+    "id": "example_glass_cannon",
+    "name": "Canon de verre",
+    "category": "item",
+    "rarity": "Rare",
+    "tags": [
+      "item",
+      "tradeoff",
+      "damage"
+    ],
+    "effects": [
+      {
+        "trigger": "OnAcquire",
+        "type": "stat",
+        "stat": "DamagePercent",
+        "operation": "add",
+        "value_per_stack": 0.5
+      },
+      {
+        "trigger": "OnAcquire",
+        "type": "stat",
+        "stat": "MaxHealthBonus",
+        "operation": "add",
+        "value_per_stack": -30
+      }
+    ]
+  }
+}

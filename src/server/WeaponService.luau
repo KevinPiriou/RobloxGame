@@ -10,15 +10,14 @@ local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
 local AudioService = require(script.Parent:WaitForChild("AudioService"))
-local GameplayFeedbackService = require(script.Parent:WaitForChild("GameplayFeedbackService"))
 local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local PerkService = require(script.Parent:WaitForChild("PerkService"))
-local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
-local RunItemService = require(script.Parent:WaitForChild("RunItemService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 local TemplateService = require(script.Parent:WaitForChild("TemplateService"))
 local ProjectileVisualService = require(script.Parent:WaitForChild("ProjectileVisualService"))
 local WeaponSkinService = require(script.Parent:WaitForChild("WeaponSkinService"))
+local WeaponHitService = require(script.Parent:WaitForChild("WeaponHitService"))
+local WeaponLoadoutService = require(script.Parent:WaitForChild("WeaponLoadoutService"))
 local PerformanceTelemetryService = require(script.Parent:WaitForChild("PerformanceTelemetryService"))
 
 local WeaponService = {}
@@ -43,6 +42,16 @@ local FIREBALL_FLIGHT_PATTERNS = {
 	{ SideMultiplier = 0.7, VerticalMultiplier = -0.55, FrequencyMultiplier = 1.28 },
 	{ SideMultiplier = -1, VerticalMultiplier = 0.38, FrequencyMultiplier = 0.78 },
 }
+
+local function getFireballRuntimeStats(player: Player)
+	return WeaponLoadoutService.GetRuntimeStats(player, "fireball") or {
+		Damage = CombatConfig.FireballDamage,
+		Cooldown = CombatConfig.FireballCooldown,
+		Range = CombatConfig.FireballRange,
+		ProjectileCount = 0,
+		BounceCount = 0,
+	}
+end
 
 local function getOrCreateFolder(parent, folderName)
 	local folder = parent:FindFirstChild(folderName)
@@ -317,7 +326,8 @@ local function createProjectile(
 		FlightPattern = pattern,
 		FlightPhase = phase,
 		HomingDelay = CombatConfig.FireballHomingDelay,
-		BounceRemaining = PerkService.GetBounceCount(player),
+		BounceRemaining = PerkService.GetBounceCount(player) + (getFireballRuntimeStats(player).BounceCount or 0),
+		Damage = getFireballRuntimeStats(player).Damage,
 		HitMonsters = {},
 		ReusedFromPool = reusedFromPool,
 		VfxProfileId = vfxProfileId,
@@ -539,7 +549,8 @@ local function fireAtClosestMonster(player, now, cooldown, emitAllImmediately)
 		return
 	end
 
-	local projectileCount = PerkService.GetProjectileCount(player)
+	local runtimeStats = getFireballRuntimeStats(player)
+	local projectileCount = math.max(1, PerkService.GetProjectileCount(player) + (runtimeStats.ProjectileCount or 0))
 	local volleyTargets = {}
 
 	for projectileIndex = 1, projectileCount do
@@ -583,7 +594,7 @@ local function updatePlayerWeapons(now)
 		end
 
 		local lastFireAt = cooldownsByUserId[player.UserId] or 0
-		local cooldown = PerkService.GetAttackCooldown(player, CombatConfig.FireballCooldown)
+		local cooldown = PerkService.GetAttackCooldown(player, getFireballRuntimeStats(player).Cooldown)
 
 		if now - lastFireAt >= cooldown then
 			cooldownsByUserId[player.UserId] = now
@@ -695,28 +706,12 @@ local function updateProjectile(projectileState, deltaTime)
 			impactPosition,
 			projectileState.VisualSerial
 		)
-		-- Le monstre peut retourner dans le pool pendant DamageMonster si ce coup est fatal.
-		-- On conserve donc son chemin avant les degats pour que le log reste lisible.
-		local targetPath = hitMonster:GetFullName()
-
-		local damage, isCritical = PerkService.CalculateOutgoingDamage(projectileState.Owner, CombatConfig.FireballDamage, hitMonster)
-		local didDamage, damageDealt = MonsterService.DamageMonster(hitMonster, damage, projectileState.Owner)
-
-		if didDamage then
-			if isCritical then
-				GameplayFeedbackService.Queue(projectileState.Owner, "Critical", damageDealt or 0)
-			end
-
-			PerkService.ApplyLifeSteal(projectileState.Owner, damageDealt or 0, "Hit")
-			RunAnalyticsService.RecordDamageDealt(projectileState.Owner, damageDealt or 0, CombatConfig.FireballTemplateName)
-			RunItemService.TryApplyOnWeaponHit(projectileState.Owner, hitMonster, CombatConfig.FireballTemplateName)
-			DebugLog.ThrottledInfo("Weapon", "fireball_hit", 0.5, "Fireball touche un monstre", {
-				Player = projectileState.Owner.Name,
-				Damage = damage,
-				DamageDealt = damageDealt,
-				Target = targetPath,
-			})
-		end
+		WeaponHitService.Apply(
+			projectileState.Owner,
+			hitMonster,
+			CombatConfig.FireballTemplateName,
+			projectileState.Damage or CombatConfig.FireballDamage
+		)
 
 		if projectileState.BounceRemaining > 0 then
 			local nextMonster, nextRoot = MonsterService.GetClosestMonster(

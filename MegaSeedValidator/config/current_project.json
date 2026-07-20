@@ -2,16 +2,31 @@
   "project": {
     "repository": "KevinPiriou/RobloxGame",
     "branch": "Mymain",
-    "commit": "88c73cac324f733d3603c5c707b838a08a0c1a9f",
+    "commit": "2f932e482e8f772958a9ba2cb18a45cf7c58f4e5",
+    "procedural_config_path": "src/shared/ProceduralMapConfig.luau",
+    "procedural_service_path": "src/server/ProceduralMapService.luau",
+    "run_generation_config_path": "src/shared/RunGenerationConfig.luau",
+    "run_seed_validation_service_path": "src/server/RunSeedValidationService.luau",
+    "run_session_service_path": "src/server/RunSessionService.luau",
     "procedural_config_blob": "4f4722884ff33c9563b8a46ad31281c0b1110082",
-    "procedural_service_blob": "a43c250eb26bf91654772f937c8dcb8bb2208795",
-    "note": "Snapshot construit depuis le dépôt GitHub le 2026-07-17."
+    "procedural_service_blob": "5a5d41ff74a20c1110b608b160bd2634b73a91d8",
+    "run_generation_config_blob": "aeae87c585be4f42c7f268b110d2360caf87689f",
+    "run_seed_validation_service_blob": "285408d389c2c594309035a4b894ac2227aacd19",
+    "run_session_service_blob": "0f326409e34d0fbb54a2d395ec8615c807122d7f",
+    "note": "Snapshot vérifié dans le dépôt local le 2026-07-19. Le préfiltre reste synthétique ; le sas de production valide les instances générées par Roblox avant l'état Ready."
   },
   "parity": {
     "default_rng": "portable",
     "current_roblox_generator_uses": "Random.new",
     "exact_with_current_roblox_random": false,
     "exact_after_optional_portable_rng_patch": true
+  },
+  "production_guard": {
+    "enabled": true,
+    "uses_roblox_random": true,
+    "validates_generated_instances": true,
+    "maximum_attempts": 4,
+    "seed_identity": "production"
   },
   "map_profile": {
     "min_x": -256.0,

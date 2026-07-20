@@ -16,8 +16,12 @@ export type Metrics = {
 	MainTop: number,
 	MainWidth: number,
 	MainHeight: number,
+	MainBottom: number,
 	RailWidth: number,
 	BottomTop: number,
+	LoadoutTop: number,
+	LoadoutHeight: number,
+	LoadoutVisible: boolean,
 	ToastHeight: number,
 }
 
@@ -62,10 +66,19 @@ function RunHudLayout.Compute(viewport: Vector2): Metrics?
 	local topBottom = marginY + topHeight
 	local bottomTop = viewport.Y - marginY - bottomHeight
 	local availableMiddleHeight = math.max(0, bottomTop - topBottom)
-	local contentTopGap = clamp(round(84 * density), 56, 108)
+	-- Le panneau central remonte, mais conserve sa hauteur validee. L'espace
+	-- libere sous lui appartient exclusivement au rail de loadout.
+	local legacyContentTopGap = clamp(round(84 * density), 56, 108)
+	local contentTopGap = clamp(round(48 * density), 34, 62)
 	local contentBottomGap = clamp(round(42 * density), 28, 54)
 	local mainTop = topBottom + contentTopGap
-	local mainHeight = math.max(0, availableMiddleHeight - contentTopGap - contentBottomGap)
+	local mainHeight = math.min(900, math.max(0, availableMiddleHeight - legacyContentTopGap - contentBottomGap))
+	local mainBottom = mainTop + mainHeight
+	local loadoutGap = clamp(round(8 * density), 5, 10)
+	local loadoutAvailableHeight = math.max(0, bottomTop - mainBottom - (loadoutGap * 2))
+	local loadoutHeight = math.min(clamp(round(62 * density), 44, 72), loadoutAvailableHeight)
+	local loadoutTop = mainBottom + loadoutGap
+	local loadoutVisible = loadoutHeight >= 40
 
 	return {
 		Viewport = viewport,
@@ -79,8 +92,12 @@ function RunHudLayout.Compute(viewport: Vector2): Metrics?
 		MainTop = mainTop,
 		MainWidth = mainWidth,
 		MainHeight = mainHeight,
+		MainBottom = mainBottom,
 		RailWidth = railWidth,
 		BottomTop = bottomTop,
+		LoadoutTop = loadoutTop,
+		LoadoutHeight = loadoutHeight,
+		LoadoutVisible = loadoutVisible,
 		ToastHeight = clamp(round(250 * density), 150, 340),
 	}
 end

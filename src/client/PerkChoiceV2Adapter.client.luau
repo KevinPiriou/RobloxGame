@@ -548,7 +548,7 @@ local function initialise()
 			local currentParticleIndex = particleIndex
 
 			task.spawn(function()
-				task.wait(currentParticleIndex * 0.055)
+				task.wait(currentParticleIndex * 0.09)
 
 				while aura.Parent ~= nil and cycle == cardState.AuraCycle do
 					if
@@ -561,10 +561,13 @@ local function initialise()
 						continue
 					end
 
+					local startX = 0.5 + randomizer:NextNumber(-0.12, 0.12)
+					local endX = math.clamp(startX + randomizer:NextNumber(-0.16, 0.16), 0.18, 0.82)
+
 					particle.BackgroundColor3 = rarityColor
-					particle.Position = UDim2.fromScale(0.5 + randomizer:NextNumber(-0.13, 0.13), 0.98)
-					particle.Size = UDim2.fromOffset(randomizer:NextInteger(2, 3), randomizer:NextInteger(2, 3))
-					particle.BackgroundTransparency = randomizer:NextNumber(0.34, 0.54)
+					particle.Position = UDim2.fromScale(startX, 0.94)
+					particle.Size = UDim2.fromOffset(randomizer:NextInteger(1, 3), randomizer:NextInteger(1, 3))
+					particle.BackgroundTransparency = randomizer:NextNumber(0.52, 0.76)
 					particle.Visible = true
 
 					local corner = particle:FindFirstChildOfClass("UICorner")
@@ -578,14 +581,14 @@ local function initialise()
 					if glow and glow:IsA("UIStroke") then
 						glow.Color = rarityColor
 						glow.Thickness = 0.45
-						glow.Transparency = 0.48
+						glow.Transparency = 0.74
 					end
 
 					local rise = TweenService:Create(
 						particle,
-						TweenInfo.new(randomizer:NextNumber(0.82, 1.22), Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+						TweenInfo.new(randomizer:NextNumber(1.05, 1.55), Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
 						{
-							Position = UDim2.fromScale(0.5 + randomizer:NextNumber(-0.22, 0.22), -0.1),
+							Position = UDim2.fromScale(endX, -0.06),
 							BackgroundTransparency = 1,
 						}
 					)
@@ -602,7 +605,7 @@ local function initialise()
 						cardState.AuraParticleTweens[particle] = nil
 					end
 					particle.Visible = false
-					task.wait(randomizer:NextNumber(0.025, 0.09))
+					task.wait(randomizer:NextNumber(0.06, 0.18))
 				end
 			end)
 		end

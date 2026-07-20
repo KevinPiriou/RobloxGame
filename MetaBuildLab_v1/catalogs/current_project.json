@@ -1,0 +1,1866 @@
+{
+  "schema_version": 2,
+  "meta": {
+    "name": "RobloxGame current snapshot",
+    "repository": "KevinPiriou/RobloxGame",
+    "branch": "Mymain",
+    "commit": "2f932e482e8f772958a9ba2cb18a45cf7c58f4e5",
+    "snapshot_date": "2026-07-19",
+    "source_snapshot": {
+      "format": "sha256-v1",
+      "commit": "2f932e482e8f772958a9ba2cb18a45cf7c58f4e5",
+      "files": {
+        "src/shared/CombatConfig.luau": "15a9e0076ba7b82f1419e059f0ed1c77e6e71827300586f4dae30862327d3ae0",
+        "src/shared/Perks.luau": "0f081f9f13babc175c648faccbf752e0b62dcd5e73eeefa284c9d5598cbe232d",
+        "src/shared/RunItemConfig.luau": "552e9a9820872aa86f245ba3f008a9953e8bae9cbf7c5ff0197b37dba0df5608",
+        "src/shared/BuildMetaConfig.luau": "50b1a28c03da1325be5f091d36ca81e041e4b7112b71d91b73baf0c9cec1ba7f",
+        "src/server/PerkService.luau": "1cf34ddb637b8b86b489fe5c47a58c5f795a29049e04291a003152b9ab4675a9",
+        "src/server/RunItemService.luau": "3ca2244c00c13c8fdb29e35102dbda5cf5e26a301b452b24d6709ef9c7d95fea",
+        "src/server/RunScoreService.luau": "6305e3408c86941004eab987661f6b9108dd4eb92a00dc2047ce38ac9a628a1f",
+        "src/server/JumpBonusService.luau": "d04fabdc952d69ad12f99bcaeac819978abc75e6915a955a09ea015a43eb88eb",
+        "src/server/WeaponService.luau": "07e126af4add0f941742e8f013070eb0f01041de9576152612c854671c2bc07e",
+        "src/server/MonsterService.luau": "8ac519241432ae0159f3b81510be35665c84dd68fd32f46862a2600cf751bd44",
+        "src/server/ChestService.luau": "119cfc656e48282cad1b39c0013066cd98bc7de8f21feb7554ccb7b2da294fbd"
+      }
+    },
+    "notes": [
+      "Catalogue neutre initialisé avec les formules du projet courant.",
+      "Les profils joueur et la fréquence d'ouverture des coffres sont configurables.",
+      "La simulation ne reproduit ni la physique Roblox, ni les positions 3D."
+    ]
+  },
+  "model_assumptions": {
+    "status": "theoretical_not_calibrated_against_live_runs",
+    "proxy_coefficients": {
+      "collect_radius_per_stud": 0.01,
+      "collect_radius_cap": 1.4,
+      "move_speed_value": 0.35,
+      "jump_value": 0.12,
+      "mobility_power_weight": 8,
+      "step_score_power_weight": 3,
+      "explicit_synergy_power_weight": 5
+    }
+  },
+  "settings": {
+    "run_duration_seconds": 720,
+    "max_simultaneous_weapons": 4,
+    "analytical_ramp_factor": 0.66,
+    "event_step_seconds": 0.25,
+    "projectile_event_budget": 250000,
+    "rarities": {
+      "Common": {
+        "weight": 58,
+        "power_factor": 1.0
+      },
+      "Rare": {
+        "weight": 28,
+        "power_factor": 1.8
+      },
+      "Epic": {
+        "weight": 11,
+        "power_factor": 3.0
+      },
+      "Legendary": {
+        "weight": 3,
+        "power_factor": 5.0
+      }
+    },
+    "perk_choices_per_level": 3,
+    "max_rerolls_per_run": 3,
+    "max_unique_items": 12,
+    "chest_rarity_weights": {
+      "Common": 1.0,
+      "Rare": 0.35
+    },
+    "base_chest_cost": 5,
+    "chest_cost_increase": 5,
+    "coin_drop_chance": 0.25,
+    "xp_base": 6,
+    "xp_increase_per_level": 6,
+    "xp_per_kill": 1
+  },
+  "skill_profiles": {
+    "beginner": {
+      "name": "Débutant",
+      "accuracy": 0.67,
+      "evasion": 0.52,
+      "pickup_efficiency": 0.72,
+      "choice_quality": 0.52,
+      "chest_interest": 0.58,
+      "target_perk_picks": 16,
+      "target_item_picks": 4,
+      "pressure_exposure": 0.015
+    },
+    "medium": {
+      "name": "Moyen",
+      "accuracy": 0.82,
+      "evasion": 0.72,
+      "pickup_efficiency": 0.86,
+      "choice_quality": 0.78,
+      "chest_interest": 0.77,
+      "target_perk_picks": 21,
+      "target_item_picks": 6,
+      "pressure_exposure": 0.009
+    },
+    "experienced": {
+      "name": "Expérimenté",
+      "accuracy": 0.93,
+      "evasion": 0.88,
+      "pickup_efficiency": 0.95,
+      "choice_quality": 0.94,
+      "chest_interest": 0.92,
+      "target_perk_picks": 26,
+      "target_item_picks": 8,
+      "pressure_exposure": 0.005
+    }
+  },
+  "characters": [
+    {
+      "id": "default_character",
+      "name": "Personnage actuel",
+      "category": "character",
+      "tags": [
+        "character"
+      ],
+      "base_stats": {
+        "MaxHealth": 100,
+        "MoveSpeed": 15,
+        "JumpPower": 55,
+        "DamagePercent": 0,
+        "FlatDamage": 0,
+        "EliteFlatDamage": 0,
+        "AttackSpeedPercent": 0,
+        "ProjectileCount": 0,
+        "ProjectileSpeedPercent": 0,
+        "EffectDurationPercent": 0,
+        "BounceCount": 0,
+        "CritChance": 0,
+        "CritMultiplierBonus": 0,
+        "LifeStealPercent": 0,
+        "HealthRegen": 0,
+        "MaxHealthBonus": 0,
+        "Shield": 0,
+        "XpGainPercent": 0,
+        "GoldGainPercent": 0,
+        "Luck": 0,
+        "ArmorPercent": 0,
+        "EnemyCountPercent": 0,
+        "CollectRadius": 0,
+        "StepScorePercent": 0
+      },
+      "effects": []
+    }
+  ],
+  "weapons": [
+    {
+      "id": "fireball",
+      "name": "Fireball",
+      "category": "weapon",
+      "rarity": "Starter",
+      "tags": [
+        "weapon",
+        "projectile",
+        "homing",
+        "bounce"
+      ],
+      "base": {
+        "damage": 24,
+        "cooldown": 0.95,
+        "range": 90,
+        "speed": 58,
+        "lifetime": 3.8,
+        "hit_radius": 4.25,
+        "projectiles": 1,
+        "crit_enabled": true
+      },
+      "behaviors": [
+        {
+          "type": "projectile"
+        },
+        {
+          "type": "homing",
+          "accuracy_bonus": 0.14
+        },
+        {
+          "type": "bounce",
+          "count_stat": "BounceCount"
+        }
+      ],
+      "levels": [
+        {
+          "level": 1,
+          "effects": []
+        },
+        {
+          "level": 2,
+          "effects": [
+            {
+              "type": "stat",
+              "stat": "DamagePercent",
+              "operation": "add",
+              "value": 0.1
+            }
+          ]
+        },
+        {
+          "level": 3,
+          "effects": [
+            {
+              "type": "stat",
+              "stat": "ProjectileSpeedPercent",
+              "operation": "add",
+              "value": 0.12
+            }
+          ]
+        },
+        {
+          "level": 4,
+          "effects": [
+            {
+              "type": "stat",
+              "stat": "AttackSpeedPercent",
+              "operation": "add",
+              "value": 0.12
+            }
+          ]
+        },
+        {
+          "level": 5,
+          "effects": [
+            {
+              "type": "stat",
+              "stat": "DamagePercent",
+              "operation": "add",
+              "value": 0.18
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "perks": [
+    {
+      "id": "move_speed",
+      "name": "Vitesse de déplacement",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "MoveSpeedPercent",
+              "operation": "add",
+              "value": 0.08
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "MoveSpeedPercent",
+              "operation": "add",
+              "value": 0.14
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "MoveSpeedPercent",
+              "operation": "add",
+              "value": 0.22
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "MoveSpeedPercent",
+              "operation": "add",
+              "value": 0.35
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "jump_bonus",
+      "name": "Saut supplémentaire",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "JumpPercent",
+              "operation": "add",
+              "value": 0.1
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "JumpPercent",
+              "operation": "add",
+              "value": 0.2
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "JumpPercent",
+              "operation": "add",
+              "value": 0.35
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "JumpPercent",
+              "operation": "add",
+              "value": 0.55
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "attack_speed",
+      "name": "Vitesse d'attaque",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "AttackSpeedPercent",
+              "operation": "add",
+              "value": 0.08
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "AttackSpeedPercent",
+              "operation": "add",
+              "value": 0.16
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "AttackSpeedPercent",
+              "operation": "add",
+              "value": 0.28
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "AttackSpeedPercent",
+              "operation": "add",
+              "value": 0.45
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "projectile_count",
+      "name": "Nombre de projectiles",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "ProjectileCount",
+              "operation": "add",
+              "value": 1
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "ProjectileCount",
+              "operation": "add",
+              "value": 1
+            },
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "DamagePercent",
+              "operation": "add",
+              "value": 0.05
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "ProjectileCount",
+              "operation": "add",
+              "value": 2
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "ProjectileCount",
+              "operation": "add",
+              "value": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "collect_radius",
+      "name": "Rayon de récolte",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "CollectRadius",
+              "operation": "add",
+              "value": 2
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "CollectRadius",
+              "operation": "add",
+              "value": 4
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "CollectRadius",
+              "operation": "add",
+              "value": 7
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "CollectRadius",
+              "operation": "add",
+              "value": 12
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "damage_percent",
+      "name": "Dégâts en %",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "DamagePercent",
+              "operation": "add",
+              "value": 0.1
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "DamagePercent",
+              "operation": "add",
+              "value": 0.2
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "DamagePercent",
+              "operation": "add",
+              "value": 0.35
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "DamagePercent",
+              "operation": "add",
+              "value": 0.6
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "projectile_speed",
+      "name": "Vitesse des projectiles",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "ProjectileSpeedPercent",
+              "operation": "add",
+              "value": 0.1
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "ProjectileSpeedPercent",
+              "operation": "add",
+              "value": 0.2
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "ProjectileSpeedPercent",
+              "operation": "add",
+              "value": 0.35
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "ProjectileSpeedPercent",
+              "operation": "add",
+              "value": 0.6
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "effect_duration",
+      "name": "Durée des attaques",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "EffectDurationPercent",
+              "operation": "add",
+              "value": 0.1
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "EffectDurationPercent",
+              "operation": "add",
+              "value": 0.2
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "EffectDurationPercent",
+              "operation": "add",
+              "value": 0.35
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "EffectDurationPercent",
+              "operation": "add",
+              "value": 0.55
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "enemy_bounce",
+      "name": "Rebond sur ennemi",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "BounceCount",
+              "operation": "add",
+              "value": 1
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "BounceCount",
+              "operation": "add",
+              "value": 2
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "BounceCount",
+              "operation": "add",
+              "value": 3
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "BounceCount",
+              "operation": "add",
+              "value": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "crit_chance",
+      "name": "Chance de critique",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "CritChance",
+              "operation": "add",
+              "value": 0.05
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "CritChance",
+              "operation": "add",
+              "value": 0.1
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "CritChance",
+              "operation": "add",
+              "value": 0.15
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "CritChance",
+              "operation": "add",
+              "value": 0.25
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "crit_multiplier",
+      "name": "Multiplicateur critique",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "CritMultiplierBonus",
+              "operation": "add",
+              "value": 0.25
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "CritMultiplierBonus",
+              "operation": "add",
+              "value": 0.5
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "CritMultiplierBonus",
+              "operation": "add",
+              "value": 0.85
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "CritMultiplierBonus",
+              "operation": "add",
+              "value": 1.25
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "life_steal",
+      "name": "Vol de vie",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "LifeStealPercent",
+              "operation": "add",
+              "value": 0.01
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "LifeStealPercent",
+              "operation": "add",
+              "value": 0.02
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "LifeStealPercent",
+              "operation": "add",
+              "value": 0.035
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "LifeStealPercent",
+              "operation": "add",
+              "value": 0.06
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "health_regen",
+      "name": "Régénération de vie",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "HealthRegen",
+              "operation": "add",
+              "value": 0.2
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "HealthRegen",
+              "operation": "add",
+              "value": 0.5
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "HealthRegen",
+              "operation": "add",
+              "value": 1
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "HealthRegen",
+              "operation": "add",
+              "value": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "shield",
+      "name": "Bouclier",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "Shield",
+              "operation": "add",
+              "value": 5
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "Shield",
+              "operation": "add",
+              "value": 10
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "Shield",
+              "operation": "add",
+              "value": 20
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "Shield",
+              "operation": "add",
+              "value": 40
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "xp_gain",
+      "name": "Gain d'XP",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "XpGainPercent",
+              "operation": "add",
+              "value": 0.1
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "XpGainPercent",
+              "operation": "add",
+              "value": 0.2
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "XpGainPercent",
+              "operation": "add",
+              "value": 0.35
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "XpGainPercent",
+              "operation": "add",
+              "value": 0.6
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "gold_gain",
+      "name": "Gain d'or",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "GoldGainPercent",
+              "operation": "add",
+              "value": 0.1
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "GoldGainPercent",
+              "operation": "add",
+              "value": 0.2
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "GoldGainPercent",
+              "operation": "add",
+              "value": 0.35
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "GoldGainPercent",
+              "operation": "add",
+              "value": 0.6
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "luck",
+      "name": "Chance",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "Luck",
+              "operation": "add",
+              "value": 0.05
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "Luck",
+              "operation": "add",
+              "value": 0.1
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "Luck",
+              "operation": "add",
+              "value": 0.18
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "Luck",
+              "operation": "add",
+              "value": 0.3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "armor",
+      "name": "Armure",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "ArmorPercent",
+              "operation": "add",
+              "value": 0.05
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "ArmorPercent",
+              "operation": "add",
+              "value": 0.1
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "ArmorPercent",
+              "operation": "add",
+              "value": 0.18
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "ArmorPercent",
+              "operation": "add",
+              "value": 0.3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "more_enemies",
+      "name": "Plus d'ennemis",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "EnemyCountPercent",
+              "operation": "add",
+              "value": 0.1
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "EnemyCountPercent",
+              "operation": "add",
+              "value": 0.2
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "EnemyCountPercent",
+              "operation": "add",
+              "value": 0.35
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "EnemyCountPercent",
+              "operation": "add",
+              "value": 0.6
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "flat_damage",
+      "name": "Dégâts bruts",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "FlatDamage",
+              "operation": "add",
+              "value": 2
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "FlatDamage",
+              "operation": "add",
+              "value": 4
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "FlatDamage",
+              "operation": "add",
+              "value": 7
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "FlatDamage",
+              "operation": "add",
+              "value": 12
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "elite_flat_damage",
+      "name": "Dégâts bruts élite",
+      "category": "perk",
+      "tags": [
+        "perk"
+      ],
+      "variants": {
+        "Common": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "EliteFlatDamage",
+              "operation": "add",
+              "value": 4
+            }
+          ]
+        },
+        "Rare": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "EliteFlatDamage",
+              "operation": "add",
+              "value": 8
+            }
+          ]
+        },
+        "Epic": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "EliteFlatDamage",
+              "operation": "add",
+              "value": 14
+            }
+          ]
+        },
+        "Legendary": {
+          "effects": [
+            {
+              "trigger": "OnAcquire",
+              "type": "stat",
+              "stat": "EliteFlatDamage",
+              "operation": "add",
+              "value": 24
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "items": [
+    {
+      "id": "camembert",
+      "name": "Camembert",
+      "category": "item",
+      "rarity": "Common",
+      "tags": [
+        "item",
+        "poison",
+        "on_hit"
+      ],
+      "effects": [
+        {
+          "trigger": "OnHit",
+          "type": "apply_status",
+          "status": "poison",
+          "chance_per_stack": 0.05,
+          "scale_with": "EffectDurationPercent"
+        }
+      ]
+    },
+    {
+      "id": "three_leaf_clover",
+      "name": "Trèfle à 3 feuilles",
+      "category": "item",
+      "rarity": "Common",
+      "tags": [
+        "item",
+        "luck"
+      ],
+      "effects": [
+        {
+          "trigger": "OnAcquire",
+          "type": "stat",
+          "stat": "Luck",
+          "operation": "add",
+          "value_per_stack": 0.05
+        }
+      ]
+    },
+    {
+      "id": "midas_hand",
+      "name": "Main de Midas",
+      "category": "item",
+      "rarity": "Common",
+      "tags": [
+        "item",
+        "economy"
+      ],
+      "effects": [
+        {
+          "trigger": "OnAcquire",
+          "type": "stat",
+          "stat": "GoldGainPercent",
+          "operation": "add",
+          "value_per_stack": 0.15
+        }
+      ]
+    },
+    {
+      "id": "energy_drink",
+      "name": "Energy Drink",
+      "category": "item",
+      "rarity": "Common",
+      "tags": [
+        "item",
+        "speed",
+        "offense"
+      ],
+      "effects": [
+        {
+          "trigger": "OnAcquire",
+          "type": "stat",
+          "stat": "MoveSpeedPercent",
+          "operation": "add",
+          "value_per_stack": 0.05
+        },
+        {
+          "trigger": "OnAcquire",
+          "type": "stat",
+          "stat": "AttackSpeedPercent",
+          "operation": "add",
+          "value_per_stack": 0.05
+        },
+        {
+          "trigger": "OnAcquire",
+          "type": "stat",
+          "stat": "ProjectileSpeedPercent",
+          "operation": "add",
+          "value_per_stack": 0.05
+        }
+      ]
+    },
+    {
+      "id": "syringe",
+      "name": "Seringue",
+      "category": "item",
+      "rarity": "Common",
+      "tags": [
+        "item",
+        "damage"
+      ],
+      "effects": [
+        {
+          "trigger": "OnAcquire",
+          "type": "stat",
+          "stat": "DamagePercent",
+          "operation": "add",
+          "value_per_stack": 0.1
+        }
+      ]
+    },
+    {
+      "id": "canned_food",
+      "name": "Boîte de conserve",
+      "category": "item",
+      "rarity": "Common",
+      "tags": [
+        "item",
+        "health"
+      ],
+      "effects": [
+        {
+          "trigger": "OnAcquire",
+          "type": "stat",
+          "stat": "MaxHealthBonus",
+          "operation": "add",
+          "value_per_stack": 25
+        }
+      ]
+    },
+    {
+      "id": "sneakers",
+      "name": "Sneakers",
+      "category": "item",
+      "rarity": "Common",
+      "tags": [
+        "item",
+        "movement"
+      ],
+      "effects": [
+        {
+          "trigger": "OnAcquire",
+          "type": "stat",
+          "stat": "MoveSpeedPercent",
+          "operation": "add",
+          "value_per_stack": 0.15
+        }
+      ]
+    },
+    {
+      "id": "corrupted_vial",
+      "name": "Fiole corrompue",
+      "category": "item",
+      "rarity": "Common",
+      "tags": [
+        "item",
+        "crit"
+      ],
+      "effects": [
+        {
+          "trigger": "OnAcquire",
+          "type": "stat",
+          "stat": "CritChance",
+          "operation": "add",
+          "value_per_stack": 0.15
+        }
+      ]
+    },
+    {
+      "id": "red_access_card",
+      "name": "Carte d'accès rouge",
+      "category": "item",
+      "rarity": "Rare",
+      "tags": [
+        "item",
+        "chest_scaling",
+        "damage"
+      ],
+      "effects": [
+        {
+          "trigger": "OnChestOpened",
+          "type": "stat",
+          "stat": "DamagePercent",
+          "operation": "add",
+          "value_per_stack": 0.025
+        }
+      ]
+    },
+    {
+      "id": "blue_access_card",
+      "name": "Carte d'accès bleue",
+      "category": "item",
+      "rarity": "Rare",
+      "tags": [
+        "item",
+        "chest_scaling",
+        "luck"
+      ],
+      "effects": [
+        {
+          "trigger": "OnChestOpened",
+          "type": "stat",
+          "stat": "Luck",
+          "operation": "add",
+          "value_per_stack": 0.05
+        }
+      ]
+    },
+    {
+      "id": "vampire_tooth",
+      "name": "Dent de vampire",
+      "category": "item",
+      "rarity": "Rare",
+      "tags": [
+        "item",
+        "kill_scaling",
+        "health"
+      ],
+      "effects": [
+        {
+          "trigger": "OnKill",
+          "type": "counter_reward",
+          "counter": "kills",
+          "threshold": 50,
+          "threshold_stack_multiplier": 0.75,
+          "reward": {
+            "type": "stat",
+            "stat": "MaxHealthBonus",
+            "operation": "add",
+            "value": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "golden_sneakers",
+      "name": "Golden Sneakers",
+      "category": "item",
+      "rarity": "Common",
+      "tags": [
+        "item",
+        "score"
+      ],
+      "effects": [
+        {
+          "trigger": "OnAcquire",
+          "type": "stat",
+          "stat": "StepScorePercent",
+          "operation": "add",
+          "value_per_stack": 0.05
+        }
+      ]
+    },
+    {
+      "id": "blood_infusion",
+      "name": "Perfusion sanguine",
+      "category": "item",
+      "rarity": "Common",
+      "tags": [
+        "item",
+        "crit"
+      ],
+      "effects": [
+        {
+          "trigger": "OnAcquire",
+          "type": "stat",
+          "stat": "CritChance",
+          "operation": "add",
+          "value_per_stack": 0.05
+        }
+      ]
+    }
+  ],
+  "relics": [],
+  "curses": [],
+  "statuses": {
+    "poison": {
+      "id": "poison",
+      "name": "Poison",
+      "tick_damage": 4,
+      "tick_interval": 1.0,
+      "base_duration": 4.0,
+      "stacking": "independent"
+    },
+    "burn": {
+      "id": "burn",
+      "name": "Brûlure",
+      "tick_damage": 3,
+      "tick_interval": 0.75,
+      "base_duration": 3.0,
+      "stacking": "refresh"
+    },
+    "freeze": {
+      "id": "freeze",
+      "name": "Gel",
+      "tick_damage": 0,
+      "tick_interval": 1.0,
+      "base_duration": 2.0,
+      "stacking": "refresh"
+    }
+  },
+  "gems": [
+    {
+      "id": "xp_gem_1",
+      "tier": 1,
+      "value": 1
+    },
+    {
+      "id": "xp_gem_2",
+      "tier": 2,
+      "value": 3
+    },
+    {
+      "id": "xp_gem_3",
+      "tier": 3,
+      "value": 9
+    }
+  ],
+  "synergies": [
+    {
+      "id": "poison_duration",
+      "name": "Poison prolongé",
+      "conditions": {
+        "all_tags": [
+          "poison"
+        ],
+        "min_stats": {
+          "EffectDurationPercent": 0.2
+        }
+      },
+      "effects": [
+        {
+          "trigger": "OnHit",
+          "type": "proc_multiplier",
+          "proc": "poison",
+          "value": 1.15
+        }
+      ],
+      "comment": "La durée augmente la valeur des applications de poison."
+    },
+    {
+      "id": "crit_engine",
+      "name": "Moteur critique",
+      "conditions": {
+        "min_stats": {
+          "CritChance": 0.3,
+          "CritMultiplierBonus": 0.5
+        }
+      },
+      "effects": [
+        {
+          "trigger": "OnRunStart",
+          "type": "stat",
+          "stat": "MetaCritSynergy",
+          "operation": "add",
+          "value": 1
+        }
+      ],
+      "comment": "Chance et multiplicateur critiques deviennent mutuellement rentables."
+    },
+    {
+      "id": "projectile_bounce_density",
+      "name": "Couverture de horde",
+      "conditions": {
+        "min_stats": {
+          "ProjectileCount": 2,
+          "BounceCount": 2
+        }
+      },
+      "effects": [
+        {
+          "trigger": "OnRunStart",
+          "type": "stat",
+          "stat": "MetaCoverageSynergy",
+          "operation": "add",
+          "value": 1
+        }
+      ],
+      "comment": "Plusieurs projectiles avec rebonds exploitent mieux les fortes densités."
+    }
+  ],
+  "enemies": {
+    "normal": {
+      "id": "normal",
+      "name": "Monstre normal",
+      "health": 36,
+      "damage": 8,
+      "attack_cooldown": 1.1,
+      "speed": 12,
+      "xp": 1,
+      "elite": false
+    },
+    "elite": {
+      "id": "elite",
+      "name": "Élite",
+      "health": 72,
+      "damage": 16,
+      "attack_cooldown": 1.1,
+      "speed": 12,
+      "xp": 3,
+      "elite": true
+    }
+  },
+  "run_scenarios": [
+    {
+      "id": "project_horde_12m",
+      "name": "Horde projet — 12 min",
+      "weight": 0.8,
+      "duration_seconds": 720,
+      "wave_duration": 30,
+      "calm_duration": 20,
+      "calm_max_alive": 6,
+      "wave_base_max_alive": 11,
+      "wave_max_alive_increase": 10,
+      "spawn_batch_base": 2,
+      "spawn_batch_increase_every": 2,
+      "spawn_batch_max": 8,
+      "spawn_interval": 2.6,
+      "spawn_interval_min": 0.75,
+      "spawn_interval_decrease_per_wave": 0.22,
+      "monster_max_alive": 1000,
+      "elite_events": []
+    },
+    {
+      "id": "project_elite_12m",
+      "name": "Horde + défis élites",
+      "weight": 0.2,
+      "duration_seconds": 720,
+      "wave_duration": 30,
+      "calm_duration": 20,
+      "calm_max_alive": 6,
+      "wave_base_max_alive": 11,
+      "wave_max_alive_increase": 10,
+      "spawn_batch_base": 2,
+      "spawn_batch_increase_every": 2,
+      "spawn_batch_max": 8,
+      "spawn_interval": 2.6,
+      "spawn_interval_min": 0.75,
+      "spawn_interval_decrease_per_wave": 0.22,
+      "monster_max_alive": 1000,
+      "elite_events": [
+        {
+          "time": 180,
+          "count": 5
+        },
+        {
+          "time": 360,
+          "count": 5
+        },
+        {
+          "time": 540,
+          "count": 5
+        }
+      ]
+    }
+  ],
+  "utility_weights": {
+    "DamagePercent": 9,
+    "FlatDamage": 1.4,
+    "EliteFlatDamage": 0.6,
+    "AttackSpeedPercent": 8,
+    "ProjectileCount": 7,
+    "ProjectileSpeedPercent": 2.5,
+    "EffectDurationPercent": 3,
+    "BounceCount": 4,
+    "CritChance": 8,
+    "CritMultiplierBonus": 5,
+    "LifeStealPercent": 8,
+    "HealthRegen": 2.5,
+    "MaxHealthBonus": 0.18,
+    "Shield": 0.22,
+    "XpGainPercent": 4.5,
+    "GoldGainPercent": 2.5,
+    "Luck": 3.5,
+    "ArmorPercent": 9,
+    "EnemyCountPercent": -1.5,
+    "MoveSpeedPercent": 2.5,
+    "JumpPercent": 1.2,
+    "CollectRadius": 0.25,
+    "StepScorePercent": 0.2
+  }
+}

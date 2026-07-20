@@ -1327,9 +1327,13 @@ function ProceduralMapService.Generate(session, map, arrival, onProgress)
 	end
 
 	local totalPlatformCount = 0
+	local totalRampCount = 0
 
 	for _, selectedLayout in ipairs(selectedLayouts) do
-		totalPlatformCount += #selectedLayout.Definition.Platforms
+		for _, platformDefinition in ipairs(selectedLayout.Definition.Platforms) do
+			totalPlatformCount += 1
+			totalRampCount += #(platformDefinition.Ramps or {})
+		end
 	end
 
 	local platformRecords = {}
@@ -1400,7 +1404,10 @@ function ProceduralMapService.Generate(session, map, arrival, onProgress)
 	return true, {
 		Layouts = #selectedLayouts,
 		Platforms = placedPlatforms,
+		PlannedPlatforms = totalPlatformCount,
+		PlannedRamps = totalRampCount,
 		Links = linkCount,
+		CoverageRatio = coveredSurfaceArea / usableArea,
 		Foliage = foliageCount,
 		FoliageByFamily = foliageByFamily,
 		Theme = terrainThemeId,

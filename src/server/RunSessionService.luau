@@ -12,7 +12,10 @@ local ChapterProgressService = require(script.Parent:WaitForChild("ChapterProgre
 local ProceduralMapService = require(script.Parent:WaitForChild("ProceduralMapService"))
 local RunMapService = require(script.Parent:WaitForChild("RunMapService"))
 local RunLoadingService = require(script.Parent:WaitForChild("RunLoadingService"))
+local RunSeedValidationService = require(script.Parent:WaitForChild("RunSeedValidationService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
+
+local RunGenerationConfig = require(Shared:WaitForChild("RunGenerationConfig"))
 
 local RunSessionService = {}
 
@@ -178,6 +181,9 @@ local function copySession(session)
 		Version = ChapterConfig.DataVersion,
 		RunId = tostring(session.RunId or ""),
 		Seed = math.floor(tonumber(session.Seed) or 0),
+		InitialSeed = math.floor(tonumber(session.InitialSeed) or tonumber(session.Seed) or 0),
+		GenerationAttemptCount = math.max(0, math.floor(tonumber(session.GenerationAttemptCount) or 0)),
+		RejectedSeedCount = math.max(0, math.floor(tonumber(session.RejectedSeedCount) or 0)),
 		UserId = math.floor(tonumber(session.UserId) or 0),
 		ChapterId = math.floor(tonumber(session.ChapterId) or 0),
 		MapId = tostring(session.MapId or ""),
@@ -242,10 +248,162 @@ end
 local function publishSession(player, session)
 	player:SetAttribute("RunId", session and session.RunId or nil)
 	player:SetAttribute("RunSeed", session and session.Seed or nil)
+	player:SetAttribute("RunInitialSeed", session and (session.InitialSeed or session.Seed) or nil)
+	player:SetAttribute("RunGenerationAttemptCount", session and session.GenerationAttemptCount or nil)
+	player:SetAttribute("RunRejectedSeedCount", session and session.RejectedSeedCount or nil)
 	player:SetAttribute("RunChapterId", session and session.ChapterId or nil)
 	player:SetAttribute("RunMapId", session and session.MapId or nil)
 	player:SetAttribute("RunCreatedAt", session and session.CreatedAt or nil)
 	player:SetAttribute("RunLifecycleStatus", session and session.LifecycleStatus or "Idle")
+end
+
+local function clearGenerationAttempt(session)
+	if runWorldService ~= nil then
+		local worldCleared, worldError = pcall(function()
+			runWorldService.Clear()
+		end)
+
+		if not worldCleared then
+			DebugLog.Warn("Perf", "Nettoyage monde apres rejet de seed en erreur", {
+				RunId = session.RunId,
+				Seed = session.Seed,
+				Error = tostring(worldError),
+			})
+		end
+	end
+
+	RunMapService.Destroy(session.RunId)
+end
+
+local function generateRunAttempt(player, session)
+	RunLoadingService.Update(player, "Map")
+	local mapGenerated, arrivalOrReason = RunMapService.Generate(session)
+
+	if not mapGenerated then
+		return false, arrivalOrReason, nil, "Map"
+	end
+
+	local activeMap = RunMapService.GetActiveMap()
+	local terrainGenerated, terrainReason = ProceduralMapService.Generate(
+		session,
+		activeMap,
+		arrivalOrReason,
+		function(stage, detail)
+			RunLoadingService.Update(player, stage, detail)
+		end
+	)
+
+	if not terrainGenerated then
+		return false, terrainReason, nil, "Terrain"
+	end
+
+	local terrainValid, terrainValidationReason, terrainValidation = RunSeedValidationService.ValidateTerrain(
+		activeMap,
+		terrainReason
+	)
+
+	if not terrainValid then
+		return false, terrainValidationReason, nil, "TerrainValidation", terrainValidation
+	end
+
+	local worldGenerated, worldReason = runWorldService.Generate(session, function(stage, detail)
+		RunLoadingService.Update(player, stage, detail)
+	end)
+
+	if not worldGenerated then
+		return false, worldReason, nil, "World"
+	end
+
+	local worldValid, worldValidationReason, worldValidation = RunSeedValidationService.ValidateWorld(worldReason)
+
+	if not worldValid then
+		return false, worldValidationReason, nil, "WorldValidation", worldValidation
+	end
+
+	return true, "Ok", arrivalOrReason, "Ready", {
+		Terrain = terrainValidation,
+		World = worldValidation,
+	}
+end
+
+local function generateValidatedRun(player, session)
+	local initialSeed = math.floor(tonumber(session.InitialSeed) or tonumber(session.Seed) or 1)
+	local maximumAttempts = if RunGenerationConfig.SeedGuardEnabled
+		then math.max(1, RunGenerationConfig.MaximumGenerationAttempts)
+		else 1
+	local lastReason = "UnknownGenerationFailure"
+
+	for attemptNumber = 1, maximumAttempts do
+		local candidateSeed = RunSeedValidationService.GetCandidateSeed(initialSeed, attemptNumber)
+		session.Seed = candidateSeed
+		session.GenerationAttemptCount = attemptNumber
+		publishSession(player, session)
+
+		if attemptNumber > 1 then
+			RunLoadingService.Update(player, "Map", ("Nouvelle configuration %d / %d"):format(
+				attemptNumber,
+				maximumAttempts
+			))
+		end
+
+		local callSucceeded, generated, reason, arrival, stage, validation = pcall(
+			generateRunAttempt,
+			player,
+			session
+		)
+
+		if not callSucceeded then
+			clearGenerationAttempt(session)
+			DebugLog.Warn("Perf", "Exception pendant la validation d'une seed de run", {
+				RunId = session.RunId,
+				Seed = candidateSeed,
+				Attempt = attemptNumber,
+				Error = tostring(generated),
+			})
+			return false, "RunGenerationException", nil
+		end
+
+		if generated then
+			DebugLog.Info("Perf", "Seed de run validee sur la generation Roblox reelle", {
+				RunId = session.RunId,
+				InitialSeed = initialSeed,
+				AcceptedSeed = candidateSeed,
+				Attempts = attemptNumber,
+				RejectedSeeds = session.RejectedSeedCount or 0,
+			})
+			return true, "Ok", arrival
+		end
+
+		lastReason = tostring(reason)
+		session.RejectedSeedCount = math.max(0, math.floor(tonumber(session.RejectedSeedCount) or 0)) + 1
+		clearGenerationAttempt(session)
+
+		local retryable = RunSeedValidationService.IsRetryableReason(lastReason)
+		DebugLog.Warn("Perf", "Seed de run rejetee avant exposition du joueur", {
+			RunId = session.RunId,
+			Seed = candidateSeed,
+			Attempt = attemptNumber,
+			Stage = stage,
+			Reason = lastReason,
+			Retryable = retryable,
+			Validation = validation,
+		})
+
+		if not retryable then
+			return false, lastReason, nil
+		end
+
+		task.wait()
+	end
+
+	DebugLog.Warn("Perf", "Aucune seed de run valide dans le budget de tentatives", {
+		RunId = session.RunId,
+		InitialSeed = initialSeed,
+		Attempts = maximumAttempts,
+		LastReason = lastReason,
+	})
+
+	return false, "SeedValidationExhausted", nil
 end
 
 local function appendHistory(data, session)
@@ -426,10 +584,14 @@ function RunSessionService.PrepareRun(player, chapterId)
 		return false, "WorldAlreadyInUse"
 	end
 
+	local initialSeed = Random.new():NextInteger(1, RunGenerationConfig.MaximumSeed)
 	local session = {
 		Version = ChapterConfig.DataVersion,
 		RunId = HttpService:GenerateGUID(false),
-		Seed = Random.new():NextInteger(1, 2147483646),
+		Seed = initialSeed,
+		InitialSeed = initialSeed,
+		GenerationAttemptCount = 0,
+		RejectedSeedCount = 0,
 		UserId = player.UserId,
 		ChapterId = chapter.Id,
 		MapId = chapter.MapTemplateName,
@@ -481,47 +643,23 @@ function RunSessionService.ActivatePreparedRun(player, expectedRunId, reason)
 	transition(player, session, "Generating")
 	saveProfile(player)
 	RunLoadingService.Begin(player)
-	RunLoadingService.Update(player, "Map")
-
-	local mapGenerated, arrivalOrReason = RunMapService.Generate(session)
-
-	if not mapGenerated then
-		finalizeSession(player, tostring(arrivalOrReason))
-		return false, arrivalOrReason, nil
-	end
-
-	local terrainGenerated, terrainReason = ProceduralMapService.Generate(
-		session,
-		RunMapService.GetActiveMap(),
-		arrivalOrReason,
-		function(stage, detail)
-			RunLoadingService.Update(player, stage, detail)
-		end
-	)
-
-	if not terrainGenerated then
-		finalizeSession(player, tostring(terrainReason))
-		return false, terrainReason, nil
-	end
 
 	if runWorldService == nil then
 		finalizeSession(player, "WorldServiceMissing")
 		return false, "WorldServiceMissing", nil
 	end
 
-	local worldGenerated, worldReason = runWorldService.Generate(session, function(stage, detail)
-		RunLoadingService.Update(player, stage, detail)
-	end)
+	local generated, generationReason, generatedArrival = generateValidatedRun(player, session)
 
-	if not worldGenerated then
-		finalizeSession(player, tostring(worldReason))
-		return false, worldReason, nil
+	if not generated then
+		finalizeSession(player, tostring(generationReason))
+		return false, generationReason, nil
 	end
 
 	transition(player, session, "Ready")
 	saveProfile(player)
 
-	return true, "Ok", arrivalOrReason
+	return true, "Ok", generatedArrival
 end
 
 function RunSessionService.StartGeneratedRun(player, expectedRunId, reason)
@@ -571,6 +709,9 @@ function RunSessionService.ResolveArrival(player, teleportData)
 				Version = ChapterConfig.DataVersion,
 				RunId = teleportData.runId,
 				Seed = teleportSeed,
+				InitialSeed = teleportSeed,
+				GenerationAttemptCount = 0,
+				RejectedSeedCount = 0,
 				UserId = player.UserId,
 				ChapterId = chapter.Id,
 				MapId = chapter.MapTemplateName,

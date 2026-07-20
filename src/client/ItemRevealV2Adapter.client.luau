@@ -442,7 +442,12 @@ local function initialise()
 			task.wait()
 		end
 
-		setReelItems({ reward }, 1)
+		-- La bobine conserve son historique visuel. Seule la case centrale
+		-- s'immobilise sur la recompense avant l'affichage du resultat.
+		local selectedSlot = reelSlotFrames[3]
+		if selectedSlot then
+			setSlotItem(selectedSlot, reward, true)
+		end
 		subtitleLabel.Text = "Objet revele"
 		task.wait(0.35)
 		showRevealCard(reward, false, nil)

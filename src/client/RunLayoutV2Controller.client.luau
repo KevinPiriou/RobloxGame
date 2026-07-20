@@ -61,6 +61,29 @@ local function normalizeBarRoots(topDock: GuiObject?, bottomDock: GuiObject?)
 	end
 end
 
+local function configureLoadoutDock(dock: GuiObject?, slotPattern: string, loadoutHeight: number, density: number)
+	if dock == nil then
+		return
+	end
+
+	local content = asGuiObject(dock:FindFirstChild("Content"))
+	if content == nil then
+		return
+	end
+
+	local slotSize = math.clamp(math.floor((loadoutHeight * 0.88) + 0.5), 38, 60)
+	local slotsLayout = content:FindFirstChild("SlotsLayout")
+	if slotsLayout and slotsLayout:IsA("UIListLayout") then
+		slotsLayout.Padding = UDim.new(0, math.clamp(math.floor((10 * density) + 0.5), 6, 12))
+	end
+
+	for _, child in ipairs(content:GetChildren()) do
+		if child:IsA("Frame") and child.Name:match(slotPattern) then
+			child.Size = UDim2.fromOffset(slotSize, slotSize)
+		end
+	end
+end
+
 local function applyLayout()
 	local camera = Workspace.CurrentCamera
 	local metrics = RunHudLayout.Compute(if camera then camera.ViewportSize else Vector2.zero)
@@ -72,16 +95,23 @@ local function applyLayout()
 	local combatGui = playerGui:FindFirstChild("CombatGui")
 	local perkChoiceGui = playerGui:FindFirstChild("PerkChoiceV2")
 	local itemRevealGui = playerGui:FindFirstChild("ItemRevealV2")
+	local weaponChoiceGui = playerGui:FindFirstChild("WeaponChoiceV2")
+	local loadoutGui = playerGui:FindFirstChild("RunLoadoutV2")
 	local runStatsGui = playerGui:FindFirstChild("RunStatsGui")
 	local utilityGui = playerGui:FindFirstChild("RunUtilityGui")
 	local miniMapGui = playerGui:FindFirstChild("MiniMapGui")
 	local perkOverlay = perkChoiceGui and perkChoiceGui:FindFirstChild("Overlay")
 	local itemRevealOverlay = itemRevealGui and itemRevealGui:FindFirstChild("Overlay")
+	local weaponChoiceCanvas = weaponChoiceGui and weaponChoiceGui:FindFirstChild("RunCanvas")
 
 	local topDock = combatGui and asGuiObject(combatGui:FindFirstChild("TopBarV2"))
 	local bottomDock = combatGui and asGuiObject(combatGui:FindFirstChild("BottomBarV2"))
 	local perkDock = perkOverlay and asGuiObject(perkOverlay:FindFirstChild("PerkChoiceDockV2"))
 	local itemRevealDock = itemRevealOverlay and asGuiObject(itemRevealOverlay:FindFirstChild("ItemRevealDockV2"))
+	local weaponChoiceDock = weaponChoiceCanvas and asGuiObject(weaponChoiceCanvas:FindFirstChild("WeaponChoiceDock"))
+	local weaponDock = loadoutGui and asGuiObject(loadoutGui:FindFirstChild("WeaponDockV2"))
+	local gemDock = loadoutGui and asGuiObject(loadoutGui:FindFirstChild("GemDockV2"))
+	local ultimateDock = loadoutGui and asGuiObject(loadoutGui:FindFirstChild("UltimateDockV2"))
 	local statsDock = runStatsGui and asGuiObject(runStatsGui:FindFirstChild("StatsPanel"))
 	local utilityDock = utilityGui and asGuiObject(utilityGui:FindFirstChild("UtilityDockV2"))
 	local miniMapDock = miniMapGui and asGuiObject(miniMapGui:FindFirstChild("MiniMapPanelV2"))
@@ -131,6 +161,35 @@ local function applyLayout()
 			Vector2.new(980, 900)
 		)
 	end
+
+	if weaponChoiceDock then
+		RunHudLayout.ApplyDock(
+			weaponChoiceDock,
+			Vector2.new(0, 0),
+			Vector2.new(metrics.MainLeft, metrics.MainTop),
+			Vector2.new(metrics.MainWidth, metrics.MainHeight),
+			Vector2.new(330, 220),
+			Vector2.new(980, 900)
+		)
+	end
+
+	for _, loadoutDock in ipairs({weaponDock, gemDock, ultimateDock}) do
+		if loadoutDock then
+			RunHudLayout.ApplyDock(
+				loadoutDock,
+				Vector2.new(0.5, 0),
+				Vector2.new(metrics.Viewport.X * 0.5, metrics.LoadoutTop),
+				Vector2.new(metrics.MainWidth, metrics.LoadoutHeight),
+				Vector2.new(220, 40),
+				Vector2.new(980, 72)
+			)
+			loadoutDock.Visible = metrics.LoadoutVisible
+		end
+	end
+
+	configureLoadoutDock(weaponDock, "^WeaponSlot%d%d$", metrics.LoadoutHeight, metrics.Density)
+	configureLoadoutDock(gemDock, "^GemSlot%d%d$", metrics.LoadoutHeight, metrics.Density)
+	configureLoadoutDock(ultimateDock, "^UltimateSlot$", metrics.LoadoutHeight, metrics.Density)
 
 	if statsDock then
 		RunHudLayout.ApplyDock(
@@ -205,6 +264,10 @@ playerGui.DescendantAdded:Connect(function(descendant)
 		or descendant.Name == "BottomBarV2"
 		or descendant.Name == "PerkChoiceDockV2"
 		or descendant.Name == "ItemRevealDockV2"
+		or descendant.Name == "WeaponChoiceDock"
+		or descendant.Name == "WeaponDockV2"
+		or descendant.Name == "GemDockV2"
+		or descendant.Name == "UltimateDockV2"
 		or descendant.Name == "StatsPanel"
 		or descendant.Name == "UtilityDockV2"
 		or descendant.Name == "MiniMapPanelV2"
@@ -212,6 +275,8 @@ playerGui.DescendantAdded:Connect(function(descendant)
 		scheduleLayout()
 	end
 end)
+
+player:GetAttributeChangedSignal("IsRunActive"):Connect(scheduleLayout)
 
 local currentCamera = Workspace.CurrentCamera
 if currentCamera then

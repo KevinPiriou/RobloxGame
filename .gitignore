@@ -6,3 +6,13 @@
 /*.rbxl.lock
 
 sourcemap.json
+
+# MegaSeedValidator generated files
+/MegaSeedValidator/output/
+/MegaSeedValidator/__pycache__/
+/MegaSeedValidator/tests/__pycache__/
+*.py[cod]
+
+# MetaBuildLab generated reports
+/MetaBuildLab_v1/meta_results*/
+/MetaBuildLab_v1/test_results/

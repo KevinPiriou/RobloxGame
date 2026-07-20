@@ -27,8 +27,15 @@ local toggleDevKitPreviewRemote = ReplicatedStorage:WaitForChild("Admin_ToggleDe
 local performanceBenchmarkRemote = ReplicatedStorage:WaitForChild(PerformanceBaselineConfig.AdminRemoteName)
 local performanceBenchmarkStatusRemote = ReplicatedStorage:WaitForChild(PerformanceBaselineConfig.StatusRemoteName)
 local physicsAuditRemote = ReplicatedStorage:WaitForChild("Admin_RunPhysicsAudit")
+local toggleLeydenNeedleRemote = ReplicatedStorage:WaitForChild("Admin_ToggleLeydenNeedle")
 
 local DEV_KIT_PREVIEW_ATTRIBUTE = "DevKitPreviewEnabled"
+local DRAFT_GUI_NAME = "MegaRobloxUIV_RunLayoutDraft"
+local PREVIEW_CENTRAL_COMPONENTS = {
+	{Id = "PerkChoice", Label = "PERKS"},
+	{Id = "ItemReveal", Label = "OBJET"},
+	{Id = "WeaponChoice", Label = "ARME"},
+}
 
 local existingGui = playerGui:FindFirstChild("AdminGui")
 
@@ -169,10 +176,12 @@ local resetButton = createButton("ResetPowerUpsButton", "Reinit bonus", Color3.f
 local spawnButton = createButton("SpawnMonstersButton", "Spawn 100 ennemis", Color3.fromRGB(54, 105, 165), 2)
 local killButton = createButton("KillMonstersButton", "Tuer tous les ennemis", Color3.fromRGB(155, 65, 65), 3)
 local devKitPreviewButton = createButton("DevKitPreviewButton", "Kit UI demo : afficher", Color3.fromRGB(52, 101, 153), 4)
-local benchmarkScenarioButton = createButton("BenchmarkScenarioButton", "P0 : scenario", Color3.fromRGB(64, 109, 142), 5)
-local benchmarkStartButton = createButton("BenchmarkStartButton", "P0 : lancer", Color3.fromRGB(47, 137, 91), 6)
-local benchmarkStopButton = createButton("BenchmarkStopButton", "P0 : arreter", Color3.fromRGB(143, 70, 70), 7)
-local physicsAuditButton = createButton("PhysicsAuditButton", "P1 : inventaire physique", Color3.fromRGB(94, 91, 143), 8)
+local devKitCentralButton = createButton("DevKitCentralButton", "Ecran demo : ARME", Color3.fromRGB(91, 65, 133), 5)
+local benchmarkScenarioButton = createButton("BenchmarkScenarioButton", "P0 : scenario", Color3.fromRGB(64, 109, 142), 6)
+local benchmarkStartButton = createButton("BenchmarkStartButton", "P0 : lancer", Color3.fromRGB(47, 137, 91), 7)
+local benchmarkStopButton = createButton("BenchmarkStopButton", "P0 : arreter", Color3.fromRGB(143, 70, 70), 8)
+local physicsAuditButton = createButton("PhysicsAuditButton", "P1 : inventaire physique", Color3.fromRGB(94, 91, 143), 9)
+local leydenNeedleButton = createButton("LeydenNeedleButton", "Arme dev : Aiguille de Leyde", Color3.fromRGB(43, 118, 139), 10)
 
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Name = "StatusLabel"
@@ -184,7 +193,7 @@ statusLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
 statusLabel.TextSize = 11
 statusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-statusLabel.LayoutOrder = 10
+statusLabel.LayoutOrder = 11
 statusLabel.Parent = content
 
 local benchmarkStatusLabel = Instance.new("TextLabel")
@@ -197,7 +206,7 @@ benchmarkStatusLabel.TextColor3 = Color3.fromRGB(154, 212, 255)
 benchmarkStatusLabel.TextSize = 11
 benchmarkStatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 benchmarkStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-benchmarkStatusLabel.LayoutOrder = 9
+benchmarkStatusLabel.LayoutOrder = 10
 benchmarkStatusLabel.Parent = content
 
 local debugSection = Instance.new("Frame")
@@ -205,7 +214,7 @@ debugSection.Name = "DebugLogSection"
 debugSection.Size = UDim2.new(1, 0, 0, 266)
 debugSection.BackgroundTransparency = 1
 debugSection.BorderSizePixel = 0
-debugSection.LayoutOrder = 11
+debugSection.LayoutOrder = 12
 debugSection.Parent = content
 
 local debugTitle = Instance.new("TextLabel")
@@ -451,6 +460,44 @@ local function refreshDevKitPreviewButton()
 		else Color3.fromRGB(52, 101, 153)
 end
 
+local function getDraftRunCanvas()
+	local draftGui = playerGui:FindFirstChild(DRAFT_GUI_NAME)
+	if not draftGui or not draftGui:IsA("ScreenGui") then
+		return nil
+	end
+
+	local runCanvas = draftGui:FindFirstChild("RunCanvas")
+	if runCanvas and runCanvas:IsA("Frame") then
+		return runCanvas
+	end
+
+	return nil
+end
+
+local function getPreviewCentralIndex(componentId)
+	for index, entry in ipairs(PREVIEW_CENTRAL_COMPONENTS) do
+		if entry.Id == componentId then
+			return index
+		end
+	end
+
+	return 1
+end
+
+local function refreshDevKitCentralButton()
+	local runCanvas = getDraftRunCanvas()
+	local componentId = if runCanvas then runCanvas:GetAttribute("PreviewCentralComponent") else nil
+	local entry = PREVIEW_CENTRAL_COMPONENTS[getPreviewCentralIndex(componentId)]
+	local canCycle = player:GetAttribute(DEV_KIT_PREVIEW_ATTRIBUTE) == true and runCanvas ~= nil
+
+	devKitCentralButton.Text = "Ecran demo : " .. entry.Label
+	devKitCentralButton.Active = canCycle
+	devKitCentralButton.AutoButtonColor = canCycle
+	devKitCentralButton.BackgroundColor3 = if canCycle
+		then Color3.fromRGB(91, 65, 133)
+		else Color3.fromRGB(48, 51, 65)
+end
+
 local function applyDebugLogState(payload)
 	if typeof(payload) ~= "table" or typeof(payload.Categories) ~= "table" then
 		return
@@ -568,6 +615,24 @@ devKitPreviewButton.Activated:Connect(function()
 	toggleDevKitPreviewRemote:FireServer()
 end)
 
+devKitCentralButton.Activated:Connect(function()
+	local runCanvas = getDraftRunCanvas()
+	if player:GetAttribute(DEV_KIT_PREVIEW_ATTRIBUTE) ~= true or runCanvas == nil then
+		statusLabel.Text = "Active d'abord le kit UI demo"
+		statusLabel.TextColor3 = Color3.fromRGB(255, 205, 118)
+		return
+	end
+
+	local currentIndex = getPreviewCentralIndex(runCanvas:GetAttribute("PreviewCentralComponent"))
+	local nextIndex = (currentIndex % #PREVIEW_CENTRAL_COMPONENTS) + 1
+	local nextEntry = PREVIEW_CENTRAL_COMPONENTS[nextIndex]
+
+	runCanvas:SetAttribute("PreviewCentralComponent", nextEntry.Id)
+	statusLabel.Text = "Ecran central : " .. nextEntry.Label
+	statusLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
+	refreshDevKitCentralButton()
+end)
+
 benchmarkScenarioButton.Activated:Connect(function()
 	if benchmarkIsActive then
 		return
@@ -610,6 +675,14 @@ physicsAuditButton.Activated:Connect(function()
 	end
 
 	fireAdminAction(physicsAuditButton, physicsAuditRemote, "Audit P1...")
+end)
+
+leydenNeedleButton.Activated:Connect(function()
+	if not toggleLeydenNeedleRemote:IsA("RemoteEvent") then
+		return
+	end
+
+	fireAdminAction(leydenNeedleButton, toggleLeydenNeedleRemote, "Equipement...")
 end)
 
 consoleToggle.Activated:Connect(function()
@@ -680,9 +753,13 @@ debugLogStateRemote.OnClientEvent:Connect(function(payload)
 end)
 
 player:GetAttributeChangedSignal("CanUseAdminTools"):Connect(updateVisibility)
-player:GetAttributeChangedSignal(DEV_KIT_PREVIEW_ATTRIBUTE):Connect(refreshDevKitPreviewButton)
+player:GetAttributeChangedSignal(DEV_KIT_PREVIEW_ATTRIBUTE):Connect(function()
+	refreshDevKitPreviewButton()
+	refreshDevKitCentralButton()
+end)
 updateVisibility()
 refreshDevKitPreviewButton()
+refreshDevKitCentralButton()
 selectDefaultBenchmark()
 refreshBenchmarkControls()
 

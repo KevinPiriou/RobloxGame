@@ -6,92 +6,6 @@ local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 
--- Témoin visible uniquement dans Studio : l'attribut local seul n'apparait pas
--- dans la vue serveur de l'Explorer pendant un Play Test.
-local debugLabel: TextLabel? = nil
-local isCustomRunLayerEnabled = true
-
-if RunService:IsStudio() then
-	local playerGui = player:WaitForChild("PlayerGui")
-	local previousOverlay = playerGui:FindFirstChild("MegaRobloxRunAnimationDebug")
-
-	if previousOverlay ~= nil then
-		previousOverlay:Destroy()
-	end
-
-	local overlay = Instance.new("ScreenGui")
-	overlay.Name = "MegaRobloxRunAnimationDebug"
-	overlay.ResetOnSpawn = false
-	overlay.IgnoreGuiInset = false
-	overlay.DisplayOrder = 500
-	overlay.Parent = playerGui
-
-	local panel = Instance.new("Frame")
-	panel.Name = "Panel"
-	panel.Position = UDim2.fromOffset(18, 66)
-	panel.Size = UDim2.fromOffset(172, 60)
-	panel.BackgroundColor3 = Color3.fromRGB(8, 15, 26)
-	panel.BackgroundTransparency = 0.16
-	panel.BorderSizePixel = 0
-	panel.Parent = overlay
-
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 5)
-	corner.Parent = panel
-
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(80, 220, 255)
-	stroke.Transparency = 0.2
-	stroke.Thickness = 1
-	stroke.Parent = panel
-
-	local label = Instance.new("TextLabel")
-	label.Name = "State"
-	label.BackgroundTransparency = 1
-	label.Position = UDim2.fromOffset(9, 0)
-	label.Size = UDim2.new(1, -18, 0, 28)
-	label.Font = Enum.Font.GothamBold
-	label.Text = "COURSE : BOOT"
-	label.TextColor3 = Color3.fromRGB(245, 246, 255)
-	label.TextSize = 12
-	label.TextXAlignment = Enum.TextXAlignment.Left
-	label.Parent = panel
-	debugLabel = label
-
-	local modeButton = Instance.new("TextButton")
-	modeButton.Name = "ModeSelector"
-	modeButton.Position = UDim2.fromOffset(6, 31)
-	modeButton.Size = UDim2.new(1, -12, 0, 23)
-	modeButton.BackgroundColor3 = Color3.fromRGB(24, 77, 106)
-	modeButton.BackgroundTransparency = 0.05
-	modeButton.BorderSizePixel = 0
-	modeButton.AutoButtonColor = false
-	modeButton.Font = Enum.Font.GothamBold
-	modeButton.Text = "ANIM : CUSTOM"
-	modeButton.TextColor3 = Color3.fromRGB(245, 246, 255)
-	modeButton.TextSize = 11
-	modeButton.Parent = panel
-
-	local modeCorner = Instance.new("UICorner")
-	modeCorner.CornerRadius = UDim.new(0, 4)
-	modeCorner.Parent = modeButton
-
-	local modeStroke = Instance.new("UIStroke")
-	modeStroke.Color = Color3.fromRGB(110, 231, 255)
-	modeStroke.Transparency = 0.35
-	modeStroke.Thickness = 1
-	modeStroke.Parent = modeButton
-
-	modeButton.Activated:Connect(function()
-		isCustomRunLayerEnabled = not isCustomRunLayerEnabled
-		modeButton.Text = if isCustomRunLayerEnabled then "ANIM : CUSTOM" else "ANIM : DEFAULT"
-		modeButton.BackgroundColor3 = if isCustomRunLayerEnabled
-			then Color3.fromRGB(24, 77, 106)
-			else Color3.fromRGB(48, 54, 68)
-	end)
-
-end
-
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatConfig = require(Shared:WaitForChild("CombatConfig"))
 
@@ -116,24 +30,6 @@ local currentCharacter: Model? = nil
 local currentHumanoid: Humanoid? = nil
 local joints: JointMap? = nil
 local strideTime = 0
-local currentState = "Unavailable"
-
-local function setAnimationState(state: string)
-	if currentState == state then
-		return
-	end
-
-	currentState = state
-
-	if debugLabel ~= nil and debugLabel.Parent ~= nil then
-		debugLabel.Text = "COURSE : " .. string.upper(state)
-	end
-
-	if currentCharacter ~= nil and currentCharacter.Parent ~= nil then
-		-- Attribut local de diagnostic : il permet de verifier le cycle sans bruit console.
-		currentCharacter:SetAttribute("MegaRobloxRunAnimationState", state)
-	end
-end
 
 local function findJointByPart1(character: Model, names: { string }): Motor6D?
 	for _, descendant in ipairs(character:GetDescendants()) do
@@ -216,30 +112,21 @@ local function updateRunPose(deltaTime: number)
 	local jointMap = joints
 
 	if character == nil or humanoid == nil or jointMap == nil then
-		setAnimationState("Unavailable")
 		return
 	end
 
 	local speed = getMoveSpeed(humanoid, character)
 	local minimumSpeed = math.max(0.1, CombatConfig.PlayerRunAnimationMinSpeed or 2.5)
 	local blendAlpha = math.clamp(deltaTime * math.max(1, CombatConfig.PlayerRunAnimationBlendSpeed or 12), 0, 1)
-	local isRunning = isCustomRunLayerEnabled
-		and CombatConfig.PlayerRunAnimationEnabled == true
+	local isRunning = CombatConfig.PlayerRunAnimationEnabled == true
 		and humanoid.MoveDirection.Magnitude > 0.05
 		and speed >= minimumSpeed
 		and isGrounded(humanoid)
 
 	if not isRunning then
 		resetPose(jointMap, blendAlpha)
-		if not isCustomRunLayerEnabled then
-			setAnimationState("Default")
-		else
-			setAnimationState(CombatConfig.PlayerRunAnimationEnabled == true and "Idle" or "Disabled")
-		end
 		return
 	end
-
-	setAnimationState("Running")
 
 	local maxSpeed = math.max(minimumSpeed + 0.1, humanoid.WalkSpeed)
 	local intensity = math.clamp((speed - minimumSpeed) / (maxSpeed - minimumSpeed), 0.38, 1)
@@ -293,7 +180,6 @@ local function bindCharacter(character: Model)
 	currentHumanoid = humanoid
 	joints = getJointMap(character)
 	strideTime = 0
-	setAnimationState("Ready")
 end
 
 player.CharacterAdded:Connect(bindCharacter)

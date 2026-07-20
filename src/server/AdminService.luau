@@ -12,6 +12,7 @@ local MonsterService = require(script.Parent:WaitForChild("MonsterService"))
 local PerformanceBenchmarkService = require(script.Parent:WaitForChild("PerformanceBenchmarkService"))
 local PhysicsAuditService = require(script.Parent:WaitForChild("PhysicsAuditService"))
 local RunAnalyticsService = require(script.Parent:WaitForChild("RunAnalyticsService"))
+local WeaponLoadoutService = require(script.Parent:WaitForChild("WeaponLoadoutService"))
 
 local AdminService = {}
 
@@ -57,6 +58,7 @@ local getDebugLogStateRemote = getOrCreateRemoteFunction("Admin_GetDebugLogState
 local toggleDevKitPreviewRemote = getOrCreateRemote("Admin_ToggleDevKitPreview")
 local performanceBenchmarkRemote = getOrCreateRemote(PerformanceBaselineConfig.AdminRemoteName)
 local physicsAuditRemote = getOrCreateRemote("Admin_RunPhysicsAudit")
+local toggleLeydenNeedleRemote = getOrCreateRemote("Admin_ToggleLeydenNeedle")
 local debugCategoryIds = {}
 
 for _, category in ipairs(AdminConfig.DebugLogCategories) do
@@ -214,6 +216,15 @@ function AdminService.Start()
 		runAdminAction(player, "Inventaire physique P1", function()
 			return PhysicsAuditService.RunAudit()
 		end, false)
+	end)
+
+	toggleLeydenNeedleRemote.OnServerEvent:Connect(function(player)
+		runAdminAction(player, "Calibration Aiguille de Leyde", function()
+			local enabled = not WeaponLoadoutService.HasWeapon(player, "leyden_needle")
+			local success, message = WeaponLoadoutService.SetDevelopmentWeapon(player, "leyden_needle", enabled)
+			if not success then error(message) end
+			return message
+		end)
 	end)
 
 	performanceBenchmarkRemote.OnServerEvent:Connect(function(player, payload)

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Validateur externe de seeds pour KevinPiriou/RobloxGame.
+"""Validateur externe de seeds pour MegaRoblox.
+
 Bibliothèque standard uniquement. Voir README.md pour les limites de parité RNG.
 """
 from __future__ import annotations
-import argparse,csv,hashlib,html,json,math,os,random as py_random,sqlite3,time,traceback,webbrowser
+import argparse,contextlib,csv,hashlib,html,json,math,os,random as py_random,sqlite3,time,traceback,webbrowser
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor,as_completed
 from dataclasses import dataclass
@@ -28,8 +29,80 @@ class PythonRandom:
     def next_number(self,a=0.,b=1.):return self.r.uniform(a,b)
     def next_integer(self,a,b):return self.r.randint(a,b)
 def make_rng(mode,seed):return PortableRandom(seed) if mode=='portable' else PythonRandom(seed)
+def find_repository_root(config_path:Path):
+    for parent in config_path.parents:
+        if (parent/'src'/'shared'/'ProceduralMapConfig.luau').is_file() and (parent/'src'/'server'/'ProceduralMapService.luau').is_file():return parent
+    return config_path.parents[2]
 def load_config(path:Path):
-    raw=path.read_text(encoding='utf-8'); c=json.loads(raw); c['_config_hash']=hashlib.sha256(raw.encode()).hexdigest(); return c
+    resolved=path.resolve();raw=resolved.read_text(encoding='utf-8');c=json.loads(raw);c['_config_hash']=hashlib.sha256(raw.encode()).hexdigest();c['_config_path']=str(resolved);c['_repo_root']=str(find_repository_root(resolved));return c
+def git_blob_hash(path:Path):
+    data=path.read_bytes();return hashlib.sha1(b'blob '+str(len(data)).encode('ascii')+b'\0'+data).hexdigest()
+def source_snapshot(cfg):
+    project=cfg['project'];root=Path(cfg.get('_repo_root',Path(__file__).resolve().parent.parent));checks=[]
+    for key,path_key,default_path in (
+        ('procedural_config_blob','procedural_config_path','src/shared/ProceduralMapConfig.luau'),
+        ('procedural_service_blob','procedural_service_path','src/server/ProceduralMapService.luau'),
+        ('run_generation_config_blob','run_generation_config_path','src/shared/RunGenerationConfig.luau'),
+        ('run_seed_validation_service_blob','run_seed_validation_service_path','src/server/RunSeedValidationService.luau'),
+        ('run_session_service_blob','run_session_service_path','src/server/RunSessionService.luau'),
+    ):
+        path=root/project.get(path_key,default_path);expected=project.get(key,'')
+        if not path.is_file():checks.append({'key':key,'path':str(path),'status':'missing','expected':expected,'actual':None});continue
+        actual=git_blob_hash(path);checks.append({'key':key,'path':str(path),'status':'ok' if actual==expected else 'stale','expected':expected,'actual':actual})
+    return {'ok':all(item['status']=='ok' for item in checks),'repository_root':str(root),'checks':checks}
+def require_current_snapshot(cfg,allow_stale=False):
+    status=source_snapshot(cfg)
+    if not status['ok'] and not allow_stale:
+        details=', '.join(f"{item['key']}={item['status']}" for item in status['checks'] if item['status']!='ok')
+        raise RuntimeError(f'Snapshot source périmé ou incomplet ({details}). Lancez la commande doctor, puis actualisez la configuration. --allow-stale-config est réservé au diagnostic.')
+    return status
+def parity_metadata(cfg,rng):
+    parity=cfg.get('parity',{});production_rng=parity.get('current_roblox_generator_uses','inconnu');exact=bool(parity.get('exact_with_current_roblox_random',False)) and rng==parity.get('default_rng')
+    production_guard=cfg.get('production_guard',{})
+    return {
+        'rng_mode':rng,
+        'production_rng':production_rng,
+        'exact_with_production':exact,
+        'seed_identity':'production' if exact else 'synthetic',
+        'interpretation':'Seed Roblox exacte.' if exact else 'Candidat structurel synthétique à confirmer dans Roblox Studio.',
+        'production_guard':production_guard,
+    }
+def reset_batch_outputs(out:Path):
+    out.mkdir(parents=True,exist_ok=True)
+    for name in ('results.csv','results.sqlite','top_seeds.txt','top_results.json','run_metadata.json','report.html'):
+        path=out/name
+        if path.exists():path.unlink()
+    for folder,pattern in (('previews','seed_*.svg'),('plans','seed_*.json')):
+        target=out/folder;target.mkdir(exist_ok=True)
+        for path in target.glob(pattern):
+            if path.is_file():path.unlink()
+@contextlib.contextmanager
+def exclusive_batch_lock(path:Path):
+    handle=path.open('a+b');locked=False
+    try:
+        handle.seek(0,os.SEEK_END)
+        if handle.tell()==0:handle.write(b'\0');handle.flush()
+        handle.seek(0)
+        try:
+            if os.name=='nt':
+                import msvcrt
+                msvcrt.locking(handle.fileno(),msvcrt.LK_NBLCK,1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+            locked=True
+        except OSError as error:raise RuntimeError(f'Un batch utilise déjà ce dossier de sortie : {path.parent}') from error
+        yield
+    finally:
+        if locked:
+            handle.seek(0)
+            if os.name=='nt':
+                import msvcrt
+                msvcrt.locking(handle.fileno(),msvcrt.LK_UNLCK,1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(),fcntl.LOCK_UN)
+        handle.close()
 def clamp(v,a,b):return max(a,min(b,v))
 def dist(a,b):return math.hypot(a[0]-b[0],a[1]-b[1])
 def rotate(x,z,y):
@@ -319,9 +392,14 @@ def html_report(out,results,meta):
         preview=out.parent/'previews'/f'seed_{r["seed"]}.svg';link=f'<a href="previews/seed_{r["seed"]}.svg">SVG</a>' if preview.exists() else ''
         rows.append(f"<tr><td>{r['seed']}</td><td>{r['status']}</td><td>{r['score']:.2f}</td><td>{r['layout_count']}</td><td>{r['platform_count']}</td><td>{r['coverage_ratio']:.3f}</td><td>{r['base_reachable_ratio']:.3f}</td><td>{len(r['errors'])}</td><td>{len(r['warnings'])}</td><td>{link}</td></tr>")
     valid=sum(r['status']=='VALID' for r in results);invalid=sum(r['status']=='INVALID' for r in results);errs=sum(r['status']=='ERROR' for r in results)
-    out.write_text(f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Mega Seed Validator</title><style>body{{font-family:Arial;background:#11151d;color:#edf3fa;margin:32px}}.card{{background:#1a2130;padding:18px;border-radius:12px;margin-bottom:18px}}table{{border-collapse:collapse;width:100%;background:#171d28}}th,td{{border-bottom:1px solid #2c3748;padding:8px;text-align:right}}th:first-child,td:first-child{{text-align:left}}a{{color:#4edcff}}</style></head><body><h1>Mega Seed Validator</h1><div class="card"><p>Seeds : {len(results)} — valides : {valid} — invalides : {invalid} — erreurs : {errs}</p><p>Commit : {html.escape(meta['commit'])}</p><p>RNG : {html.escape(meta['rng_mode'])} — config : {html.escape(meta['config_hash'])}</p></div><table><thead><tr><th>Seed</th><th>Statut</th><th>Score</th><th>Layouts</th><th>Plateformes</th><th>Couverture</th><th>Base accessible</th><th>Erreurs</th><th>Alertes</th><th>Aperçu</th></tr></thead><tbody>{''.join(rows)}</tbody></table></body></html>''',encoding='utf-8')
-def run_batch(cfg,start,count,workers,rng,out,top_count,render_count,progress=None):
-    out.mkdir(parents=True,exist_ok=True);(out/'previews').mkdir(exist_ok=True);(out/'plans').mkdir(exist_ok=True);conn=init_db(out/'results.sqlite');results=[];workers=workers if workers>0 else max(1,(os.cpu_count() or 2)-1);started=time.perf_counter()
+    parity=meta['parity'];warning='' if parity['exact_with_production'] else f'<p class="warning">{html.escape(parity["interpretation"])}</p>'
+    out.write_text(f'''<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Mega Seed Validator</title><style>body{{font-family:Arial;background:#11151d;color:#edf3fa;margin:32px}}.card{{background:#1a2130;padding:18px;border-radius:12px;margin-bottom:18px}}.warning{{color:#ffd166;font-weight:bold}}table{{border-collapse:collapse;width:100%;background:#171d28}}th,td{{border-bottom:1px solid #2c3748;padding:8px;text-align:right}}th:first-child,td:first-child{{text-align:left}}a{{color:#4edcff}}</style></head><body><h1>Mega Seed Validator</h1><div class="card"><p>Seeds : {len(results)} — valides : {valid} — invalides : {invalid} — erreurs : {errs}</p><p>Commit : {html.escape(meta['commit'])}</p><p>RNG : {html.escape(meta['rng_mode'])} — config : {html.escape(meta['config_hash'])}</p>{warning}</div><table><thead><tr><th>Seed</th><th>Statut</th><th>Score</th><th>Layouts</th><th>Plateformes</th><th>Couverture</th><th>Base accessible</th><th>Erreurs</th><th>Alertes</th><th>Aperçu</th></tr></thead><tbody>{''.join(rows)}</tbody></table></body></html>''',encoding='utf-8')
+def run_batch(cfg,start,count,workers,rng,out,top_count,render_count,progress=None,allow_stale=False):
+    if count<=0:raise ValueError('Le nombre de seeds doit être supérieur à zéro.')
+    source=require_current_snapshot(cfg,allow_stale);out=out.resolve();out.mkdir(parents=True,exist_ok=True)
+    with exclusive_batch_lock(out/'.batch.lock'):return _run_batch(cfg,start,count,workers,rng,out,top_count,render_count,progress,source)
+def _run_batch(cfg,start,count,workers,rng,out,top_count,render_count,progress,source):
+    reset_batch_outputs(out);conn=init_db(out/'results.sqlite');results=[];workers=workers if workers>0 else max(1,(os.cpu_count() or 2)-1);started=time.perf_counter()
     with (out/'results.csv').open('w',newline='',encoding='utf-8-sig') as f:
         wr=csv.DictWriter(f,fieldnames=FIELDS);wr.writeheader()
         if workers==1:
@@ -336,21 +414,22 @@ def run_batch(cfg,start,count,workers,rng,out,top_count,render_count,progress=No
     (out/'top_seeds.txt').write_text('\n'.join(str(r['seed']) for r in top)+('\n' if top else ''),encoding='utf-8');(out/'top_results.json').write_text(json.dumps(top,indent=2,ensure_ascii=False),encoding='utf-8')
     for r in top[:render_count]:
         plan=generate_plan(r['seed'],cfg,rng);detail=analyze_plan(plan,cfg,True);(out/'plans'/f'seed_{r["seed"]}.json').write_text(json.dumps({'plan':plan,'analysis':detail},indent=2,ensure_ascii=False),encoding='utf-8');render_svg(plan,detail,out/'previews'/f'seed_{r["seed"]}.svg')
-    meta={'repository':cfg['project']['repository'],'branch':cfg['project']['branch'],'commit':cfg['project']['commit'],'config_hash':cfg['_config_hash'],'rng_mode':rng,'start_seed':start,'count':count,'workers':workers,'elapsed_seconds':round(time.perf_counter()-started,3),'valid':sum(r['status']=='VALID' for r in results),'invalid':sum(r['status']=='INVALID' for r in results),'errors':sum(r['status']=='ERROR' for r in results)}
+    meta={'repository':cfg['project']['repository'],'branch':cfg['project']['branch'],'commit':cfg['project']['commit'],'config_hash':cfg['_config_hash'],'rng_mode':rng,'parity':parity_metadata(cfg,rng),'source_snapshot':source,'start_seed':start,'count':count,'workers':workers,'elapsed_seconds':round(time.perf_counter()-started,3),'valid':sum(r['status']=='VALID' for r in results),'invalid':sum(r['status']=='INVALID' for r in results),'errors':sum(r['status']=='ERROR' for r in results)}
     (out/'run_metadata.json').write_text(json.dumps(meta,indent=2,ensure_ascii=False),encoding='utf-8');html_report(out/'report.html',results,meta);return meta
-def single(cfg,seed,rng,out,open_it=True):
-    out.mkdir(parents=True,exist_ok=True);plan=generate_plan(seed,cfg,rng);res=analyze_plan(plan,cfg,True);jp=out/f'seed_{seed}.json';sp=out/f'seed_{seed}.svg';jp.write_text(json.dumps({'plan':plan,'analysis':res},indent=2,ensure_ascii=False),encoding='utf-8');render_svg(plan,res,sp);print(json.dumps(res,indent=2,ensure_ascii=False));print(f'\nPlan : {jp}\nAperçu : {sp}');open_it and webbrowser.open(sp.resolve().as_uri());return res
+def single(cfg,seed,rng,out,open_it=True,allow_stale=False):
+    source=require_current_snapshot(cfg,allow_stale);parity=parity_metadata(cfg,rng);out.mkdir(parents=True,exist_ok=True);plan=generate_plan(seed,cfg,rng);res=analyze_plan(plan,cfg,True);jp=out/f'seed_{seed}.json';sp=out/f'seed_{seed}.svg';jp.write_text(json.dumps({'validator':{'source_snapshot':source,'parity':parity},'plan':plan,'analysis':res},indent=2,ensure_ascii=False),encoding='utf-8');render_svg(plan,res,sp);print(json.dumps(res,indent=2,ensure_ascii=False));print(f'\n{parity["interpretation"]}\nPlan : {jp}\nAperçu : {sp}');open_it and webbrowser.open(sp.resolve().as_uri());return res
 def gui(config_path):
     import tkinter as tk
     from tkinter import ttk,filedialog,messagebox
     import threading
-    cfg=load_config(config_path);w=tk.Tk();w.title('Mega Seed Validator');w.geometry('800x650');f=ttk.Frame(w,padding=18);f.pack(fill='both',expand=True);ttk.Label(f,text='Mega Seed Validator',font=('Segoe UI',20,'bold')).grid(row=0,column=0,columnspan=3,sticky='w');ttk.Label(f,text='Préfiltre externe rapide. La parité exacte avec Roblox nécessite le RNG portable fourni.',wraplength=730).grid(row=1,column=0,columnspan=3,sticky='w',pady=(4,16))
-    vals={k:tk.StringVar(value=v) for k,v in {'start':'1','count':'1000','workers':'0','top':'100','render':'20','rng':'portable','output':str((Path.cwd()/'seed_results').resolve()),'one':'1'}.items()};fields=[('Seed de départ','start'),('Nombre de seeds','count'),('Workers (0 = auto)','workers'),('Top conservées','top'),('Aperçus SVG','render')]
-    for row,(label,key) in enumerate(fields,2):ttk.Label(f,text=label).grid(row=row,column=0,sticky='w',pady=4);ttk.Entry(f,textvariable=vals[key],width=24).grid(row=row,column=1,sticky='w')
-    ttk.Label(f,text='RNG').grid(row=7,column=0,sticky='w');ttk.Combobox(f,textvariable=vals['rng'],values=('portable','python'),state='readonly',width=21).grid(row=7,column=1,sticky='w');ttk.Label(f,text='Dossier de sortie').grid(row=8,column=0,sticky='w');ttk.Entry(f,textvariable=vals['output'],width=55).grid(row=8,column=1,sticky='we');ttk.Button(f,text='Choisir',command=lambda:vals['output'].set(filedialog.askdirectory(initialdir=vals['output'].get()) or vals['output'].get())).grid(row=8,column=2,padx=6)
-    prog=tk.DoubleVar(value=0);ttk.Progressbar(f,variable=prog,maximum=100).grid(row=9,column=0,columnspan=3,sticky='we',pady=(18,4));log=tk.Text(f,height=12);log.grid(row=10,column=0,columnspan=3,sticky='nsew');f.columnconfigure(1,weight=1);f.rowconfigure(10,weight=1)
+    cfg=load_config(config_path);source=source_snapshot(cfg);w=tk.Tk();w.title('Mega Seed Validator');w.geometry('800x680');f=ttk.Frame(w,padding=18);f.pack(fill='both',expand=True);ttk.Label(f,text='Mega Seed Validator',font=('Segoe UI',20,'bold')).grid(row=0,column=0,columnspan=3,sticky='w');ttk.Label(f,text='Préfiltre structurel synthétique. Toute seed retenue doit être confirmée dans Roblox Studio.',wraplength=730).grid(row=1,column=0,columnspan=3,sticky='w',pady=(4,4));ttk.Label(f,text='Sources : à jour' if source['ok'] else 'Sources : snapshot périmé — lancez la commande doctor',foreground='#198754' if source['ok'] else '#b02a37').grid(row=2,column=0,columnspan=3,sticky='w',pady=(0,16))
+    vals={k:tk.StringVar(value=v) for k,v in {'start':'1','count':'1000','workers':'0','top':'100','render':'20','rng':'portable','output':str((Path(__file__).resolve().parent/'output'/'seed_results').resolve()),'one':'1'}.items()};fields=[('Seed de départ','start'),('Nombre de seeds','count'),('Workers (0 = auto)','workers'),('Top conservées','top'),('Aperçus SVG','render')]
+    for row,(label,key) in enumerate(fields,3):ttk.Label(f,text=label).grid(row=row,column=0,sticky='w',pady=4);ttk.Entry(f,textvariable=vals[key],width=24).grid(row=row,column=1,sticky='w')
+    ttk.Label(f,text='RNG').grid(row=8,column=0,sticky='w');ttk.Combobox(f,textvariable=vals['rng'],values=('portable','python'),state='readonly',width=21).grid(row=8,column=1,sticky='w');ttk.Label(f,text='Dossier de sortie').grid(row=9,column=0,sticky='w');ttk.Entry(f,textvariable=vals['output'],width=55).grid(row=9,column=1,sticky='we');ttk.Button(f,text='Choisir',command=lambda:vals['output'].set(filedialog.askdirectory(initialdir=vals['output'].get()) or vals['output'].get())).grid(row=9,column=2,padx=6)
+    prog=tk.DoubleVar(value=0);ttk.Progressbar(f,variable=prog,maximum=100).grid(row=10,column=0,columnspan=3,sticky='we',pady=(18,4));log=tk.Text(f,height=12);log.grid(row=11,column=0,columnspan=3,sticky='nsew');f.columnconfigure(1,weight=1);f.rowconfigure(11,weight=1)
     def append(s):log.insert('end',s+'\n');log.see('end')
     def job():
+        w.after(0,lambda:batch_button.configure(state='disabled'))
         try:
             out=Path(vals['output'].get())
             def update(done,total,r):
@@ -358,18 +437,21 @@ def gui(config_path):
             meta=run_batch(cfg,int(vals['start'].get()),int(vals['count'].get()),int(vals['workers'].get()),vals['rng'].get(),out,int(vals['top'].get()),int(vals['render'].get()),update);w.after(0,lambda:append(json.dumps(meta,indent=2,ensure_ascii=False)));w.after(0,lambda:messagebox.showinfo('Terminé',f'Rapport :\n{out/"report.html"}'));w.after(0,lambda:webbrowser.open((out/'report.html').resolve().as_uri()))
         except Exception:
             err=traceback.format_exc();w.after(0,lambda:append(err));w.after(0,lambda:messagebox.showerror('Erreur',err))
-    controls=ttk.Frame(f);controls.grid(row=11,column=0,columnspan=3,sticky='we',pady=12);ttk.Button(controls,text='Lancer le batch',command=lambda:threading.Thread(target=job,daemon=True).start()).pack(side='left');ttk.Label(controls,text='Seed unique :').pack(side='left',padx=(24,6));ttk.Entry(controls,textvariable=vals['one'],width=14).pack(side='left')
+        finally:w.after(0,lambda:batch_button.configure(state='normal'))
+    controls=ttk.Frame(f);controls.grid(row=12,column=0,columnspan=3,sticky='we',pady=12);batch_button=ttk.Button(controls,text='Lancer le batch',command=lambda:threading.Thread(target=job,daemon=True).start());batch_button.pack(side='left');ttk.Label(controls,text='Seed unique :').pack(side='left',padx=(24,6));ttk.Entry(controls,textvariable=vals['one'],width=14).pack(side='left')
     def one():
         try:r=single(cfg,int(vals['one'].get()),vals['rng'].get(),Path(vals['output'].get())/'single',True);append(f'Seed {r["seed"]}: {r["status"]} — {r["score"]}')
         except Exception:messagebox.showerror('Erreur',traceback.format_exc())
     ttk.Button(controls,text='Vérifier et afficher',command=one).pack(side='left',padx=6);w.mainloop()
 def parser():
-    p=argparse.ArgumentParser(description='Lance et valide les seeds du générateur procédural MegaRoblox.');p.add_argument('--config',type=Path,default=Path(__file__).resolve().parent/'config'/'current_project.json');s=p.add_subparsers(dest='command',required=True);b=s.add_parser('batch');b.add_argument('--start',type=int,default=1);b.add_argument('--count',type=int,default=1000);b.add_argument('--workers',type=int,default=0);b.add_argument('--rng',choices=('portable','python'),default='portable');b.add_argument('--output',type=Path,default=Path('seed_results'));b.add_argument('--top',type=int,default=100);b.add_argument('--render-top',type=int,default=20);o=s.add_parser('seed');o.add_argument('seed',type=int);o.add_argument('--rng',choices=('portable','python'),default='portable');o.add_argument('--output',type=Path,default=Path('seed_results')/'single');o.add_argument('--no-open',action='store_true');s.add_parser('gui');return p
+    default_output=Path(__file__).resolve().parent/'output'/'seed_results';p=argparse.ArgumentParser(description='Lance et valide les seeds du générateur procédural MegaRoblox.');p.add_argument('--config',type=Path,default=Path(__file__).resolve().parent/'config'/'current_project.json');s=p.add_subparsers(dest='command',required=True);b=s.add_parser('batch');b.add_argument('--start',type=int,default=1);b.add_argument('--count',type=int,default=1000);b.add_argument('--workers',type=int,default=0);b.add_argument('--rng',choices=('portable','python'),default='portable');b.add_argument('--output',type=Path,default=default_output);b.add_argument('--top',type=int,default=100);b.add_argument('--render-top',type=int,default=20);b.add_argument('--allow-stale-config',action='store_true');o=s.add_parser('seed');o.add_argument('seed',type=int);o.add_argument('--rng',choices=('portable','python'),default='portable');o.add_argument('--output',type=Path,default=default_output/'single');o.add_argument('--no-open',action='store_true');o.add_argument('--allow-stale-config',action='store_true');s.add_parser('doctor');s.add_parser('gui');return p
 def main():
     a=parser().parse_args();cfg=load_config(a.config)
     if a.command=='gui':gui(a.config);return 0
-    if a.command=='seed':single(cfg,a.seed,a.rng,a.output,not a.no_open);return 0
+    if a.command=='doctor':
+        status=source_snapshot(cfg);print(json.dumps({'source_snapshot':status,'parity':parity_metadata(cfg,cfg['parity']['default_rng'])},indent=2,ensure_ascii=False));return 0 if status['ok'] else 2
+    if a.command=='seed':single(cfg,a.seed,a.rng,a.output,not a.no_open,a.allow_stale_config);return 0
     def progress(done,total,r):
         if done==1 or done%max(1,total//20)==0 or done==total:print(f'[{done:>6}/{total}] seed={r["seed"]} {r["status"]} score={r["score"]:.1f}')
-    meta=run_batch(cfg,a.start,a.count,a.workers,a.rng,a.output,a.top,a.render_top,progress);print(json.dumps(meta,indent=2,ensure_ascii=False));print('Rapport :',(a.output/'report.html').resolve());return 0
+    meta=run_batch(cfg,a.start,a.count,a.workers,a.rng,a.output,a.top,a.render_top,progress,a.allow_stale_config);print(json.dumps(meta,indent=2,ensure_ascii=False));print('Rapport :',(a.output/'report.html').resolve());return 0
 if __name__=='__main__':raise SystemExit(main())
