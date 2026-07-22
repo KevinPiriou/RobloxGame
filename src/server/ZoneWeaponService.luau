@@ -76,6 +76,18 @@ local function findNextBounce(origin: Vector3, ignored, bounceRange: number)
 	return candidates[1].Monster
 end
 
+local function getStrikeCount(zoneRadius: number): number
+	local baseRadius = definition.Base.ZoneRadius
+	local maximumRadius = definition.Caps.ZoneRadius
+	local baseCount = definition.Base.StrikeCount
+	local maximumCount = definition.Caps.StrikeCount
+	local radiusSpan = maximumRadius - baseRadius
+	if radiusSpan <= 0 then return baseCount end
+
+	local progress = math.clamp((zoneRadius - baseRadius) / radiusSpan, 0, 1)
+	return math.round(baseCount + ((maximumCount - baseCount) * progress))
+end
+
 local function resolveImpact(cast)
 	local runtimeStats = WeaponLoadoutService.GetRuntimeStats(cast.Player, WEAPON_ID)
 	if runtimeStats == nil then return end
@@ -99,7 +111,7 @@ local function resolveImpact(cast)
 	local currentMonster = impacted[1]
 	local currentPosition = if currentMonster then MonsterService.GetMonsterPosition(currentMonster) else cast.Center
 
-	while bounceRemaining > 0 and currentPosition ~= nil do
+	while currentMonster ~= nil and bounceRemaining > 0 and currentPosition ~= nil do
 		local nextMonster = findNextBounce(currentPosition, ignored, runtimeStats.BounceRange)
 		if nextMonster == nil then break end
 		local nextPosition = MonsterService.GetMonsterPosition(nextMonster)
@@ -118,7 +130,7 @@ local function resolveImpact(cast)
 		CastId = cast.CastId,
 		Center = cast.Center,
 		Radius = runtimeStats.ZoneRadius,
-		StrikeCount = definition.Base.StrikeCount,
+		StrikeCount = getStrikeCount(runtimeStats.ZoneRadius),
 		Arcs = arcs,
 		Seed = cast.Seed,
 	})
@@ -158,7 +170,7 @@ local function beginCast(player: Player, now: number)
 		Center = center,
 		Radius = runtimeStats.ZoneRadius,
 		ChargeDuration = runtimeStats.ChargeDuration,
-		StrikeCount = runtimeStats.StrikeCount,
+		StrikeCount = getStrikeCount(runtimeStats.ZoneRadius),
 		Seed = seed,
 		ServerStartTime = Workspace:GetServerTimeNow(),
 	})

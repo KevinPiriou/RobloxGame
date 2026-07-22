@@ -16,6 +16,7 @@ local RunSessionService = require(script.Parent:WaitForChild("RunSessionService"
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 local RunTeleportService = require(script.Parent:WaitForChild("RunTeleportService"))
 local RunItemService = require(script.Parent:WaitForChild("RunItemService"))
+local WeaponLoadoutService = require(script.Parent:WaitForChild("WeaponLoadoutService"))
 local XpService = require(script.Parent:WaitForChild("XpService"))
 
 local RunEndService = {}
@@ -74,6 +75,10 @@ local function buildSummary(player, reason)
 	local xpStats = XpService.GetRunStats(player)
 	local session = RunSessionService.GetCurrentSession(player)
 	local finalBuild = PerkService.GetRunBuild(player)
+	local equippedWeapons = WeaponLoadoutService.GetEquippedWeaponIds(player)
+	finalBuild.WeaponId = equippedWeapons[1] or finalBuild.WeaponId
+	finalBuild.Weapons = equippedWeapons
+	finalBuild.CharacterId = session and session.Character and session.Character.CharacterId or ""
 	finalBuild.RunItems = RunItemService.GetRunItems(player)
 	local snapshot = {
 		LevelValidated = state.LevelValidated == true,

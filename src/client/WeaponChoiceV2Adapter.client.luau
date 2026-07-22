@@ -21,6 +21,69 @@ local RARITY_COLORS = {
 	Epic = Color3.fromRGB(185, 95, 255), Legendary = Color3.fromRGB(255, 245, 99),
 }
 
+local function applyRarityGradient(gradient: UIGradient, rarityColor: Color3)
+	local dark = Color3.fromRGB(4, 8, 16)
+	local white = Color3.fromRGB(245, 246, 255)
+
+	if gradient.Name == "DA_CardGradient" then
+		gradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, dark:Lerp(rarityColor, 0.26)),
+			ColorSequenceKeypoint.new(0.34, Color3.fromRGB(8, 13, 20)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 9, 15)),
+		})
+	elseif gradient.Name == "MaterialGradient" then
+		gradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, rarityColor:Lerp(white, 0.18)),
+			ColorSequenceKeypoint.new(0.5, rarityColor),
+			ColorSequenceKeypoint.new(1, rarityColor:Lerp(dark, 0.35)),
+		})
+	elseif gradient.Name == "GlassGradient" then
+		gradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, white),
+			ColorSequenceKeypoint.new(0.46, rarityColor:Lerp(white, 0.52)),
+			ColorSequenceKeypoint.new(1, rarityColor),
+		})
+	elseif gradient.Name == "AuraGradient" then
+		local shadow = rarityColor:Lerp(dark, 0.55)
+		gradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, shadow),
+			ColorSequenceKeypoint.new(0.38, rarityColor:Lerp(dark, 0.25)),
+			ColorSequenceKeypoint.new(0.5, rarityColor:Lerp(white, 0.35)),
+			ColorSequenceKeypoint.new(0.62, rarityColor),
+			ColorSequenceKeypoint.new(1, shadow),
+		})
+	elseif gradient.Name == "WashGradient" or gradient.Name == "SheenGradient" then
+		gradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, rarityColor:Lerp(white, 0.58)),
+			ColorSequenceKeypoint.new(0.5, white),
+			ColorSequenceKeypoint.new(1, rarityColor:Lerp(white, 0.4)),
+		})
+	end
+end
+
+local function applyRarityVisual(card: Frame, rarityColor: Color3)
+	card:SetAttribute("RarityColor", rarityColor)
+
+	for _, descendant in ipairs(card:GetDescendants()) do
+		if descendant:IsA("UIGradient") then
+			applyRarityGradient(descendant, rarityColor)
+		elseif descendant:IsA("UIStroke") and (
+			descendant.Name == "RarityStroke"
+			or descendant.Name == "IdleAuraStroke"
+		) then
+			descendant.Color = rarityColor
+		elseif descendant:IsA("GuiObject") and (
+			descendant.Name == "RarityAccent"
+			or descendant.Name == "RarityAura"
+			or descendant.Name == "MaterialLayer"
+			or descendant.Name == "GlassSurface"
+			or descendant.Name == "HoverWash"
+		) then
+			descendant.BackgroundColor3 = rarityColor
+		end
+	end
+end
+
 local function find(root: Instance?, path: {string}): Instance?
 	local current = root
 	for _, name in ipairs(path) do current = current and current:FindFirstChild(name) end
@@ -87,7 +150,7 @@ local function initialise()
 
 	local currentChoiceId: string? = nil
 	local banMode = false
-	local offerConnections = {}
+	local offerConnections: { RBXScriptConnection } = {}
 
 	local function refreshButtons()
 		local passCredits = math.max(0, math.floor(tonumber(player:GetAttribute("RunPassCredits")) or 0))
@@ -107,6 +170,7 @@ local function initialise()
 		card:SetAttribute("WeaponId", option.WeaponId)
 		card:SetAttribute("OptionId", option.OptionId)
 		card:SetAttribute("RarityId", option.Rarity)
+		applyRarityVisual(card, color)
 		local content = card:FindFirstChild("Content")
 		if content then
 			local rarity = content:FindFirstChild("Rarity")

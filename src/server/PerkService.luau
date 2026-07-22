@@ -9,6 +9,7 @@ local PerkConfig = require(Shared:WaitForChild("PerkConfig"))
 local Perks = require(Shared:WaitForChild("Perks"))
 
 local CombatStateService = require(script.Parent:WaitForChild("CombatStateService"))
+local CharacterService = require(script.Parent:WaitForChild("CharacterService"))
 local CommerceService = require(script.Parent:WaitForChild("CommerceService"))
 local GameplayFeedbackService = require(script.Parent:WaitForChild("GameplayFeedbackService"))
 local JumpBonusService = require(script.Parent:WaitForChild("JumpBonusService"))
@@ -213,7 +214,8 @@ local function getDisplayStatsSnapshot(player, profile)
 		BounceCount = math.max(0, math.floor(stats.BounceCount or 0)),
 		ProjectileSpeed = CombatConfig.FireballSpeed * (1 + (stats.ProjectileSpeedPercent or 0)),
 		ProjectileDuration = CombatConfig.FireballLifetime * (1 + (stats.EffectDurationPercent or 0)),
-		CollectRadius = CombatConfig.XpCollectDistance + (stats.CollectRadius or 0),
+		CollectRadius = (CombatConfig.XpCollectDistance * CharacterService.GetPlayerStatBaseMultiplier(player, "CollectRadius"))
+			+ (stats.CollectRadius or 0),
 		XpMultiplier = 1 + (stats.XpGainPercent or 0),
 		GoldMultiplier = 1 + (stats.GoldGainPercent or 0),
 		Luck = stats.Luck or 0,
@@ -1014,7 +1016,8 @@ end
 function PerkService.GetCollectDistance(player, baseDistance)
 	local stats = PerkService.GetStats(player)
 
-	return baseDistance + (stats.CollectRadius or 0)
+	return (baseDistance * CharacterService.GetPlayerStatBaseMultiplier(player, "CollectRadius"))
+		+ (stats.CollectRadius or 0)
 end
 
 function PerkService.GetXpAmount(player, baseAmount)

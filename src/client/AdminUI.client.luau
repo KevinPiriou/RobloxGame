@@ -32,9 +32,11 @@ local toggleLeydenNeedleRemote = ReplicatedStorage:WaitForChild("Admin_ToggleLey
 local DEV_KIT_PREVIEW_ATTRIBUTE = "DevKitPreviewEnabled"
 local DRAFT_GUI_NAME = "MegaRobloxUIV_RunLayoutDraft"
 local PREVIEW_CENTRAL_COMPONENTS = {
-	{Id = "PerkChoice", Label = "PERKS"},
-	{Id = "ItemReveal", Label = "OBJET"},
-	{Id = "WeaponChoice", Label = "ARME"},
+	{Id = "PerkChoice", Label = "PERKS", Composition = "RunHud"},
+	{Id = "ItemReveal", Label = "OBJET", Composition = "RunHud"},
+	{Id = "WeaponChoice", Label = "ARME", Composition = "RunHud"},
+	{Id = "RunLaunch", Label = "PERSO", Composition = "RunLaunchOnly"},
+	{Id = "MapSelection", Label = "NIVEAU", Composition = "MapSelectionOnly"},
 }
 
 local existingGui = playerGui:FindFirstChild("AdminGui")
@@ -181,7 +183,7 @@ local benchmarkScenarioButton = createButton("BenchmarkScenarioButton", "P0 : sc
 local benchmarkStartButton = createButton("BenchmarkStartButton", "P0 : lancer", Color3.fromRGB(47, 137, 91), 7)
 local benchmarkStopButton = createButton("BenchmarkStopButton", "P0 : arreter", Color3.fromRGB(143, 70, 70), 8)
 local physicsAuditButton = createButton("PhysicsAuditButton", "P1 : inventaire physique", Color3.fromRGB(94, 91, 143), 9)
-local leydenNeedleButton = createButton("LeydenNeedleButton", "Arme dev : Aiguille de Leyde", Color3.fromRGB(43, 118, 139), 10)
+local leydenNeedleButton = createButton("LeydenNeedleButton", "Arme calibration : Aiguille de Leyde", Color3.fromRGB(43, 118, 139), 10)
 
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Name = "StatusLabel"
@@ -628,6 +630,7 @@ devKitCentralButton.Activated:Connect(function()
 	local nextEntry = PREVIEW_CENTRAL_COMPONENTS[nextIndex]
 
 	runCanvas:SetAttribute("PreviewCentralComponent", nextEntry.Id)
+	runCanvas:SetAttribute("PreviewComposition", nextEntry.Composition)
 	statusLabel.Text = "Ecran central : " .. nextEntry.Label
 	statusLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
 	refreshDevKitCentralButton()

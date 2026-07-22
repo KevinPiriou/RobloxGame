@@ -6,6 +6,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local WeaponConfig = require(Shared:WaitForChild("WeaponConfig"))
 local WeaponDefinitionValidator = require(Shared:WaitForChild("WeaponDefinitionValidator"))
+local CharacterService = require(script.Parent:WaitForChild("CharacterService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
 
 local WeaponLoadoutService = {}
@@ -85,10 +86,19 @@ function WeaponLoadoutService.RemovePlayer(player: Player)
 end
 
 function WeaponLoadoutService.ResetRun(player: Player)
+	local characterSnapshot = CharacterService.GetActiveRunSnapshot(player)
+	local primaryWeaponId = if characterSnapshot ~= nil then characterSnapshot.PrimaryWeaponId else "fireball"
+	if validDefinitions[primaryWeaponId] == nil then
+		DebugLog.Warn("Weapon", "Arme principale invalide, fallback Fireball", {
+			Player = player.Name,
+			PrimaryWeaponId = primaryWeaponId,
+		})
+		primaryWeaponId = "fireball"
+	end
 	profilesByUserId[player.UserId] = {
-		Weapons = { fireball = 1 },
-		Order = { "fireball" },
-		Bonuses = { fireball = {} },
+		Weapons = { [primaryWeaponId] = 1 },
+		Order = { primaryWeaponId },
+		Bonuses = { [primaryWeaponId] = {} },
 	}
 	sendSnapshot(player)
 end
@@ -107,6 +117,23 @@ function WeaponLoadoutService.GetRuntimeStats(player: Player, weaponId: string)
 	local definition = validDefinitions[weaponId]
 	if definition == nil then return nil end
 	local stats = copyDictionary(definition.Base)
+	local characterDefinition = CharacterService.GetActiveDefinition(player)
+	local passive = characterDefinition and characterDefinition.Passive
+	local passiveApplies = passive ~= nil and (
+		passive.Scope == "AllWeapons"
+		or (passive.Scope == "PrimaryWeapon" and characterDefinition.PrimaryWeaponId == weaponId)
+		or (passive.Scope == "WeaponCategory" and passive.WeaponCategory == definition.Category)
+	)
+	if passiveApplies then
+		for _, modifier in ipairs(passive.Modifiers or {}) do
+			local currentValue = tonumber(stats[modifier.StatId]) or 0
+			if modifier.Operation == "Add" then
+				stats[modifier.StatId] = currentValue + modifier.Amount
+			elseif modifier.Operation == "MultiplyBase" then
+				stats[modifier.StatId] = currentValue * modifier.Amount
+			end
+		end
+	end
 	local bonuses = getProfile(player).Bonuses[weaponId] or {}
 	for statId, amount in pairs(bonuses) do
 		stats[statId] = (tonumber(stats[statId]) or 0) + (tonumber(amount) or 0)
@@ -142,7 +169,7 @@ end
 function WeaponLoadoutService.SetDevelopmentWeapon(player: Player, weaponId: string, enabled: boolean)
 	local definition = validDefinitions[weaponId]
 	if definition == nil then
-		return false, "Arme de developpement invalide"
+		return false, "Arme de calibration invalide"
 	end
 
 	local profile = getProfile(player)

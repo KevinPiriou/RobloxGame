@@ -8,6 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local RunTeleportConfig = require(Shared:WaitForChild("RunTeleportConfig"))
 
+local CharacterService = require(script.Parent:WaitForChild("CharacterService"))
 local ChapterProgressService = require(script.Parent:WaitForChild("ChapterProgressService"))
 local RunSessionService = require(script.Parent:WaitForChild("RunSessionService"))
 local RunStateService = require(script.Parent:WaitForChild("RunStateService"))
@@ -319,6 +320,15 @@ function RunTeleportService.StartSoloRun(player, trigger, explicitChapterId)
 		return false, reason
 	end
 
+	local characterCaptured, characterReason, characterSnapshot = CharacterService.CaptureRunSelection(player)
+	if not characterCaptured then
+		DebugLog.Warn("RunTeleport", "Lancement refuse par la selection de personnage", {
+			Player = player.Name,
+			Reason = characterReason,
+		})
+		return false, characterReason
+	end
+
 	cooldownsByUserId[player.UserId] = os.clock()
 	teleportingByUserId[player.UserId] = true
 
@@ -327,7 +337,7 @@ function RunTeleportService.StartSoloRun(player, trigger, explicitChapterId)
 			or tonumber(trigger and trigger:GetAttribute("ChapterId"))
 			or ChapterProgressService.GetSelectedChapter(player)
 	)
-	local prepared, sessionOrReason = RunSessionService.PrepareRun(player, requestedChapter)
+	local prepared, sessionOrReason = RunSessionService.PrepareRun(player, requestedChapter, characterSnapshot)
 
 	if not prepared then
 		teleportingByUserId[player.UserId] = nil

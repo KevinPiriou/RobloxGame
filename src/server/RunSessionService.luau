@@ -8,6 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ChapterConfig = require(Shared:WaitForChild("ChapterConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
+local CharacterService = require(script.Parent:WaitForChild("CharacterService"))
 local ChapterProgressService = require(script.Parent:WaitForChild("ChapterProgressService"))
 local ProceduralMapService = require(script.Parent:WaitForChild("ProceduralMapService"))
 local RunMapService = require(script.Parent:WaitForChild("RunMapService"))
@@ -67,6 +68,26 @@ local function copyNumericDictionary(rawDictionary)
 	return copied
 end
 
+local function copyCharacterSnapshot(rawSnapshot)
+	if typeof(rawSnapshot) ~= "table" then
+		return nil
+	end
+
+	local characterId = tostring(rawSnapshot.CharacterId or "")
+	local primaryWeaponId = tostring(rawSnapshot.PrimaryWeaponId or "")
+	if characterId == "" or primaryWeaponId == "" then
+		return nil
+	end
+
+	return {
+		SchemaVersion = math.max(1, math.floor(tonumber(rawSnapshot.SchemaVersion) or 1)),
+		CharacterId = characterId,
+		PrimaryWeaponId = primaryWeaponId,
+		CharacterSkinId = tostring(rawSnapshot.CharacterSkinId or "default"),
+		WeaponSkinId = tostring(rawSnapshot.WeaponSkinId or "default"),
+	}
+end
+
 local function copyPerkStacks(rawPerks)
 	local copied = {}
 
@@ -87,6 +108,21 @@ local function copyPerkStacks(rawPerks)
 		end
 	end
 
+	return copied
+end
+
+local function copyStringList(rawValues)
+	local copied = {}
+	if typeof(rawValues) ~= "table" then
+		return copied
+	end
+
+	for _, value in ipairs(rawValues) do
+		local normalized = tostring(value or "")
+		if normalized ~= "" then
+			table.insert(copied, normalized)
+		end
+	end
 	return copied
 end
 
@@ -113,6 +149,8 @@ local function copyPersistentResultSummary(result)
 			ChapterId = math.max(0, math.floor(tonumber(context.ChapterId) or 0)),
 			MapId = tostring(context.MapId or ""),
 			Seed = math.max(0, math.floor(tonumber(context.Seed) or 0)),
+			CharacterId = tostring(context.CharacterId or ""),
+			PrimaryWeaponId = tostring(context.PrimaryWeaponId or ""),
 		},
 		Lifecycle = {
 			Status = tostring(lifecycle.Status or "Completed"),
@@ -159,6 +197,8 @@ local function copyPersistentResultSummary(result)
 		},
 		FinalBuild = {
 			WeaponId = tostring(build.WeaponId or ""),
+			Weapons = copyStringList(build.Weapons),
+			CharacterId = tostring(build.CharacterId or ""),
 			Perks = copyPerkStacks(build.Perks),
 			Stats = copyNumericDictionary(build.Stats),
 		},
@@ -187,6 +227,7 @@ local function copySession(session)
 		UserId = math.floor(tonumber(session.UserId) or 0),
 		ChapterId = math.floor(tonumber(session.ChapterId) or 0),
 		MapId = tostring(session.MapId or ""),
+		Character = copyCharacterSnapshot(session.Character),
 		LifecycleStatus = tostring(session.LifecycleStatus or "Unknown"),
 		Outcome = session.Outcome and tostring(session.Outcome) or nil,
 		EndReason = session.EndReason and tostring(session.EndReason) or nil,
@@ -253,6 +294,8 @@ local function publishSession(player, session)
 	player:SetAttribute("RunRejectedSeedCount", session and session.RejectedSeedCount or nil)
 	player:SetAttribute("RunChapterId", session and session.ChapterId or nil)
 	player:SetAttribute("RunMapId", session and session.MapId or nil)
+	player:SetAttribute("RunCharacterId", session and session.Character and session.Character.CharacterId or nil)
+	player:SetAttribute("RunPrimaryWeaponId", session and session.Character and session.Character.PrimaryWeaponId or nil)
 	player:SetAttribute("RunCreatedAt", session and session.CreatedAt or nil)
 	player:SetAttribute("RunLifecycleStatus", session and session.LifecycleStatus or "Idle")
 end
@@ -560,7 +603,7 @@ function RunSessionService.SetupPlayer(player)
 	publishSession(player, profile.Data.CurrentRun)
 end
 
-function RunSessionService.PrepareRun(player, chapterId)
+function RunSessionService.PrepareRun(player, chapterId, characterSnapshot)
 	local profile = getOrCreateProfile(player)
 	local chapter = ChapterConfig.GetChapter(chapterId)
 
@@ -580,6 +623,11 @@ function RunSessionService.PrepareRun(player, chapterId)
 		return false, "RunAlreadyExists"
 	end
 
+	local normalizedCharacter = copyCharacterSnapshot(characterSnapshot)
+	if normalizedCharacter == nil then
+		return false, "CharacterSnapshotMissing"
+	end
+
 	if worldOwnerUserId ~= nil and worldOwnerUserId ~= player.UserId then
 		return false, "WorldAlreadyInUse"
 	end
@@ -595,6 +643,7 @@ function RunSessionService.PrepareRun(player, chapterId)
 		UserId = player.UserId,
 		ChapterId = chapter.Id,
 		MapId = chapter.MapTemplateName,
+		Character = normalizedCharacter,
 		LifecycleStatus = "Creating",
 		CreatedAt = os.time(),
 		ChapterValidated = false,
@@ -619,6 +668,7 @@ function RunSessionService.GetTeleportData(player)
 		runSeed = session.Seed,
 		chapterId = session.ChapterId,
 		mapId = session.MapId,
+		character = copyCharacterSnapshot(session.Character),
 	}
 end
 
@@ -674,6 +724,12 @@ function RunSessionService.StartGeneratedRun(player, expectedRunId, reason)
 		return false, "RunNotReady"
 	end
 
+	local characterActivated, characterReason = CharacterService.ActivateRunSelection(player, session.Character)
+	if not characterActivated then
+		finalizeSession(player, characterReason)
+		return false, characterReason
+	end
+
 	session.StartedAt = os.time()
 	transition(player, session, "Active")
 	saveProfile(player)
@@ -692,6 +748,11 @@ function RunSessionService.ResolveArrival(player, teleportData)
 	local currentRun = profile.Data.CurrentRun
 
 	if typeof(teleportData) == "table" and typeof(teleportData.runId) == "string" then
+		local teleportCharacter = copyCharacterSnapshot(teleportData.character)
+		if teleportCharacter == nil then
+			return false, "InvalidCharacterTeleportData", nil
+		end
+
 		if currentRun == nil then
 			local chapter = ChapterConfig.GetChapter(teleportData.chapterId)
 
@@ -715,6 +776,7 @@ function RunSessionService.ResolveArrival(player, teleportData)
 				UserId = player.UserId,
 				ChapterId = chapter.Id,
 				MapId = chapter.MapTemplateName,
+				Character = teleportCharacter,
 				LifecycleStatus = "Creating",
 				CreatedAt = os.time(),
 				ChapterValidated = false,
@@ -725,6 +787,14 @@ function RunSessionService.ResolveArrival(player, teleportData)
 
 		if currentRun.RunId ~= teleportData.runId or currentRun.UserId ~= player.UserId then
 			return false, "RunIdentityMismatch", nil
+		end
+
+		local currentCharacter = copyCharacterSnapshot(currentRun.Character)
+		if currentCharacter == nil
+			or currentCharacter.CharacterId ~= teleportCharacter.CharacterId
+			or currentCharacter.PrimaryWeaponId ~= teleportCharacter.PrimaryWeaponId
+		then
+			return false, "CharacterIdentityMismatch", nil
 		end
 
 		return RunSessionService.ActivatePreparedRun(player, teleportData.runId, "TeleportArrival")

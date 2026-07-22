@@ -49,6 +49,16 @@ local function createDefaultStats()
 	}
 end
 
+local function createDefaultUnlockMap(ids)
+	local unlocked = {}
+
+	for _, id in ipairs(ids) do
+		unlocked[tostring(id)] = true
+	end
+
+	return unlocked
+end
+
 local function createDefaultData()
 	return {
 		Version = MetaProgressionConfig.DataVersion,
@@ -63,6 +73,10 @@ local function createDefaultData()
 		CompletedQuestIds = {},
 		DailyCompletedQuestIds = {},
 		AchievementIds = {},
+		UnlockedCharacterIds = createDefaultUnlockMap(MetaProgressionConfig.DefaultUnlockedCharacterIds),
+		UnlockedWeaponIds = createDefaultUnlockMap(MetaProgressionConfig.DefaultUnlockedWeaponIds),
+		SelectedCharacterId = "medivh",
+		CosmeticSelections = {},
 		ProcessedRunIds = {},
 		StartedRunIds = {},
 	}
@@ -106,6 +120,25 @@ local function normalizeRunIdList(rawIds, limit)
 	return normalized
 end
 
+local function normalizeCosmeticSelections(rawSelections)
+	local normalized = {}
+	if typeof(rawSelections) ~= "table" then
+		return normalized
+	end
+
+	for rawCharacterId, rawSelection in pairs(rawSelections) do
+		local characterId = tostring(rawCharacterId or "")
+		if characterId ~= "" and typeof(rawSelection) == "table" then
+			normalized[characterId] = {
+				CharacterSkinId = tostring(rawSelection.CharacterSkinId or "default"),
+				WeaponSkinId = tostring(rawSelection.WeaponSkinId or "default"),
+			}
+		end
+	end
+
+	return normalized
+end
+
 local function normalizeData(rawData)
 	local data = createDefaultData()
 
@@ -130,6 +163,18 @@ local function normalizeData(rawData)
 	data.CompletedQuestIds = normalizeBooleanMap(rawData.CompletedQuestIds)
 	data.DailyCompletedQuestIds = normalizeBooleanMap(rawData.DailyCompletedQuestIds)
 	data.AchievementIds = normalizeBooleanMap(rawData.AchievementIds)
+	data.UnlockedCharacterIds = normalizeBooleanMap(rawData.UnlockedCharacterIds)
+	data.UnlockedWeaponIds = normalizeBooleanMap(rawData.UnlockedWeaponIds)
+	data.SelectedCharacterId = tostring(rawData.SelectedCharacterId or data.SelectedCharacterId)
+	data.CosmeticSelections = normalizeCosmeticSelections(rawData.CosmeticSelections)
+
+	for _, characterId in ipairs(MetaProgressionConfig.DefaultUnlockedCharacterIds) do
+		data.UnlockedCharacterIds[characterId] = true
+	end
+
+	for _, weaponId in ipairs(MetaProgressionConfig.DefaultUnlockedWeaponIds) do
+		data.UnlockedWeaponIds[weaponId] = true
+	end
 
 	data.ProcessedRunIds = normalizeRunIdList(rawData.ProcessedRunIds, MetaProgressionConfig.ProcessedRunLimit)
 	data.StartedRunIds = normalizeRunIdList(rawData.StartedRunIds, MetaProgressionConfig.StartedRunHistoryLimit)
@@ -268,6 +313,10 @@ local function createPublicState(profile)
 		Quests = createPublicEntries(data, MetaProgressionConfig.Quests, data.CompletedQuestIds),
 		DailyQuests = createPublicEntries(data, MetaProgressionConfig.DailyQuests, data.DailyCompletedQuestIds),
 		Achievements = createPublicEntries(data, MetaProgressionConfig.Achievements, data.AchievementIds),
+		UnlockedCharacterIds = table.clone(data.UnlockedCharacterIds),
+		UnlockedWeaponIds = table.clone(data.UnlockedWeaponIds),
+		SelectedCharacterId = data.SelectedCharacterId,
+		CosmeticSelections = table.clone(data.CosmeticSelections),
 	}
 end
 
@@ -713,6 +762,108 @@ end
 function MetaProgressionService.GetPublicState(player)
 	local profile = getOrCreateProfile(player)
 	return createPublicState(profile)
+end
+
+function MetaProgressionService.GetUnlockState(player)
+	local profile = getOrCreateProfile(player)
+	return {
+		Loaded = profile.Loaded,
+		Characters = table.clone(profile.Data.UnlockedCharacterIds),
+		Weapons = table.clone(profile.Data.UnlockedWeaponIds),
+	}
+end
+
+function MetaProgressionService.IsCharacterUnlocked(player, characterId)
+	local profile = getOrCreateProfile(player)
+	return profile.Loaded and profile.Data.UnlockedCharacterIds[tostring(characterId)] == true
+end
+
+function MetaProgressionService.IsWeaponUnlocked(player, weaponId)
+	local profile = getOrCreateProfile(player)
+	return profile.Loaded and profile.Data.UnlockedWeaponIds[tostring(weaponId)] == true
+end
+
+function MetaProgressionService.GetSelectedCharacterId(player)
+	local profile = getOrCreateProfile(player)
+	if not profile.Loaded then
+		return nil
+	end
+	return tostring(profile.Data.SelectedCharacterId or "")
+end
+
+function MetaProgressionService.SetSelectedCharacterId(player, characterId)
+	local profile = getOrCreateProfile(player)
+	local normalizedCharacterId = tostring(characterId or "")
+	if not profile.Loaded or normalizedCharacterId == "" then
+		return false, "ProfileNotLoaded"
+	end
+
+	return commitProfileMutation(player, profile, function(data)
+		data.SelectedCharacterId = normalizedCharacterId
+		return data, normalizedCharacterId
+	end)
+end
+
+function MetaProgressionService.GetCosmeticSelection(player, characterId)
+	local profile = getOrCreateProfile(player)
+	local normalizedCharacterId = tostring(characterId or "")
+	local selection = profile.Data.CosmeticSelections[normalizedCharacterId]
+	return {
+		CharacterSkinId = tostring(selection and selection.CharacterSkinId or "default"),
+		WeaponSkinId = tostring(selection and selection.WeaponSkinId or "default"),
+	}
+end
+
+function MetaProgressionService.SetCosmeticSelection(player, characterId, characterSkinId, weaponSkinId)
+	local profile = getOrCreateProfile(player)
+	local normalizedCharacterId = tostring(characterId or "")
+	if not profile.Loaded or normalizedCharacterId == "" then
+		return false, "ProfileNotLoaded"
+	end
+
+	local normalizedCharacterSkinId = tostring(characterSkinId or "default")
+	local normalizedWeaponSkinId = tostring(weaponSkinId or "default")
+	return commitProfileMutation(player, profile, function(data)
+		data.CosmeticSelections[normalizedCharacterId] = {
+			CharacterSkinId = normalizedCharacterSkinId,
+			WeaponSkinId = normalizedWeaponSkinId,
+		}
+		return data, table.clone(data.CosmeticSelections[normalizedCharacterId])
+	end)
+end
+
+function MetaProgressionService.UnlockCharacter(player, characterId, source)
+	local profile = getOrCreateProfile(player)
+	local normalizedCharacterId = tostring(characterId or "")
+	if not profile.Loaded or normalizedCharacterId == "" then
+		return false, "ProfileNotLoaded"
+	end
+
+	return commitProfileMutation(player, profile, function(data)
+		local alreadyUnlocked = data.UnlockedCharacterIds[normalizedCharacterId] == true
+		data.UnlockedCharacterIds[normalizedCharacterId] = true
+		return data, {
+			Unlocked = not alreadyUnlocked,
+			Source = tostring(source or "Unknown"),
+		}
+	end)
+end
+
+function MetaProgressionService.UnlockWeapon(player, weaponId, source)
+	local profile = getOrCreateProfile(player)
+	local normalizedWeaponId = tostring(weaponId or "")
+	if not profile.Loaded or normalizedWeaponId == "" then
+		return false, "ProfileNotLoaded"
+	end
+
+	return commitProfileMutation(player, profile, function(data)
+		local alreadyUnlocked = data.UnlockedWeaponIds[normalizedWeaponId] == true
+		data.UnlockedWeaponIds[normalizedWeaponId] = true
+		return data, {
+			Unlocked = not alreadyUnlocked,
+			Source = tostring(source or "Unknown"),
+		}
+	end)
 end
 
 function MetaProgressionService.SavePlayer(player)

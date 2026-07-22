@@ -33,7 +33,7 @@ WeaponConfig.Definitions = {
 		Name = "Aiguille de Leyde",
 		Category = "Zone",
 		Lifecycle = "Production",
-		Icon = "",
+		Icon = "rbxassetid://71972739531178",
 		VfxProfileId = "LeydenNeedleZone",
 		Base = {
 			Damage = 32,
@@ -41,11 +41,12 @@ WeaponConfig.Definitions = {
 			Range = 72,
 			ZoneRadius = 14,
 			ChargeDuration = 1.15,
-			StrikeCount = 5,
+			StrikeCount = 1,
 			BounceRange = 20,
 		},
 		Caps = {
 			ZoneRadius = 26,
+			StrikeCount = 5,
 			BounceCount = 8,
 			MinimumCooldown = 0.7,
 		},

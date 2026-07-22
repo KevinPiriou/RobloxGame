@@ -99,6 +99,8 @@ local function beginRun(player)
 			ChapterId = math.floor(tonumber(player:GetAttribute("RunChapterId")) or 0),
 			MapId = tostring(player:GetAttribute("RunMapId") or ""),
 			Seed = math.floor(tonumber(player:GetAttribute("RunSeed")) or 0),
+			CharacterId = tostring(player:GetAttribute("RunCharacterId") or ""),
+			PrimaryWeaponId = tostring(player:GetAttribute("RunPrimaryWeaponId") or ""),
 		},
 		CreatedAt = math.floor(tonumber(player:GetAttribute("RunCreatedAt")) or os.time()),
 		StartedAt = os.time(),
@@ -318,6 +320,8 @@ function RunAnalyticsService.BuildRunResult(player, reason, snapshot)
 			ChapterId = run.Context.ChapterId,
 			MapId = run.Context.MapId,
 			Seed = run.Context.Seed,
+			CharacterId = run.Context.CharacterId,
+			PrimaryWeaponId = run.Context.PrimaryWeaponId,
 		},
 		Lifecycle = {
 			Status = "Completed",

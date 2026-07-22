@@ -1,8 +1,10 @@
 local MetaProgressionConfig = {
 	DataStoreName = "MegaRobloxMetaProgression_v1",
-	DataVersion = 2,
+	DataVersion = 4,
 	ProcessedRunLimit = 40,
 	StartedRunHistoryLimit = 40,
+	DefaultUnlockedCharacterIds = { "medivh" },
+	DefaultUnlockedWeaponIds = { "fireball" },
 
 	Quests = {
 		{
