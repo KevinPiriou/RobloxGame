@@ -182,7 +182,7 @@ local function applyMaxHealthStats(player)
 end
 
 local function getDisplayStatsSnapshot(player, profile)
-	local stats = profile.Stats
+	local stats = PerkService.GetStats(player)
 	local humanoid = getHumanoid(player)
 	local damageMultiplier = 1 + (stats.DamagePercent or 0)
 	local attackCooldown = math.max(
@@ -227,7 +227,7 @@ local function sendPerkStats(player)
 	local profile = getOrCreateProfile(player)
 
 	updatePerksRemote:FireClient(player, {
-		Stats = profile.Stats,
+		Stats = PerkService.GetStats(player),
 		DisplayStats = getDisplayStatsSnapshot(player, profile),
 		CurrentShield = profile.CurrentShield,
 		MaxShield = profile.Stats.Shield,
@@ -916,7 +916,18 @@ function PerkService.GetStats(player)
 		return createEmptyStats()
 	end
 
-	return profile.Stats
+	local stats = table.clone(profile.Stats)
+	stats.AttackSpeedPercent = (stats.AttackSpeedPercent or 0)
+		+ CharacterService.GetPlayerStatAdditiveBonus(player, "AttackSpeedPercent")
+	stats.CritChance = (stats.CritChance or 0)
+		+ CharacterService.GetPlayerStatAdditiveBonus(player, "CritChance")
+	return stats
+end
+
+function PerkService.RefreshCharacterDerivedStats(player)
+	if profilesByUserId[player.UserId] ~= nil then
+		sendPerkStats(player)
+	end
 end
 
 function PerkService.GetRunPerkCount(player)

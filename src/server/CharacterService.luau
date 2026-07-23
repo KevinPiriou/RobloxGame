@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CharacterConfig = require(Shared:WaitForChild("CharacterConfig"))
 local CharacterDefinitionValidator = require(Shared:WaitForChild("CharacterDefinitionValidator"))
+local CharacterSkinConfig = require(Shared:WaitForChild("CharacterSkinConfig"))
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 
 local MetaProgressionService = require(script.Parent:WaitForChild("MetaProgressionService"))
@@ -193,11 +194,28 @@ local function restoreAppearance(player: Player)
 	end
 end
 
+local function getClothingForSkin(definition, characterSkinId: string)
+	local clothing = definition and definition.Appearance and definition.Appearance.Clothing
+	local characterSkins = definition and CharacterSkinConfig.Characters[definition.Id]
+	if characterSkins == nil then
+		return clothing
+	end
+
+	for _, skin in ipairs(characterSkins.Skins) do
+		if skin.Id == characterSkinId and skin.Clothing ~= nil then
+			return skin.Clothing
+		end
+	end
+
+	return clothing
+end
+
 local function applyRunAppearance(player: Player, character: Model)
 	local snapshot = getProfile(player).ActiveRunSnapshot
 	local definition = snapshot and runnableDefinitions[snapshot.CharacterId]
-	local clothing = definition and definition.Appearance and definition.Appearance.Clothing
+	local clothing = getClothingForSkin(definition, snapshot and snapshot.CharacterSkinId or "default")
 	if clothing == nil then
+		attachIdentityTag(player)
 		return
 	end
 
@@ -236,7 +254,9 @@ local function buildRoster(player: Player)
 		table.insert(entries, {
 			Id = characterId,
 			Name = definition.Name,
+			NameKey = definition.NameKey,
 			Description = definition.Description,
+			DescriptionKey = definition.DescriptionKey,
 			Portrait = definition.Portrait,
 			PrimaryWeaponId = definition.PrimaryWeaponId,
 			Passive = definition.Passive,
@@ -418,6 +438,31 @@ function CharacterService.GetPlayerStatBaseMultiplier(player: Player, statId: st
 		end
 	end
 	return math.max(0, multiplier)
+end
+
+function CharacterService.GetPlayerStatAdditiveBonus(player: Player, statId: string): number
+	local definition = CharacterService.GetActiveDefinition(player)
+	local passive = definition and definition.Passive
+	if passive == nil or passive.Scope ~= "Player" then
+		return 0
+	end
+
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local levelValue = if leaderstats then leaderstats:FindFirstChild("Level") else nil
+	local level = if levelValue and levelValue:IsA("IntValue") then math.max(1, levelValue.Value) else 1
+	local bonus = 0
+
+	for _, modifier in ipairs(passive.Modifiers or {}) do
+		if modifier.StatId == statId then
+			if modifier.Operation == "Add" then
+				bonus += modifier.Amount
+			elseif modifier.Operation == "AddPerLevel" then
+				bonus += modifier.Amount * level
+			end
+		end
+	end
+
+	return bonus
 end
 
 function CharacterService.GetRoster(player: Player)

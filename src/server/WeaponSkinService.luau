@@ -22,14 +22,22 @@ local function getOrCreateRemote(remoteName)
 	end
 
 	assert(remote:IsA("RemoteEvent"), remoteName .. " doit etre un RemoteEvent.")
-
 	return remote
 end
 
 local selectSkinRemote = getOrCreateRemote("WeaponSkin_Select")
 
-local function getFireballSkin(skinId)
-	for _, skin in ipairs(WeaponSkinConfig.Weapons.fireball.Skins) do
+local function getWeaponDefinition(weaponId)
+	return WeaponSkinConfig.Weapons[tostring(weaponId or "")]
+end
+
+local function getSkin(weaponId, skinId)
+	local weapon = getWeaponDefinition(weaponId)
+	if weapon == nil then
+		return nil
+	end
+
+	for _, skin in ipairs(weapon.Skins) do
 		if skin.Id == skinId then
 			return skin
 		end
@@ -38,33 +46,58 @@ local function getFireballSkin(skinId)
 	return nil
 end
 
-function WeaponSkinService.GetSelectedFireballSkin(player)
+local function getDefaultSkinId(weaponId)
+	local weapon = getWeaponDefinition(weaponId)
+	return weapon and weapon.DefaultSkinId or nil
+end
+
+function WeaponSkinService.GetSelectedWeaponSkin(player, weaponId)
+	local normalizedWeaponId = tostring(weaponId or "")
+	local runWeaponId = player:GetAttribute("RunPrimaryWeaponId")
 	local runSkinId = player:GetAttribute("RunWeaponSkinId")
-	if typeof(runSkinId) == "string" and getFireballSkin(runSkinId) ~= nil then
+	if runWeaponId == normalizedWeaponId and typeof(runSkinId) == "string" and getSkin(normalizedWeaponId, runSkinId) ~= nil then
 		return runSkinId
 	end
 
-	local requestedSkinId = player:GetAttribute("FireballSkinId")
-
-	if typeof(requestedSkinId) == "string" and getFireballSkin(requestedSkinId) ~= nil then
-		return requestedSkinId
+	local selectedSkinId = player:GetAttribute("SelectedWeaponSkinId")
+	if typeof(selectedSkinId) == "string" and getSkin(normalizedWeaponId, selectedSkinId) ~= nil then
+		return selectedSkinId
 	end
 
-	return WeaponSkinConfig.Weapons.fireball.DefaultSkinId
+	if normalizedWeaponId == "fireball" then
+		local legacySkinId = player:GetAttribute("FireballSkinId")
+		if typeof(legacySkinId) == "string" and getSkin(normalizedWeaponId, legacySkinId) ~= nil then
+			return legacySkinId
+		end
+	end
+
+	return getDefaultSkinId(normalizedWeaponId)
+end
+
+function WeaponSkinService.GetSelectedFireballSkin(player)
+	return WeaponSkinService.GetSelectedWeaponSkin(player, "fireball")
 end
 
 function WeaponSkinService.SetupPlayer(player)
-	local characterId = tostring(player:GetAttribute("SelectedCharacterId") or "medivh")
+	local characterId = tostring(player:GetAttribute("SelectedCharacterId") or CharacterConfig.DefaultCharacterId)
+	local characterDefinition = CharacterConfig.GetDefinition(characterId)
+	local weaponId = characterDefinition and characterDefinition.PrimaryWeaponId or "fireball"
 	local cosmetics = MetaProgressionService.GetCosmeticSelection(player, characterId)
 	local selectedSkinId = cosmetics.WeaponSkinId
-	if getFireballSkin(selectedSkinId) == nil then
-		selectedSkinId = WeaponSkinConfig.Weapons.fireball.DefaultSkinId
+	if getSkin(weaponId, selectedSkinId) == nil then
+		selectedSkinId = getDefaultSkinId(weaponId)
 	end
-	player:SetAttribute("FireballSkinId", selectedSkinId)
+
+	player:SetAttribute("SelectedWeaponSkinId", selectedSkinId)
+	if weaponId == "fireball" then
+		player:SetAttribute("FireballSkinId", selectedSkinId)
+	else
+		player:SetAttribute("FireballSkinId", nil)
+	end
 end
 
 function WeaponSkinService.RemovePlayer(_player)
-	-- L'apparence est pour l'instant une selection de session : aucune donnee persistante a nettoyer.
+	-- La selection est persistee dans le profil joueur, aucun cache de session a liberer.
 end
 
 local function canUseSkin(skin)
@@ -72,27 +105,24 @@ local function canUseSkin(skin)
 	return skin.UnlockType == "Starter"
 end
 
-local function selectFireballSkin(player, skinId)
+local function selectWeaponSkin(player, skinId)
 	if typeof(skinId) ~= "string" then
-		return
-	end
-
-	local skin = getFireballSkin(skinId)
-
-	if skin == nil or not canUseSkin(skin) then
-		DebugLog.Warn("Weapon", "Selection skin Fireball refusee", {
-			Player = player.Name,
-			SkinId = skinId,
-		})
 		return
 	end
 
 	local characterId = tostring(player:GetAttribute("SelectedCharacterId") or "")
 	local characterDefinition = CharacterConfig.GetDefinition(characterId)
-	if characterDefinition == nil or characterDefinition.PrimaryWeaponId ~= "fireball" then
-		DebugLog.Warn("Weapon", "Selection skin Fireball incompatible avec le personnage", {
+	if characterDefinition == nil then
+		return
+	end
+
+	local weaponId = characterDefinition.PrimaryWeaponId
+	local skin = getSkin(weaponId, skinId)
+	if skin == nil or not canUseSkin(skin) then
+		DebugLog.Warn("Weapon", "Selection skin d'arme refusee", {
 			Player = player.Name,
-			CharacterId = characterId,
+			WeaponId = weaponId,
+			SkinId = skinId,
 		})
 		return
 	end
@@ -105,17 +135,23 @@ local function selectFireballSkin(player, skinId)
 		skin.Id
 	)
 	if not persisted then
-		DebugLog.Warn("Weapon", "Persistance du skin Fireball impossible", {
+		DebugLog.Warn("Weapon", "Persistance du skin d'arme impossible", {
 			Player = player.Name,
+			WeaponId = weaponId,
 			SkinId = skin.Id,
 			Reason = tostring(persistReason),
 		})
 		return
 	end
 
-	player:SetAttribute("FireballSkinId", skin.Id)
-	DebugLog.Info("Weapon", "Skin Fireball selectionne", {
+	player:SetAttribute("SelectedWeaponSkinId", skin.Id)
+	if weaponId == "fireball" then
+		player:SetAttribute("FireballSkinId", skin.Id)
+	end
+
+	DebugLog.Info("Weapon", "Skin d'arme selectionne", {
 		Player = player.Name,
+		WeaponId = weaponId,
 		SkinId = skin.Id,
 	})
 end
@@ -126,7 +162,7 @@ function WeaponSkinService.Start()
 	end
 
 	isStarted = true
-	selectSkinRemote.OnServerEvent:Connect(selectFireballSkin)
+	selectSkinRemote.OnServerEvent:Connect(selectWeaponSkin)
 
 	local function bindCharacterSelection(player)
 		player:GetAttributeChangedSignal("SelectedCharacterId"):Connect(function()
@@ -141,7 +177,13 @@ function WeaponSkinService.Start()
 	Players.PlayerAdded:Connect(bindCharacterSelection)
 
 	DebugLog.Info("Weapon", "WeaponSkinService demarre", {
-		DefaultSkinId = WeaponSkinConfig.Weapons.fireball.DefaultSkinId,
+		Weapons = (function()
+			local count = 0
+			for _ in pairs(WeaponSkinConfig.Weapons) do
+				count += 1
+			end
+			return count
+		end)(),
 	})
 end
 

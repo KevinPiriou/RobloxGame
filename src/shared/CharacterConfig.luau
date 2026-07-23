@@ -2,14 +2,16 @@
 
 local CharacterConfig = {}
 
-CharacterConfig.SchemaVersion = 2
+CharacterConfig.SchemaVersion = 3
 CharacterConfig.DefaultCharacterId = "medivh"
 
 CharacterConfig.Definitions = {
 	medivh = {
 		Id = "medivh",
 		Name = "Medivh",
+		NameKey = "character.medivh.name",
 		Description = "Mage malicieux qui amplifie les salves de projectiles.",
+		DescriptionKey = "character.medivh.description",
 		Lifecycle = "Production",
 		Portrait = "rbxassetid://72675265292172",
 		PrimaryWeaponId = "fireball",
@@ -28,6 +30,7 @@ CharacterConfig.Definitions = {
 		Passive = {
 			Id = "arcane_volley",
 			Name = "Volee arcanique",
+			NameKey = "character.medivh.passive",
 			Scope = "WeaponCategory",
 			WeaponCategory = "Projectile",
 			Modifiers = {
@@ -46,7 +49,9 @@ CharacterConfig.Definitions = {
 	albert = {
 		Id = "albert",
 		Name = "Albert",
+		NameKey = "character.albert.name",
 		Description = "Savant fou dont les instruments attirent les collectibles.",
+		DescriptionKey = "character.albert.description",
 		Lifecycle = "Production",
 		Portrait = "rbxassetid://76272865710318",
 		PrimaryWeaponId = "leyden_needle",
@@ -65,6 +70,7 @@ CharacterConfig.Definitions = {
 		Passive = {
 			Id = "scientific_magnetism",
 			Name = "Magnetisme scientifique",
+			NameKey = "character.albert.passive",
 			Scope = "Player",
 			Modifiers = {
 				{
@@ -75,7 +81,85 @@ CharacterConfig.Definitions = {
 			},
 		},
 		Unlock = {
-			Type = "Deferred",
+			Type = "Default",
+		},
+	},
+
+	shinobi = {
+		Id = "shinobi",
+		Name = "Shinobi",
+		NameKey = "character.shinobi.name",
+		Description = "Ninja precis qui accelere sa cadence a chaque niveau.",
+		DescriptionKey = "character.shinobi.description",
+		Lifecycle = "Production",
+		Portrait = "rbxassetid://104698571348162",
+		PrimaryWeaponId = "shuriken",
+		Appearance = {
+			RigType = "R15",
+			TemplatePath = "ServerStorage.CharacterTemplates.Shinobi",
+			Clothing = {
+				ShirtTemplate = "rbxassetid://81502804062973",
+				PantsTemplate = "rbxassetid://127826973384729",
+				MaterialSet = "ShinobiShadowV1",
+			},
+		},
+		Animations = {
+			Overrides = {},
+		},
+		Passive = {
+			Id = "shadow_training",
+			Name = "Entrainement de l'ombre",
+			NameKey = "character.shinobi.passive",
+			Scope = "Player",
+			Modifiers = {
+				{
+					StatId = "AttackSpeedPercent",
+					Operation = "AddPerLevel",
+					Amount = 0.05,
+				},
+			},
+		},
+		Unlock = {
+			Type = "Default",
+		},
+	},
+
+	rusal_gale = {
+		Id = "rusal_gale",
+		Name = "Ru's al Gale",
+		NameKey = "character.rusal_gale.name",
+		Description = "Necromancien qui rallie les morts sous une lanterne spectrale.",
+		DescriptionKey = "character.rusal_gale.description",
+		Lifecycle = "Production",
+		Portrait = "rbxassetid://111222772217752",
+		PrimaryWeaponId = "soul_lantern",
+		Appearance = {
+			RigType = "R15",
+			TemplatePath = "ServerStorage.CharacterTemplates.RusalGale",
+			Clothing = {
+				ShirtTemplate = "rbxassetid://140150101017634",
+				PantsTemplate = "rbxassetid://88177762501851",
+				MaterialSet = "RusalGaleNecromanticV1",
+			},
+		},
+		Animations = {
+			Overrides = {},
+		},
+		Passive = {
+			Id = "funeral_insight",
+			Name = "Instinct funeraire",
+			NameKey = "character.rusal_gale.passive",
+			Scope = "Player",
+			Modifiers = {
+				{
+					StatId = "CritChance",
+					Operation = "AddPerLevel",
+					Amount = 0.05,
+				},
+			},
+		},
+		Unlock = {
+			Type = "Default",
 		},
 	},
 }

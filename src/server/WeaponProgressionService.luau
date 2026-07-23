@@ -74,7 +74,7 @@ local RARITY_MULTIPLIER = { Common = 1, Rare = 1.5, Epic = 2.25, Legendary = 3.5
 
 local function amountFor(evolution, rarityId: string): number
 	local raw = evolution.Amount * (RARITY_MULTIPLIER[rarityId] or 1)
-	if evolution.StatId == "ProjectileCount" or evolution.StatId == "BounceCount" or evolution.StatId == "ZoneRadius" then
+	if evolution.StatId == "ProjectileCount" or evolution.StatId == "BounceCount" or evolution.StatId == "ZoneRadius" or evolution.StatId == "MinionCount" then
 		return math.max(1, math.floor(raw + 0.5))
 	end
 	return math.floor(raw * 10 + 0.5) / 10
@@ -84,6 +84,8 @@ local function formatEffect(statId: string, amount: number): string
 	if statId == "ProjectileCount" then return "+" .. amount .. " projectile" .. (amount > 1 and "s" or "") end
 	if statId == "BounceCount" then return "+" .. amount .. " rebond" .. (amount > 1 and "s" or "") end
 	if statId == "ZoneRadius" then return "+" .. amount .. " studs de rayon" end
+	if statId == "MinionCount" then return "+" .. amount .. " serviteur" .. (amount > 1 and "s" or "") end
+	if statId == "MinionLifetime" then return "+" .. amount .. " s de duree" end
 	return "+" .. amount .. " degats de l'arme"
 end
 
@@ -143,10 +145,12 @@ local function makeChoice(player: Player, level: number)
 			effect = formatEffect(statId, amount)
 		end
 		local option = {
-			OptionId = tostring(optionIndex), WeaponId = source.WeaponId, Name = definition.Name,
+			OptionId = tostring(optionIndex), WeaponId = source.WeaponId, Name = definition.Name, NameKey = definition.NameKey,
 			Icon = definition.Icon, Rarity = rarityId, RarityName = rarity.DisplayName,
 			RarityColor = rarity.Color, Kind = source.Kind, StatId = statId, Amount = amount,
-			Effect = effect, CurrentLevel = WeaponLoadoutService.GetWeaponLevel(player, source.WeaponId),
+			Effect = effect, EffectKey = source.Evolution and source.Evolution.LabelKey or nil,
+			EffectParameters = source.Evolution and { amount = amount } or nil,
+			CurrentLevel = WeaponLoadoutService.GetWeaponLevel(player, source.WeaponId),
 		}
 		table.insert(choices, option)
 		byId[option.OptionId] = option

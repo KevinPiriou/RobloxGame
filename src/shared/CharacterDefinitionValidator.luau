@@ -13,6 +13,7 @@ local VALID_SCOPES = {
 
 local VALID_OPERATIONS = {
 	Add = true,
+	AddPerLevel = true,
 	MultiplyBase = true,
 }
 
@@ -35,7 +36,10 @@ local function validateDefinition(characterId: string, definition)
 		table.insert(errors, "Lifecycle non production")
 	end
 
-	if not isNonEmptyString(definition.Portrait) then
+	local appearance = definition.Appearance
+	local usesGenericFallback = typeof(appearance) == "table" and appearance.Mode == "GenericR15Fallback"
+
+	if not isNonEmptyString(definition.Portrait) and not usesGenericFallback then
 		table.insert(errors, "Portrait 2D manquant")
 	end
 
@@ -43,12 +47,11 @@ local function validateDefinition(characterId: string, definition)
 		table.insert(errors, "Arme principale manquante")
 	end
 
-	local appearance = definition.Appearance
 	if typeof(appearance) ~= "table" or appearance.RigType ~= "R15" then
 		table.insert(errors, "Apparence R15 requise")
 	elseif not isNonEmptyString(appearance.TemplatePath) then
 		table.insert(errors, "Template visuel manquant")
-	else
+	elseif not usesGenericFallback then
 		local clothing = appearance.Clothing
 		if typeof(clothing) ~= "table"
 			or not isNonEmptyString(clothing.ShirtTemplate)

@@ -90,6 +90,59 @@ function WeaponDefinitionValidator.Validate(definition)
 		end
 	end
 
+	if definition.Category == "Projectile" and definition.Rules and definition.Rules.RequiresProjectileBase == true then
+		for _, field in ipairs({ "ProjectileCount", "ProjectileSpeed", "Lifetime", "HitRadius", "ConeAngleDegrees" }) do
+			if typeof(definition.Base[field]) ~= "number" or definition.Base[field] <= 0 then
+				addError(errors, weaponId, "Base." .. field, "requis pour ce projectile")
+			end
+		end
+
+		if typeof(definition.Caps) ~= "table"
+			or typeof(definition.Caps.ProjectileCount) ~= "number"
+			or definition.Caps.ProjectileCount < definition.Base.ProjectileCount
+		then
+			addError(errors, weaponId, "Caps.ProjectileCount", "doit etre superieur ou egal a la quantite de base")
+		end
+
+		if definition.Rules.UsesBounceCount ~= false then
+			addError(errors, weaponId, "Rules.UsesBounceCount", "doit etre false pour ce projectile sans rebond")
+		end
+	end
+
+	if definition.Category == "Invocation" then
+		for _, field in ipairs({ "MinionCount", "MinionLifetime", "MinionAttackCooldown", "MinionTargetRange", "MinionMoveSpeed" }) do
+			if typeof(definition.Base[field]) ~= "number" or definition.Base[field] <= 0 then
+				addError(errors, weaponId, "Base." .. field, "requis pour une invocation")
+			end
+		end
+
+		if definition.Rules == nil or definition.Rules.UsesProjectileCount ~= false then
+			addError(errors, weaponId, "Rules.UsesProjectileCount", "doit etre false pour une invocation")
+		end
+
+		if definition.Rules == nil or definition.Rules.UsesEffectDuration ~= true then
+			addError(errors, weaponId, "Rules.UsesEffectDuration", "doit etre true pour la duree des serviteurs")
+		end
+
+		if typeof(definition.VfxProfileId) ~= "string" or definition.VfxProfileId == "" then
+			addError(errors, weaponId, "VfxProfileId", "profil VFX requis pour une invocation")
+		end
+
+		if typeof(definition.Caps) ~= "table"
+			or typeof(definition.Caps.MinionCount) ~= "number"
+			or definition.Caps.MinionCount < definition.Base.MinionCount
+		then
+			addError(errors, weaponId, "Caps.MinionCount", "doit etre superieur ou egal au nombre de base")
+		end
+
+		if typeof(definition.Caps) ~= "table"
+			or typeof(definition.Caps.MinionLifetime) ~= "number"
+			or definition.Caps.MinionLifetime < definition.Base.MinionLifetime
+		then
+			addError(errors, weaponId, "Caps.MinionLifetime", "doit etre superieur ou egal a la duree de base")
+		end
+	end
+
 	return #errors == 0, errors
 end
 

@@ -588,6 +588,9 @@ local function updatePlayerWeapons(now)
 		if not RunStateService.IsRunActive(player) then
 			continue
 		end
+		if not WeaponLoadoutService.HasWeapon(player, "fireball") then
+			continue
+		end
 
 		if pendingFireballVolleysByUserId[player.UserId] ~= nil then
 			continue

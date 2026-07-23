@@ -273,6 +273,7 @@ function ChapterProgressService.Start()
 			table.insert(chapters, {
 				Id = chapter.Id,
 				DisplayName = chapter.DisplayName,
+				DisplayNameKey = chapter.DisplayNameKey,
 				MapId = chapter.MapTemplateName,
 				IsUnlocked = ChapterProgressService.IsChapterUnlocked(player, chapter.Id),
 				IsCompleted = profile ~= nil and profile.Data.CompletedChapters[tostring(chapter.Id)] == true,

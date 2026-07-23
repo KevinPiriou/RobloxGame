@@ -8,6 +8,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local UiTemplateConfig = require(Shared:WaitForChild("UiTemplateConfig"))
+local I18nClient = require(script.Parent:WaitForChild("I18nClient"))
 
 local showRemote = ReplicatedStorage:WaitForChild("WeaponProgression_Show") :: RemoteEvent
 local hideRemote = ReplicatedStorage:WaitForChild("WeaponProgression_Hide") :: RemoteEvent
@@ -155,8 +156,8 @@ local function initialise()
 	local function refreshButtons()
 		local passCredits = math.max(0, math.floor(tonumber(player:GetAttribute("RunPassCredits")) or 0))
 		local banCredits = math.max(0, math.floor(tonumber(player:GetAttribute("RunBanCredits")) or 0))
-		passButton.Text = ("PASSER (%d/%d)"):format(passCredits, tonumber(player:GetAttribute("RunPassCreditsMax")) or 0)
-		banButton.Text = if banMode then "CHOISIR L'ARME" else ("BANNIR (%d/%d)"):format(banCredits, tonumber(player:GetAttribute("RunBanCreditsMax")) or 0)
+		passButton.Text = I18nClient.T("action.pass_credits", { current = passCredits, max = tonumber(player:GetAttribute("RunPassCreditsMax")) or 0 })
+		banButton.Text = if banMode then I18nClient.T("action.choose_weapon") else I18nClient.T("action.ban_credits", { current = banCredits, max = tonumber(player:GetAttribute("RunBanCreditsMax")) or 0 })
 		passButton.Active = passCredits > 0
 		banButton.Active = banCredits > 0
 		banButton:SetAttribute("ActionState", if banMode then "Targeting" elseif banCredits > 0 then "Available" else "Consumed")
@@ -178,12 +179,22 @@ local function initialise()
 			local name = content:FindFirstChild("Name")
 			local effect = content:FindFirstChild("Effect")
 			local kind = content:FindFirstChild("OfferKind")
-			if rarity and rarity:IsA("TextLabel") then rarity.Text = string.upper(option.RarityName or option.Rarity); rarity.TextColor3 = color end
+			local rarityKey = "rarity." .. string.lower(tostring(option.Rarity or "Common"))
+			if rarity and rarity:IsA("TextLabel") then rarity.Text = I18nClient.T(rarityKey); rarity.TextColor3 = color end
 			if icon and icon:IsA("ImageLabel") then icon.Image = tostring(option.Icon or ""); icon.Visible = icon.Image ~= "" end
-			if name and name:IsA("TextLabel") then name.Text = tostring(option.Name) end
-			if effect and effect:IsA("TextLabel") then effect.Text = string.upper(tostring(option.Effect)); effect.TextColor3 = color end
+			if name and name:IsA("TextLabel") then name.Text = if type(option.NameKey) == "string" then I18nClient.T(option.NameKey) else tostring(option.Name) end
+			if effect and effect:IsA("TextLabel") then
+				local amount = tonumber(option.Amount) or 0
+				local effectKey = if option.StatId == "ProjectileCount" then (if amount > 1 then "weapon.effect.projectile_count_plural" else "weapon.effect.projectile_count")
+					elseif option.StatId == "BounceCount" then (if amount > 1 then "weapon.effect.bounce_count_plural" else "weapon.effect.bounce_count")
+					elseif option.StatId == "ZoneRadius" then "weapon.effect.zone_radius"
+					elseif option.StatId == "Damage" then "weapon.effect.damage"
+					else nil
+				effect.Text = string.upper(if effectKey ~= nil then I18nClient.T(effectKey, { amount = amount }) else tostring(option.Effect))
+				effect.TextColor3 = color
+			end
 			if kind and kind:IsA("TextLabel") then
-				kind.Text = if option.Kind == "New" then "NOUVELLE ARME" else ("EVOLUTION  NIV. %d > %d"):format(option.CurrentLevel, option.CurrentLevel + 1)
+				kind.Text = if option.Kind == "New" then I18nClient.T("ui.weapon_choice.new") else I18nClient.T("ui.weapon_choice.evolution", { current = option.CurrentLevel, next = option.CurrentLevel + 1 })
 				kind.TextColor3 = color
 			end
 		end
@@ -192,8 +203,8 @@ local function initialise()
 	local function display(payload)
 		currentChoiceId = tostring(payload.ChoiceId or "")
 		banMode = false
-		if title and title:IsA("TextLabel") then title.Text = "CHOIX D'ARME" end
-		if subtitle and subtitle:IsA("TextLabel") then subtitle.Text = "Choisis une arme ou renforce ton arsenal" end
+		if title and title:IsA("TextLabel") then title.Text = I18nClient.T("ui.weapon_choice.title") end
+		if subtitle and subtitle:IsA("TextLabel") then subtitle.Text = I18nClient.T("ui.weapon_choice.subtitle") end
 		for _, connection in ipairs(offerConnections) do connection:Disconnect() end
 		table.clear(offerConnections)
 		for index = 1, 3 do

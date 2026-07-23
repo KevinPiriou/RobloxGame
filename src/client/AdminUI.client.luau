@@ -28,6 +28,7 @@ local performanceBenchmarkRemote = ReplicatedStorage:WaitForChild(PerformanceBas
 local performanceBenchmarkStatusRemote = ReplicatedStorage:WaitForChild(PerformanceBaselineConfig.StatusRemoteName)
 local physicsAuditRemote = ReplicatedStorage:WaitForChild("Admin_RunPhysicsAudit")
 local toggleLeydenNeedleRemote = ReplicatedStorage:WaitForChild("Admin_ToggleLeydenNeedle")
+local toggleSoulLanternRemote = ReplicatedStorage:WaitForChild("Admin_ToggleSoulLantern")
 
 local DEV_KIT_PREVIEW_ATTRIBUTE = "DevKitPreviewEnabled"
 local DRAFT_GUI_NAME = "MegaRobloxUIV_RunLayoutDraft"
@@ -184,6 +185,7 @@ local benchmarkStartButton = createButton("BenchmarkStartButton", "P0 : lancer",
 local benchmarkStopButton = createButton("BenchmarkStopButton", "P0 : arreter", Color3.fromRGB(143, 70, 70), 8)
 local physicsAuditButton = createButton("PhysicsAuditButton", "P1 : inventaire physique", Color3.fromRGB(94, 91, 143), 9)
 local leydenNeedleButton = createButton("LeydenNeedleButton", "Arme calibration : Aiguille de Leyde", Color3.fromRGB(43, 118, 139), 10)
+local soulLanternButton = createButton("SoulLanternButton", "Arme calibration : Lanterne des ames", Color3.fromRGB(45, 128, 81), 11)
 
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Name = "StatusLabel"
@@ -195,7 +197,7 @@ statusLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
 statusLabel.TextSize = 11
 statusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-statusLabel.LayoutOrder = 11
+statusLabel.LayoutOrder = 12
 statusLabel.Parent = content
 
 local benchmarkStatusLabel = Instance.new("TextLabel")
@@ -686,6 +688,14 @@ leydenNeedleButton.Activated:Connect(function()
 	end
 
 	fireAdminAction(leydenNeedleButton, toggleLeydenNeedleRemote, "Equipement...")
+end)
+
+soulLanternButton.Activated:Connect(function()
+	if not toggleSoulLanternRemote:IsA("RemoteEvent") then
+		return
+	end
+
+	fireAdminAction(soulLanternButton, toggleSoulLanternRemote, "Equipement...")
 end)
 
 consoleToggle.Activated:Connect(function()

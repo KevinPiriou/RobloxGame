@@ -12,18 +12,23 @@ local Workspace = game:GetService("Workspace")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local I18nClient = require(script.Parent:WaitForChild("I18nClient"))
+local CharacterSkinConfig = require(Shared:WaitForChild("CharacterSkinConfig"))
 local UiTheme = require(Shared:WaitForChild("UiTheme"))
+local WeaponSkinConfig = require(Shared:WaitForChild("WeaponSkinConfig"))
 
 local getChapterState = ReplicatedStorage:WaitForChild("Chapter_GetState") :: RemoteFunction
 local startRunRequest = ReplicatedStorage:WaitForChild("Run_StartRequest") :: RemoteFunction
 local getRoster = ReplicatedStorage:WaitForChild("Character_GetRoster") :: RemoteFunction
 local selectCharacter = ReplicatedStorage:WaitForChild("Character_Select") :: RemoteEvent
 local characterUpdate = ReplicatedStorage:WaitForChild("Character_Update") :: RemoteEvent
+local selectCharacterSkin = ReplicatedStorage:WaitForChild("CharacterSkin_Select") :: RemoteEvent
 local selectWeaponSkin = ReplicatedStorage:WaitForChild("WeaponSkin_Select") :: RemoteEvent
 
 type ChapterPayload = {
 	Id: number,
 	DisplayName: string,
+	DisplayNameKey: string?,
 	MapId: string,
 	IsUnlocked: boolean,
 	IsCompleted: boolean,
@@ -33,7 +38,9 @@ type ChapterPayload = {
 type CharacterPayload = {
 	Id: string,
 	Name: string,
+	NameKey: string?,
 	Description: string,
+	DescriptionKey: string?,
 	Portrait: string,
 	PrimaryWeaponId: string,
 	Passive: {[string]: unknown},
@@ -82,9 +89,16 @@ local function setLabel(parent: Instance, name: string, text: string)
 	end
 end
 
+local function localized(key: unknown, fallback: string, parameters: {[string]: unknown}?): string
+	if type(key) == "string" and key ~= "" then
+		return I18nClient.T(key, parameters)
+	end
+	return fallback
+end
+
 local function setImage(parent: Instance, name: string, image: string)
 	local imageLabel = findDescendant(parent, name, "ImageLabel") :: ImageLabel?
-	if imageLabel ~= nil then
+	if imageLabel ~= nil and image ~= "" then
 		imageLabel.Image = image
 	end
 end
@@ -102,6 +116,39 @@ local function setStroke(parent: Instance, name: string, color: Color3, transpar
 		stroke.Color = color
 		stroke.Transparency = transparency
 	end
+end
+
+local rarityColors: {[string]: Color3}
+
+local function getChoiceButtons(container: Frame): {ImageButton}
+	local buttons = {}
+	for _, child in ipairs(container:GetChildren()) do
+		if child:IsA("ImageButton") then
+			table.insert(buttons, child)
+		end
+	end
+	table.sort(buttons, function(left, right)
+		if left.LayoutOrder == right.LayoutOrder then
+			return left.Name < right.Name
+		end
+		return left.LayoutOrder < right.LayoutOrder
+	end)
+	return buttons
+end
+
+local function setChoicePresentation(button: ImageButton, skin, selected: boolean, available: boolean)
+	button.Active = available
+	button.AutoButtonColor = available
+	button.ImageTransparency = if available then 0 else 0.62
+	setVisible(button, "Placeholder", skin == nil)
+	setVisible(button, "Icon", skin ~= nil)
+	if skin ~= nil then
+		setImage(button, "Icon", tostring(skin.Image or ""))
+		setLabel(button, "Caption", string.upper(tostring(skin.Name or "")))
+	else
+		setLabel(button, "Caption", I18nClient.T("ui.coming_soon"))
+	end
+	setStroke(button, "Outline", if selected then rarityColors.Active elseif available then rarityColors.Available else rarityColors.Locked, if selected then 0.08 elseif available then 0.48 else 0.68)
 end
 
 local COLORS = UiTheme.Contexts.RunLauncher
@@ -124,7 +171,7 @@ openButton.BackgroundTransparency = 0.16
 openButton.BorderSizePixel = 0
 openButton.AutoButtonColor = true
 openButton.Font = Enum.Font.GothamBold
-openButton.Text = "LANCER UNE RUN"
+openButton.Text = I18nClient.T("ui.run.launch")
 openButton.TextColor3 = COLORS.Text
 openButton.TextSize = 16
 openButton.Parent = screenGui
@@ -218,7 +265,7 @@ local wasRunActive = player:GetAttribute("IsRunActive") == true
 local activeScreen = "Characters"
 local viewportConnection: RBXScriptConnection? = nil
 
-local rarityColors = {
+rarityColors = {
 	Active = Color3.fromRGB(0, 170, 255),
 	Available = Color3.fromRGB(170, 0, 127),
 	Locked = Color3.fromRGB(96, 99, 118),
@@ -316,7 +363,7 @@ local function refreshCharacterCards()
 				setImage(child, "Portrait", entry.Portrait)
 				setLabel(child, "Caption", string.upper(entry.Name))
 			elseif child.Name:match("^Future") then
-				setLabel(child, "Caption", "A VENIR")
+				setLabel(child, "Caption", I18nClient.T("ui.coming_soon"))
 			end
 		end
 	end
@@ -325,47 +372,37 @@ local function refreshCharacterCards()
 	if selectedEntry ~= nil then
 		setLabel(selectedCharacterInfo, "Name", string.upper(selectedEntry.Name))
 		setLabel(selectedCharacterInfo, "Role", string.upper(selectedEntry.PrimaryWeaponId))
-		setLabel(selectedCharacterInfo, "PassiveLabel", "PASSIF")
+		setLabel(selectedCharacterInfo, "PassiveLabel", I18nClient.T("ui.character.passive"))
 		local passive = selectedEntry.Passive
-		setLabel(selectedCharacterInfo, "Passive", tostring(passive.Name or selectedEntry.Description))
+		setLabel(selectedCharacterInfo, "Passive", localized(passive.NameKey, tostring(passive.Name or selectedEntry.Description)))
 		setLabel(characterPreview, "Label", string.upper(selectedEntry.Name))
-		setLabel(characterPreview, "State", "APERCU")
+		setLabel(characterPreview, "State", I18nClient.T("ui.character.preview"))
 	end
 
 	local canProceed = selectedEntry ~= nil and selectedEntry.AvailableForRun and not isBusy
-	setActionState(runLaunchButton, canProceed, if isBusy then "CHARGEMENT..." else "CHOISIR LE NIVEAU")
+	setActionState(runLaunchButton, canProceed, if isBusy then I18nClient.T("ui.run.loading") else I18nClient.T("ui.run.choose_level"))
 end
 
 local function refreshSkinChoices()
-	local weaponSkin = player:GetAttribute("FireballSkinId")
-	local supportsFireballSkins = player:GetAttribute("SelectedPrimaryWeaponId") == "fireball"
-	if typeof(weaponSkin) ~= "string" then
-		weaponSkin = "fireball_default"
-	end
-
 	local characterSkin = getChild(skinSelectors, "CharacterSkin", "Frame") :: Frame
 	local weaponSkinPanel = getChild(skinSelectors, "WeaponSkin", "Frame") :: Frame
 	local characterChoices = getChild(characterSkin, "Choices", "Frame") :: Frame
 	local weaponChoices = getChild(weaponSkinPanel, "Choices", "Frame") :: Frame
+	local characterId = selectedCharacterId or tostring(player:GetAttribute("SelectedCharacterId") or "")
+	local characterEntry = CharacterSkinConfig.Characters[characterId]
+	local weaponId = tostring(player:GetAttribute("SelectedPrimaryWeaponId") or "")
+	local weaponEntry = WeaponSkinConfig.Weapons[weaponId]
+	local selectedCharacterSkinId = player:GetAttribute("SelectedCharacterSkinId")
+	local selectedWeaponSkinId = player:GetAttribute("SelectedWeaponSkinId")
 
-	for _, child in ipairs(characterChoices:GetChildren()) do
-		if child:IsA("ImageButton") then
-			local isDefault = child.Name == "Default"
-			child.Active = isDefault
-			child.AutoButtonColor = isDefault
-			setStroke(child, "Outline", if isDefault then rarityColors.Active else rarityColors.Locked, if isDefault then 0.12 else 0.62)
-		end
+	for index, button in ipairs(getChoiceButtons(characterChoices)) do
+		local skin = characterEntry and characterEntry.Skins[index] or nil
+		setChoicePresentation(button, skin, skin ~= nil and skin.Id == selectedCharacterSkinId, skin ~= nil)
 	end
 
-	for _, child in ipairs(weaponChoices:GetChildren()) do
-		if child:IsA("ImageButton") then
-			local skinId = if child.Name == "FireballArcane" then "fireball_arcane" else "fireball_default"
-			local selected = skinId == weaponSkin
-			child.Active = supportsFireballSkins
-			child.AutoButtonColor = supportsFireballSkins
-			child.ImageTransparency = if supportsFireballSkins then 0 else 0.62
-			setStroke(child, "Outline", if selected then rarityColors.Active else rarityColors.Available, if selected then 0.08 else 0.48)
-		end
+	for index, button in ipairs(getChoiceButtons(weaponChoices)) do
+		local skin = weaponEntry and weaponEntry.Skins[index] or nil
+		setChoicePresentation(button, skin, skin ~= nil and skin.Id == selectedWeaponSkinId, skin ~= nil)
 	end
 end
 
@@ -379,8 +416,8 @@ local function refreshChapterCards()
 
 			child.Active = available
 			child.AutoButtonColor = available
-			setLabel(child, "Chapter", if entry ~= nil then string.upper(entry.DisplayName) else "CHAPITRE")
-			setLabel(child, "Detail", if entry == nil then "A VENIR" elseif not available then "VERROUILLE" elseif entry.IsCompleted then "TERMINE" else "DISPONIBLE")
+			setLabel(child, "Chapter", if entry ~= nil then string.upper(localized(entry.DisplayNameKey, entry.DisplayName)) else I18nClient.T("ui.coming_soon"))
+			setLabel(child, "Detail", if entry == nil then I18nClient.T("ui.coming_soon") elseif not available then I18nClient.T("ui.chapter.locked") elseif entry.IsCompleted then I18nClient.T("ui.chapter.completed") else I18nClient.T("ui.chapter.available"))
 			setStroke(child, "Outline", if selected then rarityColors.Active elseif available then rarityColors.Available else rarityColors.Locked, if selected then 0.04 elseif available then 0.42 else 0.68)
 		end
 	end
@@ -394,23 +431,23 @@ local function refreshChapterCards()
 			setStroke(child, "Outline", if isCurrentLevel then rarityColors.Active else rarityColors.Locked, if isCurrentLevel then 0.08 else 0.68)
 			if isCurrentLevel then
 				setLabel(child, "Number", "01")
-				setLabel(child, "Name", "NIVEAU 1")
-				setLabel(child, "Subtitle", "MAP TEST")
+				setLabel(child, "Name", I18nClient.T("ui.level.one"))
+				setLabel(child, "Subtitle", I18nClient.T("ui.map.test"))
 			else
-				setLabel(child, "Subtitle", "A VENIR")
+				setLabel(child, "Subtitle", I18nClient.T("ui.coming_soon"))
 			end
 		end
 	end
 
 	local selectedEntry = selectedChapterId and chapterEntriesById[selectedChapterId] or nil
 	if selectedEntry ~= nil then
-		setLabel(mapPreview, "Label", "NIVEAU 1")
-		setLabel(mapPreview, "SelectedChapter", string.upper(selectedEntry.DisplayName))
-		setLabel(mapSelectionHeader, "Subtitle", "Map Test - " .. selectedEntry.DisplayName)
+		setLabel(mapPreview, "Label", I18nClient.T("ui.level.one"))
+		setLabel(mapPreview, "SelectedChapter", string.upper(localized(selectedEntry.DisplayNameKey, selectedEntry.DisplayName)))
+		setLabel(mapSelectionHeader, "Subtitle", I18nClient.T("ui.map.test") .. " - " .. localized(selectedEntry.DisplayNameKey, selectedEntry.DisplayName))
 	end
 
 	local canLaunch = selectedEntry ~= nil and selectedEntry.IsUnlocked and not isBusy
-	setActionState(mapLaunchButton, canLaunch, if isBusy then "GENERATION..." else "LANCER LA RUN")
+	setActionState(mapLaunchButton, canLaunch, if isBusy then I18nClient.T("ui.run.generating") else I18nClient.T("ui.run.start"))
 end
 
 local function chooseFirstAvailableCharacter()
@@ -457,7 +494,7 @@ local function loadRoster()
 		return
 	end
 
-	setLabel(runLaunchHeader, "Subtitle", "Personnages indisponibles. Reessaie dans un instant.")
+	setLabel(runLaunchHeader, "Subtitle", I18nClient.T("ui.run.characters_unavailable"))
 end
 
 local function chooseFirstUnlockedChapter()
@@ -480,7 +517,7 @@ local function loadChapters()
 	end)
 
 	if not success or typeof(payload) ~= "table" then
-		setLabel(mapSelectionHeader, "Subtitle", "Progression indisponible. Reessaie dans un instant.")
+		setLabel(mapSelectionHeader, "Subtitle", I18nClient.T("ui.run.progression_unavailable"))
 		return
 	end
 
@@ -539,6 +576,7 @@ for _, child in ipairs(characterSlots:GetChildren()) do
 			selectedCharacterId = entry.Id
 			selectCharacter:FireServer(entry.Id)
 			refreshCharacterCards()
+			refreshSkinChoices()
 		end)
 	end
 end
@@ -558,15 +596,29 @@ for _, child in ipairs(chapterList:GetChildren()) do
 	end
 end
 
+local characterSkinPanel = getChild(skinSelectors, "CharacterSkin", "Frame") :: Frame
+local characterChoices = getChild(characterSkinPanel, "Choices", "Frame") :: Frame
+for index, button in ipairs(getChoiceButtons(characterChoices)) do
+	button.Activated:Connect(function()
+		local characterEntry = CharacterSkinConfig.Characters[selectedCharacterId or ""]
+		local skin = characterEntry and characterEntry.Skins[index] or nil
+		if skin ~= nil then
+			selectCharacterSkin:FireServer(skin.Id)
+		end
+	end)
+end
+
 local weaponSkinPanel = getChild(skinSelectors, "WeaponSkin", "Frame") :: Frame
 local weaponChoices = getChild(weaponSkinPanel, "Choices", "Frame") :: Frame
-for _, child in ipairs(weaponChoices:GetChildren()) do
-	if child:IsA("ImageButton") then
-		child.Activated:Connect(function()
-			local skinId = if child.Name == "FireballArcane" then "fireball_arcane" else "fireball_default"
-			selectWeaponSkin:FireServer(skinId)
-		end)
-	end
+for index, button in ipairs(getChoiceButtons(weaponChoices)) do
+	button.Activated:Connect(function()
+		local weaponId = tostring(player:GetAttribute("SelectedPrimaryWeaponId") or "")
+		local weaponEntry = WeaponSkinConfig.Weapons[weaponId]
+		local skin = weaponEntry and weaponEntry.Skins[index] or nil
+		if skin ~= nil then
+			selectWeaponSkin:FireServer(skin.Id)
+		end
+	end)
 end
 
 runLaunchButton.Activated:Connect(function()
@@ -585,7 +637,7 @@ mapLaunchButton.Activated:Connect(function()
 	end
 
 	isBusy = true
-	setLabel(mapSelectionHeader, "Subtitle", "Generation de la run...")
+	setLabel(mapSelectionHeader, "Subtitle", I18nClient.T("ui.run.generating"))
 	refreshCharacterCards()
 	refreshChapterCards()
 
@@ -595,12 +647,12 @@ mapLaunchButton.Activated:Connect(function()
 		end)
 
 		if requestSucceeded and started == true then
-			setLabel(mapSelectionHeader, "Subtitle", "Run prete")
+			setLabel(mapSelectionHeader, "Subtitle", I18nClient.T("ui.run.ready"))
 			return
 		end
 
 		isBusy = false
-		setLabel(mapSelectionHeader, "Subtitle", "Lancement impossible : " .. tostring(if requestSucceeded then reason else started))
+		setLabel(mapSelectionHeader, "Subtitle", I18nClient.T("ui.run.launch_failed", { reason = tostring(if requestSucceeded then reason else started) }))
 		refreshCharacterCards()
 		refreshChapterCards()
 	end)
@@ -623,6 +675,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 
 characterUpdate.OnClientEvent:Connect(applyRoster)
+player:GetAttributeChangedSignal("SelectedCharacterSkinId"):Connect(refreshSkinChoices)
+player:GetAttributeChangedSignal("SelectedWeaponSkinId"):Connect(refreshSkinChoices)
 player:GetAttributeChangedSignal("FireballSkinId"):Connect(refreshSkinChoices)
 player:GetAttributeChangedSignal("SelectedPrimaryWeaponId"):Connect(refreshSkinChoices)
 

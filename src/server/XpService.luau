@@ -391,6 +391,8 @@ local function awardXp(player, xpValue)
 	while profile.Xp >= requiredXp do
 		profile.Xp -= requiredXp
 		profile.Level += 1
+		getOrCreateLevelValue(player).Value = profile.Level
+		PerkService.RefreshCharacterDerivedStats(player)
 		DebugLog.Info("Xp", "Level up joueur", {
 			Player = player.Name,
 			Level = profile.Level,

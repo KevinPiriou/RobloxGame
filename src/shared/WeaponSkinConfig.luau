@@ -25,5 +25,47 @@ return {
 				},
 			},
 		},
+		shuriken = {
+			Id = "shuriken",
+			Name = "Shuriken",
+			Description = "Etoiles de jet automatiques en cone.",
+			Icon = "rbxassetid://82295159291408",
+			DefaultSkinId = "shuriken_shadowspin",
+			Skins = {
+				{
+					Id = "shuriken_shadowspin",
+					Name = "Shadowspin",
+					Description = "Obsidienne et energie violette.",
+					Image = "rbxassetid://82295159291408",
+					UnlockType = "Starter",
+					VfxProfileId = "shuriken_shadowspin",
+				},
+				{
+					Id = "shuriken_moonveil",
+					Name = "Moonveil",
+					Description = "Acier lunaire et energie cyan.",
+					Image = "rbxassetid://137477216660458",
+					UnlockType = "Starter",
+					VfxProfileId = "shuriken_moonveil",
+				},
+			},
+		},
+		soul_lantern = {
+			Id = "soul_lantern",
+			Name = "Lanterne des ames",
+			Description = "Lanterne spectrale qui appelle les revenants.",
+			Icon = "rbxassetid://97347879630224",
+			DefaultSkinId = "soul_lantern_default",
+			Skins = {
+				{
+					Id = "soul_lantern_default",
+					Name = "Veille funeraire",
+					Description = "Lueur emeraude et acier patine.",
+					Image = "rbxassetid://97347879630224",
+					UnlockType = "Starter",
+					VfxProfileId = "SoulLanternSummon",
+				},
+			},
+		},
 	},
 }

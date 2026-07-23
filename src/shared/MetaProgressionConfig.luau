@@ -3,8 +3,8 @@ local MetaProgressionConfig = {
 	DataVersion = 4,
 	ProcessedRunLimit = 40,
 	StartedRunHistoryLimit = 40,
-	DefaultUnlockedCharacterIds = { "medivh" },
-	DefaultUnlockedWeaponIds = { "fireball" },
+	DefaultUnlockedCharacterIds = { "medivh", "albert", "shinobi", "rusal_gale" },
+	DefaultUnlockedWeaponIds = { "fireball", "leyden_needle", "shuriken", "soul_lantern" },
 
 	Quests = {
 		{

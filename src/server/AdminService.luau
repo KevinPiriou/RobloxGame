@@ -59,6 +59,7 @@ local toggleDevKitPreviewRemote = getOrCreateRemote("Admin_ToggleDevKitPreview")
 local performanceBenchmarkRemote = getOrCreateRemote(PerformanceBaselineConfig.AdminRemoteName)
 local physicsAuditRemote = getOrCreateRemote("Admin_RunPhysicsAudit")
 local toggleLeydenNeedleRemote = getOrCreateRemote("Admin_ToggleLeydenNeedle")
+local toggleSoulLanternRemote = getOrCreateRemote("Admin_ToggleSoulLantern")
 local debugCategoryIds = {}
 
 for _, category in ipairs(AdminConfig.DebugLogCategories) do
@@ -222,6 +223,15 @@ function AdminService.Start()
 		runAdminAction(player, "Calibration Aiguille de Leyde", function()
 			local enabled = not WeaponLoadoutService.HasWeapon(player, "leyden_needle")
 			local success, message = WeaponLoadoutService.SetDevelopmentWeapon(player, "leyden_needle", enabled)
+			if not success then error(message) end
+			return message
+		end)
+	end)
+
+	toggleSoulLanternRemote.OnServerEvent:Connect(function(player)
+		runAdminAction(player, "Calibration Lanterne des ames", function()
+			local enabled = not WeaponLoadoutService.HasWeapon(player, "soul_lantern")
+			local success, message = WeaponLoadoutService.SetDevelopmentWeapon(player, "soul_lantern", enabled)
 			if not success then error(message) end
 			return message
 		end)

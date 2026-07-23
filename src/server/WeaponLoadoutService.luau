@@ -191,7 +191,7 @@ function WeaponLoadoutService.SetDevelopmentWeapon(player: Player, weaponId: str
 	end
 
 	sendSnapshot(player)
-	return true, if enabled then "Aiguille de Leyde equipee" else "Aiguille de Leyde retiree"
+	return true, if enabled then "Arme de calibration equipee" else "Arme de calibration retiree"
 end
 
 function WeaponLoadoutService.Start()
