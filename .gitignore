@@ -17,3 +17,7 @@ sourcemap.json
 # MetaBuildLab generated reports
 /MetaBuildLab_v1/meta_results*/
 /MetaBuildLab_v1/test_results/
+
+
+# État local temporaire du workflow Codex
+/docs/codex/ACTIVE_TASK.md
