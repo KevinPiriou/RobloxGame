@@ -17,3 +17,8 @@ Journal append-only. Ajouter une décision seulement lorsqu'elle doit guider un 
 
 - Le smoke Roblox Studio est manuel par défaut et réalisé par l'utilisateur.
 - Codex peut l'exécuter uniquement si l'environnement expose réellement Studio ou une automatisation adaptée, et après autorisation explicite de l'utilisateur. Sans preuve d'exécution, le test est déclaré non exécuté.
+
+## 2026-07-23 12:00:50 +02:00 — arme canalisée serveur et cartes de sélection dynamiques
+
+- La catégorie `Channel` conserve côté serveur la sélection des cibles, les ticks de dégâts, le soin et l'arrêt du canal. Le client ne reçoit que la présentation VFX.
+- Le sélecteur de personnages compare les IDs sans tenir compte de la casse et ne clone une carte qu'en l'absence d'une carte template correspondante.

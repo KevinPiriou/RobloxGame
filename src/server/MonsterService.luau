@@ -21,6 +21,9 @@ local WorldSpawnService = require(script.Parent:WaitForChild("WorldSpawnService"
 local XpService = require(script.Parent:WaitForChild("XpService"))
 
 local MonsterService = {}
+local monsterKilledEvent = Instance.new("BindableEvent")
+
+MonsterService.MonsterKilled = monsterKilledEvent.Event
 
 local rng = Random.new()
 local runtimeFolder = nil
@@ -1053,6 +1056,7 @@ local function removeMonster(monsterState, killer)
 	if killer ~= nil and killer.Parent == Players then
 		killsByUserId[killer.UserId] = (killsByUserId[killer.UserId] or 0) + 1
 		RunAnalyticsService.RecordMonsterKill(killer, monsterState.Instance)
+		monsterKilledEvent:Fire(killer, monsterState.Instance)
 		getRunItemService().OnMonsterKilled(killer)
 		pickupFeedbackRemote:FireClient(killer, {
 			Kind = "Kill",

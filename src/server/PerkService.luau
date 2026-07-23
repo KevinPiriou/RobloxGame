@@ -930,6 +930,8 @@ function PerkService.GetStats(player)
 		+ CharacterService.GetPlayerStatAdditiveBonus(player, "AttackSpeedPercent")
 	stats.CritChance = (stats.CritChance or 0)
 		+ CharacterService.GetPlayerStatAdditiveBonus(player, "CritChance")
+	stats.HealthRegen = (stats.HealthRegen or 0)
+		+ CharacterService.GetPlayerStatAdditiveBonus(player, "HealthRegen")
 	return stats
 end
 
@@ -1114,6 +1116,10 @@ end
 
 function PerkService.ApplyInstantHeal(player, amount)
 	return applyHealing(player, amount, "HealInstant")
+end
+
+function PerkService.ApplyDirectLifeDrain(player, amount)
+	return applyHealing(player, amount, "LifeStealDot")
 end
 
 function PerkService.GrantMaxHealth(player, amount)

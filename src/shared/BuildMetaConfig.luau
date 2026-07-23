@@ -6,6 +6,7 @@ local WeaponConfig = require(script.Parent.WeaponConfig)
 local META_BEHAVIOR_BY_CATEGORY = {
 	Projectile = "projectile",
 	Melee = "contact",
+	Channel = "channel",
 	Zone = "explosion",
 	Orbital = "orbital",
 }
@@ -45,6 +46,18 @@ local function buildWeaponCatalog()
 			base.bounce_range = definition.Base.BounceRange
 			behaviors[1].targets = math.clamp(math.floor(definition.Base.ZoneRadius / 5), 1, 8)
 			behaviors[1].damage_multiplier = 1
+		elseif definition.Category == "Channel" then
+			base.channel_duration = definition.Base.ChannelDuration
+			base.tick_interval = definition.Base.TickInterval
+			base.drain_percent = definition.Base.DrainPercent
+			base.projectiles = 1
+			table.insert(tags, "life_drain")
+			table.insert(tags, "multi_channel")
+			table.insert(behaviors, {
+				type = "life_drain",
+				targets = definition.Caps.ChannelTargets,
+				heal_ratio = definition.Base.DrainPercent,
+			})
 		end
 
 		table.insert(weapons, {

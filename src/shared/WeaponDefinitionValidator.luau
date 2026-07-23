@@ -118,6 +118,33 @@ function WeaponDefinitionValidator.Validate(definition)
 		end
 	end
 
+	if definition.Category == "Channel" then
+		for _, field in ipairs({ "ChannelDuration", "TickInterval", "DrainPercent" }) do
+			if typeof(definition.Base[field]) ~= "number" or definition.Base[field] <= 0 then
+				addError(errors, weaponId, "Base." .. field, "requis pour une canalisation")
+			end
+		end
+
+		if definition.Base.DrainPercent > 1 then
+			addError(errors, weaponId, "Base.DrainPercent", "doit etre inferieur ou egal a 1")
+		end
+
+		if definition.Rules == nil or definition.Rules.UsesProjectileCount ~= true then
+			addError(errors, weaponId, "Rules.UsesProjectileCount", "doit etre true pour multiplier les canaux")
+		end
+
+		if definition.Rules == nil or definition.Rules.ServerAuthoritative ~= true then
+			addError(errors, weaponId, "Rules.ServerAuthoritative", "doit etre true pour une canalisation")
+		end
+
+		if typeof(definition.Caps) ~= "table"
+			or typeof(definition.Caps.ChannelTargets) ~= "number"
+			or definition.Caps.ChannelTargets < 1
+		then
+			addError(errors, weaponId, "Caps.ChannelTargets", "doit etre positif pour une canalisation")
+		end
+	end
+
 	if definition.Category == "Projectile" and definition.Rules and definition.Rules.RequiresProjectileBase == true then
 		for _, field in ipairs({ "ProjectileCount", "ProjectileSpeed", "Lifetime", "HitRadius", "ConeAngleDegrees" }) do
 			if typeof(definition.Base[field]) ~= "number" or definition.Base[field] <= 0 then

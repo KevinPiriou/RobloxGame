@@ -24,7 +24,19 @@ Utiliser ce skill avant de modifier du code Roblox.
    ```
 
    Si le niveau sélectionné dans l'application est réellement visible, signaler seulement un écart manifeste et demander son ajustement avant mise en œuvre lorsqu'il est clairement sous-dimensionné ou très surdimensionné. S'il n'est pas visible, ne pas prétendre le connaître : afficher la recommandation puis présenter le plan afin que l'utilisateur puisse ajuster le réglage avant de continuer.
+
 9. Présenter ce plan court à l'utilisateur avant toute modification de code.
+
+10. Après avoir affiché le niveau recommandé et le plan, interrompre
+    l'exécution et attendre une confirmation explicite de l'utilisateur.
+
+    Ne modifier aucun fichier avant cette confirmation. L'utilisateur peut
+    ainsi ajuster le niveau de raisonnement dans l'application, puis répondre
+    simplement « Continue ».
+
+    Cette confirmation est le seul checkpoint obligatoire de démarrage ;
+    elle ne doit pas entraîner d'autres validations intermédiaires pendant
+    l'intégration.
 
 ## Référentiel de recommandation
 

@@ -84,5 +84,22 @@ return {
 				},
 			},
 		},
+		soulthorn_drain = {
+			Id = "soulthorn_drain",
+			Name = "Epine d'ame",
+			Description = "Lame ceremonielle qui guide un drain d'essence continu.",
+			Icon = "rbxassetid://98753522553165",
+			DefaultSkinId = "soulthorn_nightveil",
+			Skins = {
+				{
+					Id = "soulthorn_nightveil",
+					Name = "Soulthorn nocturne",
+					Description = "Obsidienne, or ancien et cristal de vie magenta.",
+					Image = "rbxassetid://98753522553165",
+					UnlockType = "Starter",
+					VfxProfileId = "LoreleiLifeDrain",
+				},
+			},
+		},
 	},
 }

@@ -28,3 +28,10 @@ Journal compact append-only. Le dernier bloc daté décrit l'état de référenc
 - Le chantier documentaire est clos et son handoff de configuration est disponible dans `docs/codex/handoffs/2026-07-23_084632_codex_workflow_configuration.md`.
 - La photographie Git de départ n'avait pas été remplie dans `ACTIVE_TASK.md`. L'état final observé ne permet donc pas d'attribuer de façon fiable les modifications préexistantes à ce chantier.
 - Aucun fichier Roblox, build Rojo ni test Roblox Studio n'a été exécuté pendant la clôture.
+
+## 2026-07-23 12:00:50 +02:00 — clôture de Lorelei
+
+- Lorelei est intégrée comme personnage sélectionnable par défaut, avec son arme canalisée Soulthorn, son passif de seuils de kills, ses textes FR/en-US, ses VFX locaux et les références d'assets Roblox fournies.
+- Le sélecteur pré-run réutilise désormais les cartes existantes sans tenir compte de la casse de leur nom ; Lorelei est créée dynamiquement seulement si sa carte est absente du template.
+- Validations : analyse statique (`git diff --check`) et build Rojo réussis ; smoke Roblox Studio validé par le responsable produit. Le multijoueur n'a pas été exécuté.
+- Passation : `docs/codex/handoffs/2026-07-23_120050_lorelei.md`.

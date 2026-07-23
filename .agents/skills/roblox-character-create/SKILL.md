@@ -34,7 +34,7 @@ Présenter un plan court avant de modifier. Préparer une définition de termin�
 
 ## Intégration
 
-1. Après le plan, réaliser l'intégration de bout en bout sans demander de validation intermédiaire, sauf blocage technique, MCP indisponible ou décision produit impossible à déduire.
+1. Après la confirmation explicite suivant le checkpoint de `roblox-session-start`, réaliser l'intégration de bout en bout sans demander de validation intermédiaire, sauf blocage technique, MCP indisponible ou décision produit impossible à déduire.
 2. Conserver côté serveur la validation des dégâts, cibles, statistiques, récompenses et progression. Réutiliser les patterns i18n du dépôt.
 3. Pour les assets demandés, utiliser le MCP de génération/import effectivement disponible et intégrer le résultat dans le même chantier. Employer un chroma key pour les images à détourer, le template Roblox pour les vêtements UV, et vérifier échelle, orientation et attaches des armes. Si le MCP ou l'accès nécessaire manque, le déclarer comme blocage plutôt que simuler l'import.
 4. Signaler les fonctionnalités différées, ne pas les implémenter hors périmètre et ne poser que les points d'extension nécessaires.

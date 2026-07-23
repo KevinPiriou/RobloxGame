@@ -206,6 +206,51 @@ CharacterConfig.Definitions = {
 			Type = "Default",
 		},
 	},
+
+	lorelei = {
+		Id = "lorelei",
+		Name = "Lorelei",
+		NameKey = "character.lorelei.name",
+		Description = "Succube qui lie son essence a celle de ses proies pour leur derober la vie.",
+		DescriptionKey = "character.lorelei.description",
+		Lifecycle = "Production",
+		Portrait = "rbxassetid://110000926797342",
+		PrimaryWeaponId = "soulthorn_drain",
+		Appearance = {
+			RigType = "R15",
+			TemplatePath = "ServerStorage.CharacterTemplates.Lorelei",
+			Clothing = {
+				ShirtTemplate = "rbxassetid://73217425125133",
+				PantsTemplate = "rbxassetid://73217425125133",
+				MaterialSet = "LoreleiNightveilV1",
+			},
+		},
+		Animations = {
+			Overrides = {},
+		},
+		Passive = {
+			Id = "nightveil_harvest",
+			Name = "Moisson du Voile",
+			NameKey = "character.lorelei.passive",
+			Scope = "Player",
+			Modifiers = {
+				{
+					StatId = "MaxHealthBonus",
+					Operation = "AddPerKillThreshold",
+					Amount = 0.2,
+					Threshold = 50,
+				},
+				{
+					StatId = "HealthRegen",
+					Operation = "Add",
+					Amount = 0.2,
+				},
+			},
+		},
+		Unlock = {
+			Type = "Default",
+		},
+	},
 }
 
 function CharacterConfig.GetDefinition(characterId: string)

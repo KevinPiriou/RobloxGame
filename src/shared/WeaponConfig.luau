@@ -7,6 +7,7 @@ local WeaponConfig = {}
 WeaponConfig.Categories = {
 	Projectile = true,
 	Melee = true,
+	Channel = true,
 	Zone = true,
 	Orbital = true,
 	Invocation = true,
@@ -147,6 +148,35 @@ WeaponConfig.Definitions = {
 			ServerAuthoritative = true,
 		},
 	},
+	soulthorn_drain = {
+		Id = "soulthorn_drain",
+		Name = "Epine d'ame",
+		NameKey = "weapon.soulthorn_drain.name",
+		Category = "Channel",
+		Lifecycle = "Production",
+		Icon = "rbxassetid://98753522553165",
+		VfxProfileId = "LoreleiLifeDrain",
+		Base = {
+			Damage = 18,
+			Cooldown = 2.4,
+			Range = 44,
+			ChannelDuration = 1.8,
+			TickInterval = 0.2,
+			DrainPercent = 0.5,
+		},
+		Caps = {
+			Range = 60,
+			ChannelDuration = 3.2,
+			ChannelTargets = 8,
+			MinimumCooldown = 0.35,
+		},
+		Rules = {
+			UsesProjectileCount = true,
+			UsesBounceCount = false,
+			UsesEffectDuration = false,
+			ServerAuthoritative = true,
+		},
+	},
 }
 
 WeaponConfig.Evolutions = {
@@ -171,6 +201,9 @@ WeaponConfig.Evolutions = {
 	},
 	valorcrest_blade = {
 		{ StatId = "Damage", Label = "Degats de l'arme", LabelKey = "weapon.evolution.damage", Amount = 6, Cap = nil },
+	},
+	soulthorn_drain = {
+		{ StatId = "Damage", Label = "Degats de l'arme", LabelKey = "weapon.evolution.damage", Amount = 3, Cap = nil },
 	},
 }
 

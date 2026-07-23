@@ -92,5 +92,23 @@ return {
 				},
 			},
 		},
+		lorelei = {
+			Id = "lorelei",
+			DefaultSkinId = "lorelei_nightveil",
+			Skins = {
+				{
+					Id = "lorelei_nightveil",
+					Name = "Voile nocturne",
+					Description = "Acier d'obsidienne, velours bordeaux et cristaux de vie magenta.",
+					Image = "rbxassetid://110000926797342",
+					UnlockType = "Starter",
+					Clothing = {
+						ShirtTemplate = "rbxassetid://73217425125133",
+						PantsTemplate = "rbxassetid://73217425125133",
+						MaterialSet = "LoreleiNightveilV1",
+					},
+				},
+			},
+		},
 	},
 }

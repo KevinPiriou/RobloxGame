@@ -14,6 +14,7 @@ local VALID_SCOPES = {
 local VALID_OPERATIONS = {
 	Add = true,
 	AddPerLevel = true,
+	AddPerKillThreshold = true,
 	MultiplyBase = true,
 }
 
@@ -79,6 +80,10 @@ local function validateDefinition(characterId: string, definition)
 				or typeof(modifier.Amount) ~= "number"
 			then
 				table.insert(errors, "Modificateur invalide #" .. tostring(modifierIndex))
+			elseif modifier.Operation == "AddPerKillThreshold"
+				and (typeof(modifier.Threshold) ~= "number" or modifier.Threshold <= 0)
+			then
+				table.insert(errors, "Seuil de kills invalide #" .. tostring(modifierIndex))
 			end
 		end
 	end

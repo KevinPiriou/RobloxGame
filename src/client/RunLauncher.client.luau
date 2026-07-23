@@ -463,6 +463,69 @@ local function chooseFirstAvailableCharacter()
 	end
 end
 
+local boundCharacterCards: {[ImageButton]: boolean} = {}
+
+local function bindCharacterCard(card: ImageButton)
+	if boundCharacterCards[card] then
+		return
+	end
+	boundCharacterCards[card] = true
+	card.Activated:Connect(function()
+		local characterId = string.lower(card.Name)
+		local entry = characterEntriesById[characterId]
+		if isBusy or entry == nil or not entry.AvailableForRun then
+			return
+		end
+
+		selectedCharacterId = entry.Id
+		selectCharacter:FireServer(entry.Id)
+		refreshCharacterCards()
+		refreshSkinChoices()
+	end)
+end
+
+local function ensureCharacterCards()
+	local template: ImageButton? = nil
+	for _, child in ipairs(characterSlots:GetChildren()) do
+		if child:IsA("ImageButton") and child:FindFirstChild("Portrait") ~= nil and child:FindFirstChild("Caption") ~= nil then
+			template = child
+			break
+		end
+	end
+
+	if template == nil then
+		warn("[RunLauncher] Carte modele de personnage introuvable")
+		return
+	end
+
+	local characterIds = {}
+	for characterId in pairs(characterEntriesById) do
+		table.insert(characterIds, characterId)
+	end
+	table.sort(characterIds)
+
+	for index, characterId in ipairs(characterIds) do
+		local existing: ImageButton? = nil
+		for _, child in ipairs(characterSlots:GetChildren()) do
+			if child:IsA("ImageButton") and string.lower(child.Name) == characterId then
+				existing = child
+				break
+			end
+		end
+		if existing ~= nil then
+			bindCharacterCard(existing)
+			continue
+		end
+
+		local card = template:Clone()
+		card.Name = characterId
+		card.LayoutOrder = template.LayoutOrder + index
+		card.Visible = true
+		card.Parent = characterSlots
+		bindCharacterCard(card)
+	end
+end
+
 local function applyRoster(payload: unknown)
 	if typeof(payload) ~= "table" or typeof(payload.Characters) ~= "table" then
 		return
@@ -475,6 +538,7 @@ local function applyRoster(payload: unknown)
 		end
 	end
 
+	ensureCharacterCards()
 	local serverSelected = payload.SelectedCharacterId
 	if typeof(serverSelected) == "string" and characterEntriesById[serverSelected] ~= nil then
 		selectedCharacterId = serverSelected
@@ -566,18 +630,7 @@ end
 
 for _, child in ipairs(characterSlots:GetChildren()) do
 	if child:IsA("ImageButton") then
-		child.Activated:Connect(function()
-			local characterId = string.lower(child.Name)
-			local entry = characterEntriesById[characterId]
-			if isBusy or entry == nil or not entry.AvailableForRun then
-				return
-			end
-
-			selectedCharacterId = entry.Id
-			selectCharacter:FireServer(entry.Id)
-			refreshCharacterCards()
-			refreshSkinChoices()
-		end)
+		bindCharacterCard(child)
 	end
 end
 
