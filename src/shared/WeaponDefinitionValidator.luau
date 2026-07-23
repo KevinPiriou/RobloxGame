@@ -90,6 +90,34 @@ function WeaponDefinitionValidator.Validate(definition)
 		end
 	end
 
+	if definition.Category == "Melee" then
+		if typeof(definition.Base.ArcAngleDegrees) ~= "number"
+			or definition.Base.ArcAngleDegrees <= 0
+			or definition.Base.ArcAngleDegrees > 180
+		then
+			addError(errors, weaponId, "Base.ArcAngleDegrees", "angle compris entre 0 et 180 requis pour une melee")
+		end
+
+		if definition.Rules == nil or definition.Rules.UsesProjectileCount ~= false then
+			addError(errors, weaponId, "Rules.UsesProjectileCount", "doit etre false pour une melee")
+		end
+
+		if definition.Rules == nil or definition.Rules.UsesBounceCount ~= false then
+			addError(errors, weaponId, "Rules.UsesBounceCount", "doit etre false pour une melee sans rebond")
+		end
+
+		if typeof(definition.VfxProfileId) ~= "string" or definition.VfxProfileId == "" then
+			addError(errors, weaponId, "VfxProfileId", "profil VFX requis pour une melee")
+		end
+
+		if typeof(definition.Caps) ~= "table"
+			or typeof(definition.Caps.Range) ~= "number"
+			or definition.Caps.Range < definition.Base.Range
+		then
+			addError(errors, weaponId, "Caps.Range", "doit etre superieur ou egal a la portee de base")
+		end
+	end
+
 	if definition.Category == "Projectile" and definition.Rules and definition.Rules.RequiresProjectileBase == true then
 		for _, field in ipairs({ "ProjectileCount", "ProjectileSpeed", "Lifetime", "HitRadius", "ConeAngleDegrees" }) do
 			if typeof(definition.Base[field]) ~= "number" or definition.Base[field] <= 0 then

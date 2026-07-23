@@ -67,5 +67,22 @@ return {
 				},
 			},
 		},
+		valorcrest_blade = {
+			Id = "valorcrest_blade",
+			Name = "Lame de Valorcrest",
+			Description = "Lame d'acier royal a la garde doree.",
+			Icon = "rbxassetid://116223287361677",
+			DefaultSkinId = "valorcrest_blade_default",
+			Skins = {
+				{
+					Id = "valorcrest_blade_default",
+					Name = "Acier de Valorcrest",
+					Description = "Acier poli, bleu profond et or de l'Alliance.",
+					Image = "rbxassetid://116223287361677",
+					UnlockType = "Starter",
+					VfxProfileId = "ValorcrestSlash",
+				},
+			},
+		},
 	},
 }

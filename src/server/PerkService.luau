@@ -161,14 +161,14 @@ local function applyMovementStats(player)
 	JumpBonusService.SetExternalJumpMultiplier(player, jumpMultiplier)
 end
 
-local function applyMaxHealthStats(player)
+local function applyMaxHealthStats(player, restoreToMaximum: boolean?)
 	local humanoid = getHumanoid(player)
 
 	if humanoid == nil then
 		return
 	end
 
-	local profile = getOrCreateProfile(player)
+	local stats = PerkService.GetStats(player)
 	local baseMaxHealth = baseMaxHealthByUserId[player.UserId]
 
 	if baseMaxHealth == nil then
@@ -176,9 +176,13 @@ local function applyMaxHealthStats(player)
 		baseMaxHealthByUserId[player.UserId] = baseMaxHealth
 	end
 
-	local targetMaxHealth = math.max(1, baseMaxHealth + (profile.Stats.MaxHealthBonus or 0))
+	local targetMaxHealth = math.max(1, baseMaxHealth + (stats.MaxHealthBonus or 0))
 	humanoid.MaxHealth = targetMaxHealth
-	humanoid.Health = math.min(humanoid.Health, targetMaxHealth)
+	if restoreToMaximum then
+		humanoid.Health = targetMaxHealth
+	else
+		humanoid.Health = math.min(humanoid.Health, targetMaxHealth)
+	end
 end
 
 local function getDisplayStatsSnapshot(player, profile)
@@ -230,7 +234,7 @@ local function sendPerkStats(player)
 		Stats = PerkService.GetStats(player),
 		DisplayStats = getDisplayStatsSnapshot(player, profile),
 		CurrentShield = profile.CurrentShield,
-		MaxShield = profile.Stats.Shield,
+		MaxShield = PerkService.GetStats(player).Shield or 0,
 		StacksByPerkId = profile.StacksByPerkId,
 	})
 end
@@ -878,7 +882,8 @@ function PerkService.ResetRun(player)
 	publishRerollUsesThisRun(player, profile)
 	hideChoicesRemote:FireClient(player)
 	applyMovementStats(player)
-	applyMaxHealthStats(player)
+	applyMaxHealthStats(player, true)
+	profile.CurrentShield = math.max(0, PerkService.GetStats(player).Shield or 0)
 	sendPerkStats(player)
 end
 
@@ -917,6 +922,10 @@ function PerkService.GetStats(player)
 	end
 
 	local stats = table.clone(profile.Stats)
+	stats.MaxHealthBonus = (stats.MaxHealthBonus or 0)
+		+ CharacterService.GetPlayerStatAdditiveBonus(player, "MaxHealthBonus")
+	stats.Shield = (stats.Shield or 0)
+		+ CharacterService.GetPlayerStatAdditiveBonus(player, "Shield")
 	stats.AttackSpeedPercent = (stats.AttackSpeedPercent or 0)
 		+ CharacterService.GetPlayerStatAdditiveBonus(player, "AttackSpeedPercent")
 	stats.CritChance = (stats.CritChance or 0)
@@ -1142,7 +1151,7 @@ function PerkService.GetShieldState(player)
 		return 0, 0
 	end
 
-	return profile.CurrentShield, profile.Stats.Shield or 0
+	return profile.CurrentShield, PerkService.GetStats(player).Shield or 0
 end
 
 function PerkService.Start()

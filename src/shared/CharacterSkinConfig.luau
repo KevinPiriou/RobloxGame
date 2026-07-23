@@ -74,5 +74,23 @@ return {
 				},
 			},
 		},
+		rufus = {
+			Id = "rufus",
+			DefaultSkinId = "rufus_valorcrest",
+			Skins = {
+				{
+					Id = "rufus_valorcrest",
+					Name = "Bastion de Valorcrest",
+					Description = "Acier royal, drap bleu profond et liseres dores.",
+					Image = "rbxassetid://117769701520930",
+					UnlockType = "Starter",
+					Clothing = {
+						ShirtTemplate = "rbxassetid://128402560504693",
+						PantsTemplate = "rbxassetid://112987301949770",
+						MaterialSet = "RufusValorcrestV1",
+					},
+				},
+			},
+		},
 	},
 }

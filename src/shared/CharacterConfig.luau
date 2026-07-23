@@ -2,7 +2,7 @@
 
 local CharacterConfig = {}
 
-CharacterConfig.SchemaVersion = 3
+CharacterConfig.SchemaVersion = 4
 CharacterConfig.DefaultCharacterId = "medivh"
 
 CharacterConfig.Definitions = {
@@ -155,6 +155,50 @@ CharacterConfig.Definitions = {
 					StatId = "CritChance",
 					Operation = "AddPerLevel",
 					Amount = 0.05,
+				},
+			},
+		},
+		Unlock = {
+			Type = "Default",
+		},
+	},
+
+	rufus = {
+		Id = "rufus",
+		Name = "Rufus",
+		NameKey = "character.rufus.name",
+		Description = "Chevalier de l'Alliance qui tient la ligne au corps a corps.",
+		DescriptionKey = "character.rufus.description",
+		Lifecycle = "Production",
+		Portrait = "rbxassetid://117769701520930",
+		PrimaryWeaponId = "valorcrest_blade",
+		Appearance = {
+			RigType = "R15",
+			TemplatePath = "ServerStorage.CharacterTemplates.Rufus",
+			Clothing = {
+				ShirtTemplate = "rbxassetid://128402560504693",
+				PantsTemplate = "rbxassetid://112987301949770",
+				MaterialSet = "RufusValorcrestV1",
+			},
+		},
+		Animations = {
+			Overrides = {},
+		},
+		Passive = {
+			Id = "valorcrest_bulwark",
+			Name = "Bastion de Valorcrest",
+			NameKey = "character.rufus.passive",
+			Scope = "Player",
+			Modifiers = {
+				{
+					StatId = "MaxHealthBonus",
+					Operation = "Add",
+					Amount = 50,
+				},
+				{
+					StatId = "Shield",
+					Operation = "Add",
+					Amount = 50,
 				},
 			},
 		},

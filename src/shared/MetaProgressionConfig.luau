@@ -1,10 +1,10 @@
 local MetaProgressionConfig = {
 	DataStoreName = "MegaRobloxMetaProgression_v1",
-	DataVersion = 4,
+	DataVersion = 5,
 	ProcessedRunLimit = 40,
 	StartedRunHistoryLimit = 40,
-	DefaultUnlockedCharacterIds = { "medivh", "albert", "shinobi", "rusal_gale" },
-	DefaultUnlockedWeaponIds = { "fireball", "leyden_needle", "shuriken", "soul_lantern" },
+	DefaultUnlockedCharacterIds = { "medivh", "albert", "shinobi", "rusal_gale", "rufus" },
+	DefaultUnlockedWeaponIds = { "fireball", "leyden_needle", "shuriken", "soul_lantern", "valorcrest_blade" },
 
 	Quests = {
 		{

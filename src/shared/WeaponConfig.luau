@@ -121,6 +121,32 @@ WeaponConfig.Definitions = {
 			ServerAuthoritative = true,
 		},
 	},
+	valorcrest_blade = {
+		Id = "valorcrest_blade",
+		Name = "Lame de Valorcrest",
+		NameKey = "weapon.valorcrest_blade.name",
+		Category = "Melee",
+		Lifecycle = "Production",
+		Icon = "rbxassetid://116223287361677",
+		VfxProfileId = "ValorcrestSlash",
+		Base = {
+			Damage = 42,
+			Cooldown = 1.15,
+			Range = 12,
+			ArcAngleDegrees = 115,
+		},
+		Caps = {
+			Range = 24,
+			MinimumCooldown = 0.32,
+		},
+		Rules = {
+			UsesProjectileCount = false,
+			UsesBounceCount = false,
+			UsesEffectDuration = false,
+			UsesSize = true,
+			ServerAuthoritative = true,
+		},
+	},
 }
 
 WeaponConfig.Evolutions = {
@@ -142,6 +168,9 @@ WeaponConfig.Evolutions = {
 		{ StatId = "Damage", Label = "Degats de l'arme", LabelKey = "weapon.evolution.damage", Amount = 4, Cap = nil },
 		{ StatId = "MinionCount", Label = "Serviteur supplementaire", LabelKey = "weapon.evolution.minion_count", Amount = 1, Cap = 6 },
 		{ StatId = "MinionLifetime", Label = "Duree d'invocation", LabelKey = "weapon.evolution.minion_duration", Amount = 1.5, Cap = 14 },
+	},
+	valorcrest_blade = {
+		{ StatId = "Damage", Label = "Degats de l'arme", LabelKey = "weapon.evolution.damage", Amount = 6, Cap = nil },
 	},
 }
 
