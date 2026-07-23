@@ -20,6 +20,16 @@
   suspendu, qu'il souhaite changer de système ou ouvrir un nouveau fil,
   rappeler d'invoquer `$roblox-session-close`.
 
+- Avant le plan, `$roblox-session-start` recommande un niveau de raisonnement
+  adapté au coût cognitif réel du chantier.
+
+- `$roblox-session-start` et un Skill métier peuvent être invoqués ensemble :
+  le Skill métier fournit le cadrage spécialisé, puis la session initialise le
+  chantier avant l'implémentation.
+
+- Après le démarrage de session, utiliser `$roblox-character-create` pour
+  intégrer un nouveau personnage Roblox complet à partir de ses caractéristiques.
+
 - Ne jamais activer un Skill sans demande explicite de l'utilisateur.
   Le rappel ne constitue pas une activation.
 

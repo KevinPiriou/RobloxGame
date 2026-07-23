@@ -1,0 +1,4 @@
+interface:
+  display_name: "Créer un personnage Roblox"
+  short_description: "Intègre un personnage Roblox complet"
+  default_prompt: "Utilise $roblox-character-create pour créer un personnage avec ces caractéristiques."

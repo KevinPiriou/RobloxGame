@@ -12,6 +12,8 @@ Aucun chantier de code actif.
 - Système concerné :
 - Objectif :
 - Définition de terminé :
+- Niveau de raisonnement recommandé :
+- Justification du niveau :
 - Branche :
 - Racine du worktree :
 - Commit de référence :
