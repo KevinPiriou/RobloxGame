@@ -154,7 +154,9 @@ local function applyMovementStats(player)
 	end
 
 	local profile = getOrCreateProfile(player)
-	local moveMultiplier = 1 + profile.Stats.MoveSpeedPercent
+	local moveMultiplier = 1
+		+ (profile.Stats.MoveSpeedPercent or 0)
+		+ CharacterService.GetPlayerStatAdditiveBonus(player, "MoveSpeedPercent")
 	local jumpMultiplier = 1 + profile.Stats.JumpPercent
 
 	humanoid.WalkSpeed = baseWalkSpeedByUserId[player.UserId] * moveMultiplier
@@ -922,6 +924,8 @@ function PerkService.GetStats(player)
 	end
 
 	local stats = table.clone(profile.Stats)
+	stats.MoveSpeedPercent = (stats.MoveSpeedPercent or 0)
+		+ CharacterService.GetPlayerStatAdditiveBonus(player, "MoveSpeedPercent")
 	stats.MaxHealthBonus = (stats.MaxHealthBonus or 0)
 		+ CharacterService.GetPlayerStatAdditiveBonus(player, "MaxHealthBonus")
 	stats.Shield = (stats.Shield or 0)
@@ -937,6 +941,7 @@ end
 
 function PerkService.RefreshCharacterDerivedStats(player)
 	if profilesByUserId[player.UserId] ~= nil then
+		applyMovementStats(player)
 		sendPerkStats(player)
 	end
 end

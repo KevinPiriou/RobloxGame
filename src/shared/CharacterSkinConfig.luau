@@ -110,5 +110,23 @@ return {
 				},
 			},
 		},
+		wukong = {
+			Id = "wukong",
+			DefaultSkinId = "wukong_sunward",
+			Skins = {
+				{
+					Id = "wukong_sunward",
+					Name = "Tricheur solaire",
+					Description = "Soie ivoire, motifs nuage turquoise et filigranes dores.",
+					Image = "rbxassetid://120212983268714",
+					UnlockType = "Starter",
+					Clothing = {
+						ShirtTemplate = "rbxassetid://123900373974798",
+						PantsTemplate = "rbxassetid://123900373974798",
+						MaterialSet = "WukongSunwardV1",
+					},
+				},
+			},
+		},
 	},
 }

@@ -3,8 +3,8 @@ local MetaProgressionConfig = {
 	DataVersion = 5,
 	ProcessedRunLimit = 40,
 	StartedRunHistoryLimit = 40,
-	DefaultUnlockedCharacterIds = { "medivh", "albert", "shinobi", "rusal_gale", "rufus", "lorelei" },
-	DefaultUnlockedWeaponIds = { "fireball", "leyden_needle", "shuriken", "soul_lantern", "valorcrest_blade", "soulthorn_drain" },
+	DefaultUnlockedCharacterIds = { "medivh", "albert", "shinobi", "rusal_gale", "rufus", "lorelei", "wukong" },
+	DefaultUnlockedWeaponIds = { "fireball", "leyden_needle", "shuriken", "soul_lantern", "valorcrest_blade", "soulthorn_drain", "sunward_staff" },
 
 	Quests = {
 		{

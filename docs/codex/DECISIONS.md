@@ -22,3 +22,7 @@ Journal append-only. Ajouter une décision seulement lorsqu'elle doit guider un 
 
 - La catégorie `Channel` conserve côté serveur la sélection des cibles, les ticks de dégâts, le soin et l'arrêt du canal. Le client ne reçoit que la présentation VFX.
 - Le sélecteur de personnages compare les IDs sans tenir compte de la casse et ne clone une carte qu'en l'absence d'une carte template correspondante.
+
+## 2026-07-26 00:54:23 +02:00 — échelle de combat de Wukong
+
+- Wukong gagne 5 % de vitesse de déplacement par niveau, et son bâton reçoit 1 % de dégâts supplémentaires pour chaque 1 % de vitesse de déplacement effective. Le calcul s'effectue côté serveur à partir des statistiques de perks ; le client ne détermine ni le bonus ni les dégâts.

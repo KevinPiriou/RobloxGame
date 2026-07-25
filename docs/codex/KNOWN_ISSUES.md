@@ -11,3 +11,8 @@ Journal append-only. Inscrire uniquement un problème confirmé, son impact et s
 ## 2026-07-23 08:46:31 +02:00 — photographie Git absente pour cette clôture
 
 - À vérifier — `ACTIVE_TASK.md` ne contenait pas la photographie Git de départ de ce chantier. L'état final observé comprend `.gitignore` modifié et `.agents/`, `AGENTS.md`, `docs/codex/` non suivis ; leur attribution historique est donc impossible. Impact : le handoff distingue explicitement le périmètre déclaré des changements que Git ne peut pas répartir. La procédure de démarrage doit être exécutée avant le prochain chantier.
+
+## 2026-07-26 00:54:23 +02:00 — suites Wukong à vérifier
+
+- À vérifier — le build Rojo n'a pas été obtenu : `C:\Users\kevin\.aftman\bin\rojo.exe` est verrouillé par Windows, y compris après deux tentatives d'installation Aftman. Impact : la compilation Rojo de cette clôture reste non validée ; libérer le processus puis relancer le build.
+- À vérifier — le runtime applique les vêtements de Wukong au R15 actif, mais aucun template R15 simiesque n'est instancié et le mesh `ServerStorage.WeaponTemplates.SunwardStaff` n'est pas encore attaché à la main. Impact : la direction artistique complète et la matérialisation en jeu du bâton restent à raccorder.

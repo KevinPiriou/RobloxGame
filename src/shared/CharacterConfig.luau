@@ -251,6 +251,45 @@ CharacterConfig.Definitions = {
 			Type = "Default",
 		},
 	},
+
+	wukong = {
+		Id = "wukong",
+		Name = "Wukong",
+		NameKey = "character.wukong.name",
+		Description = "Singe guerrier du soleil dont le baton frappe plus fort a mesure qu'il gagne en vitesse.",
+		DescriptionKey = "character.wukong.description",
+		Lifecycle = "Production",
+		Portrait = "rbxassetid://120212983268714",
+		PrimaryWeaponId = "sunward_staff",
+		Appearance = {
+			RigType = "R15",
+			TemplatePath = "ServerStorage.CharacterTemplates.Wukong",
+			Clothing = {
+				ShirtTemplate = "rbxassetid://123900373974798",
+				PantsTemplate = "rbxassetid://123900373974798",
+				MaterialSet = "WukongSunwardV1",
+			},
+		},
+		Animations = {
+			Overrides = {},
+		},
+		Passive = {
+			Id = "cloudstep_training",
+			Name = "Pas des nuages",
+			NameKey = "character.wukong.passive",
+			Scope = "Player",
+			Modifiers = {
+				{
+					StatId = "MoveSpeedPercent",
+					Operation = "AddPerLevel",
+					Amount = 0.05,
+				},
+			},
+		},
+		Unlock = {
+			Type = "Default",
+		},
+	},
 }
 
 function CharacterConfig.GetDefinition(characterId: string)

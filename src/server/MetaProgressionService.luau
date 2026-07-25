@@ -165,6 +165,12 @@ local function normalizeData(rawData)
 	data.AchievementIds = normalizeBooleanMap(rawData.AchievementIds)
 	data.UnlockedCharacterIds = normalizeBooleanMap(rawData.UnlockedCharacterIds)
 	data.UnlockedWeaponIds = normalizeBooleanMap(rawData.UnlockedWeaponIds)
+	for _, characterId in ipairs(MetaProgressionConfig.DefaultUnlockedCharacterIds) do
+		data.UnlockedCharacterIds[characterId] = true
+	end
+	for _, weaponId in ipairs(MetaProgressionConfig.DefaultUnlockedWeaponIds) do
+		data.UnlockedWeaponIds[weaponId] = true
+	end
 	data.SelectedCharacterId = tostring(rawData.SelectedCharacterId or data.SelectedCharacterId)
 	data.CosmeticSelections = normalizeCosmeticSelections(rawData.CosmeticSelections)
 

@@ -35,3 +35,11 @@ Journal compact append-only. Le dernier bloc daté décrit l'état de référenc
 - Le sélecteur pré-run réutilise désormais les cartes existantes sans tenir compte de la casse de leur nom ; Lorelei est créée dynamiquement seulement si sa carte est absente du template.
 - Validations : analyse statique (`git diff --check`) et build Rojo réussis ; smoke Roblox Studio validé par le responsable produit. Le multijoueur n'a pas été exécuté.
 - Passation : `docs/codex/handoffs/2026-07-23_120050_lorelei.md`.
+
+## 2026-07-26 00:54:23 +02:00 — clôture de Wukong
+
+- Wukong est configuré comme personnage jouable avec le bâton monocible rapide `sunward_staff`, un gain de vitesse de déplacement de 5 % par niveau et une conversion serveur de cette vitesse en dégâts.
+- Le rapprochement des déverrouillages par défaut dans les profils existants rend Wukong et son bâton disponibles dans le sélecteur pré-run sans nécessiter une nouvelle sauvegarde.
+- Les assets Roblox utilisés sont le portrait `rbxassetid://120212983268714`, le vêtement UV `rbxassetid://123900373974798` et l’icône de bâton détourée avec alpha `rbxassetid://89609510986845` ; le VFX `WukongStaffStrike` et le mesh `SunwardStaff` ont aussi été ajoutés directement dans Studio.
+- Validations : `git diff --check` réussi ; vérifications statiques en mode édition Studio réalisées. Le build Rojo est bloqué par le verrou Windows de `C:\Users\kevin\.aftman\bin\rojo.exe`. Smoke Studio et test multijoueur non exécutés.
+- Passation : `docs/codex/handoffs/2026-07-26_005423_wukong.md`.

@@ -7,7 +7,6 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local DebugLog = require(Shared:WaitForChild("DebugLog"))
 local VfxQualityController = require(script.Parent:WaitForChild("VfxQualityController"))
 
-local WEAPON_ID = "valorcrest_blade"
 local vfxRemote = ReplicatedStorage:WaitForChild("Weapon_MeleeVfx")
 assert(vfxRemote:IsA("RemoteEvent"), "Weapon_MeleeVfx doit etre un RemoteEvent")
 
@@ -15,7 +14,7 @@ VfxQualityController.Start()
 
 local visualTemplates = ReplicatedStorage:WaitForChild("VisualTemplates")
 local weaponVfx = visualTemplates:WaitForChild("WeaponVfx")
-local template = weaponVfx:WaitForChild("ValorcrestSlash")
+local missingProfiles: {[string]: boolean} = {}
 
 local runtime = Workspace:FindFirstChild("ClientWeaponVfx")
 if runtime == nil then
@@ -83,8 +82,17 @@ local function showSwing(payload)
 
 	local range = math.clamp(tonumber(payload.Range) or 12, 1, 24)
 	local center = payload.Origin + (direction * math.min(range * 0.48, 7.2))
+	local vfxProfileId = tostring(payload.VfxProfileId or "")
+	local template = weaponVfx:FindFirstChild(vfxProfileId)
+	if template == nil then
+		if not missingProfiles[vfxProfileId] then
+			missingProfiles[vfxProfileId] = true
+			DebugLog.Warn("Vfx", "Template de melee introuvable", { VfxProfileId = vfxProfileId })
+		end
+		return
+	end
 	local visual = template:Clone()
-	visual.Name = "ValorcrestSwing_" .. tostring(payload.Id or 0)
+	visual.Name = vfxProfileId .. "_" .. tostring(payload.Id or 0)
 	prepareVisual(visual)
 	pivot(visual, CFrame.lookAt(center, center + direction))
 	visual.Parent = runtime
@@ -118,10 +126,10 @@ local function showSwing(payload)
 end
 
 vfxRemote.OnClientEvent:Connect(function(payload)
-	if typeof(payload) ~= "table" or payload.WeaponId ~= WEAPON_ID or payload.Type ~= "Swing" then
+	if typeof(payload) ~= "table" or payload.Type ~= "Swing" then
 		return
 	end
 	showSwing(payload)
 end)
 
-DebugLog.Info("Vfx", "Controleur VFX Lame de Valorcrest demarre")
+DebugLog.Info("Vfx", "Controleur VFX melee demarre")

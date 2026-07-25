@@ -148,6 +148,34 @@ WeaponConfig.Definitions = {
 			ServerAuthoritative = true,
 		},
 	},
+	sunward_staff = {
+		Id = "sunward_staff",
+		Name = "Baton du Roi Singe",
+		NameKey = "weapon.sunward_staff.name",
+		Category = "Melee",
+		Lifecycle = "Production",
+		Icon = "rbxassetid://89609510986845",
+		VfxProfileId = "WukongStaffStrike",
+		Base = {
+			Damage = 26,
+			Cooldown = 0.45,
+			Range = 10,
+			ArcAngleDegrees = 70,
+			MaxTargets = 1,
+			DamagePerMoveSpeedPercent = 1,
+		},
+		Caps = {
+			Range = 20,
+			MinimumCooldown = 0.18,
+		},
+		Rules = {
+			UsesProjectileCount = false,
+			UsesBounceCount = false,
+			UsesEffectDuration = false,
+			UsesSize = true,
+			ServerAuthoritative = true,
+		},
+	},
 	soulthorn_drain = {
 		Id = "soulthorn_drain",
 		Name = "Epine d'ame",
@@ -201,6 +229,9 @@ WeaponConfig.Evolutions = {
 	},
 	valorcrest_blade = {
 		{ StatId = "Damage", Label = "Degats de l'arme", LabelKey = "weapon.evolution.damage", Amount = 6, Cap = nil },
+	},
+	sunward_staff = {
+		{ StatId = "Damage", Label = "Degats de l'arme", LabelKey = "weapon.evolution.damage", Amount = 4, Cap = nil },
 	},
 	soulthorn_drain = {
 		{ StatId = "Damage", Label = "Degats de l'arme", LabelKey = "weapon.evolution.damage", Amount = 3, Cap = nil },

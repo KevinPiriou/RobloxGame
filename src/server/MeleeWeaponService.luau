@@ -18,11 +18,7 @@ local WeaponLoadoutService = require(script.Parent:WaitForChild("WeaponLoadoutSe
 
 local MeleeWeaponService = {}
 
-local WEAPON_ID = "valorcrest_blade"
-local definition = WeaponConfig.GetDefinition(WEAPON_ID)
-assert(definition ~= nil, "Definition Lame de Valorcrest introuvable")
-
-local cooldownsByUserId: {[number]: number} = {}
+local cooldownsByUserId: {[number]: {[string]: number}} = {}
 local heartbeatConnection: RBXScriptConnection? = nil
 local swingSerial = 0
 
@@ -57,7 +53,7 @@ local function horizontalUnit(vector: Vector3, fallback: Vector3): Vector3
 	return horizontal.Unit
 end
 
-local function findArcTargets(origin: Vector3, direction: Vector3, runtimeStats): {{Monster: Instance, Position: Vector3, DistanceSquared: number}}
+local function findArcTargets(origin: Vector3, direction: Vector3, runtimeStats, definition): {{Monster: Instance, Position: Vector3, DistanceSquared: number}}
 	local range = math.clamp(tonumber(runtimeStats.Range) or definition.Base.Range, 1, definition.Caps.Range)
 	local arcAngle = math.clamp(tonumber(runtimeStats.ArcAngleDegrees) or definition.Base.ArcAngleDegrees, 1, 180)
 	local threshold = math.cos(math.rad(arcAngle * 0.5))
@@ -81,10 +77,11 @@ local function findArcTargets(origin: Vector3, direction: Vector3, runtimeStats)
 	return targets
 end
 
-local function strike(player: Player): boolean
-	local runtimeStats = WeaponLoadoutService.GetRuntimeStats(player, WEAPON_ID)
+local function strike(player: Player, weaponId: string): boolean
+	local definition = WeaponConfig.GetDefinition(weaponId)
+	local runtimeStats = WeaponLoadoutService.GetRuntimeStats(player, weaponId)
 	local root = getCharacterRoot(player)
-	if runtimeStats == nil or root == nil then
+	if definition == nil or definition.Category ~= "Melee" or runtimeStats == nil or root == nil then
 		return false
 	end
 
@@ -95,18 +92,25 @@ local function strike(player: Player): boolean
 
 	local direction = horizontalUnit(targetRoot.Position - root.Position, horizontalUnit(root.CFrame.LookVector, Vector3.zAxis))
 	local origin = root.Position + Vector3.new(0, 1.3, 0)
-	local targets = findArcTargets(root.Position, direction, runtimeStats)
+	local targets = findArcTargets(root.Position, direction, runtimeStats, definition)
 	if #targets == 0 then
 		return false
 	end
 
 	local hitPositions = {}
-	for _, targetData in ipairs(targets) do
+	local maxTargets = math.max(1, math.floor(tonumber(runtimeStats.MaxTargets) or tonumber(definition.Base.MaxTargets) or #targets))
+	local moveSpeedBonus = math.max(0, tonumber(PerkService.GetStats(player).MoveSpeedPercent) or 0)
+	local damagePerMoveSpeedPercent = math.max(0, tonumber(runtimeStats.DamagePerMoveSpeedPercent) or 0)
+	local damage = (tonumber(runtimeStats.Damage) or 0) * (1 + (moveSpeedBonus * damagePerMoveSpeedPercent))
+	for targetIndex, targetData in ipairs(targets) do
+		if targetIndex > maxTargets then
+			break
+		end
 		local hit = WeaponHitService.Apply(
 			player,
 			targetData.Monster,
-			WEAPON_ID,
-			runtimeStats.Damage,
+			weaponId,
+			damage,
 			Color3.fromRGB(187, 220, 255)
 		)
 		if hit then
@@ -121,7 +125,8 @@ local function strike(player: Player): boolean
 	swingSerial += 1
 	vfxRemote:FireClient(player, {
 		Type = "Swing",
-		WeaponId = WEAPON_ID,
+		WeaponId = weaponId,
+		VfxProfileId = definition.VfxProfileId,
 		Id = swingSerial,
 		Origin = origin,
 		Direction = direction,
@@ -142,16 +147,29 @@ local function update()
 
 	local now = CombatStateService.GetTime()
 	for _, player in ipairs(Players:GetPlayers()) do
-		if not isPlayerAvailable(player) or not WeaponLoadoutService.HasWeapon(player, WEAPON_ID) then
+		if not isPlayerAvailable(player) then
 			continue
 		end
 
-		local readyAt = cooldownsByUserId[player.UserId] or now
-		if now >= readyAt then
-			local runtimeStats = WeaponLoadoutService.GetRuntimeStats(player, WEAPON_ID)
-			if runtimeStats ~= nil and strike(player) then
-				local cooldown = PerkService.GetAttackCooldown(player, runtimeStats.Cooldown)
-				cooldownsByUserId[player.UserId] = now + math.max(definition.Caps.MinimumCooldown, cooldown)
+		local cooldowns = cooldownsByUserId[player.UserId]
+		if cooldowns == nil then
+			cooldowns = {}
+			cooldownsByUserId[player.UserId] = cooldowns
+		end
+
+		for _, weaponId in ipairs(WeaponLoadoutService.GetEquippedWeaponIds(player)) do
+			local definition = WeaponConfig.GetDefinition(weaponId)
+			if definition == nil or definition.Category ~= "Melee" then
+				continue
+			end
+
+			local readyAt = cooldowns[weaponId] or now
+			if now >= readyAt then
+				local runtimeStats = WeaponLoadoutService.GetRuntimeStats(player, weaponId)
+				if runtimeStats ~= nil and strike(player, weaponId) then
+					local cooldown = PerkService.GetAttackCooldown(player, runtimeStats.Cooldown)
+					cooldowns[weaponId] = now + math.max(definition.Caps.MinimumCooldown, cooldown)
+				end
 			end
 		end
 	end
@@ -168,10 +186,10 @@ function MeleeWeaponService.Start()
 
 	heartbeatConnection = RunService.Heartbeat:Connect(update)
 	RunStateService.RunStarted:Connect(function(player)
-		cooldownsByUserId[player.UserId] = CombatStateService.GetTime() + 0.75
+		cooldownsByUserId[player.UserId] = {}
 	end)
 	RunStateService.RunEnded:Connect(MeleeWeaponService.RemovePlayer)
-	DebugLog.Info("Weapon", "Executeur melee demarre", { WeaponId = WEAPON_ID })
+	DebugLog.Info("Weapon", "Executeur melee demarre")
 end
 
 return MeleeWeaponService
